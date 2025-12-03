@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import { base44 } from "../services/base44Client";
 import { Card } from "../components/ui_components";
@@ -115,14 +116,25 @@ export default function Transmissions() {
       setPilots(pil);
       setDrones(drn);
       
-      // If we have streams but no main selected (or main became inactive), select first
-      if (activeWithStreams.length > 0) {
-         if (!mainStream || !activeWithStreams.find(op => op.id === mainStream.id)) {
-            setMainStream(activeWithStreams[0]);
-         }
-      } else {
-         setMainStream(null);
-      }
+      // Lógica de seleção inteligente para evitar troca automática
+      setMainStream((currentSelection) => {
+        // 1. Se o usuário já selecionou algo, verifique se ainda está online
+        if (currentSelection) {
+            const stillActive = activeWithStreams.find(op => op.id === currentSelection.id);
+            if (stillActive) {
+                // Retorna o objeto atualizado (para atualizar metadados), mas mantém o vídeo
+                return stillActive;
+            }
+        }
+
+        // 2. Se nada selecionado OU o vídeo atual ficou offline, seleciona o primeiro disponível
+        if (activeWithStreams.length > 0) {
+            return activeWithStreams[0];
+        }
+
+        // 3. Nenhum vídeo disponível
+        return null;
+      });
 
     } catch (e) {
       console.error("Failed to load transmission data", e);
