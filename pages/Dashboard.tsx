@@ -1,11 +1,12 @@
 
+
 import React, { useEffect, useState, useCallback, memo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
 import { Operation, Drone, Pilot, Maintenance, MISSION_HIERARCHY, ConflictNotification } from "../types";
 import { Badge, Button } from "../components/ui_components";
-import { Radio, Video, AlertTriangle, Map as MapIcon, Wrench, List, Shield, Crosshair, Phone, Check } from "lucide-react";
+import { Radio, Video, AlertTriangle, Map as MapIcon, Wrench, List, Shield, Crosshair, Phone, Check, Info, Share2 } from "lucide-react";
 
 // Fix Leaflet icons
 const icon = L.icon({
@@ -19,44 +20,57 @@ const icon = L.icon({
 });
 
 // Componente para controlar o mapa (Otimizado)
-const MapController = memo(() => {
+const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
   const map = useMap();
   const [positionFound, setPositionFound] = useState(false);
 
   useEffect(() => {
-    // 1. Correção de Renderização (Bug do Leaflet em Flexbox) - Request Animation Frame é mais suave que Timeout
+    // 1. Correção de Renderização (Bug do Leaflet em Flexbox)
     let frameId: number;
     const resizeMap = () => {
        if (map) map.invalidateSize();
     };
     
-    // Pequeno delay inicial para garantir montagem do DOM
     const timer = setTimeout(() => {
        frameId = requestAnimationFrame(resizeMap);
     }, 100);
 
-    // 2. Geolocalização do Dispositivo (Apenas uma vez)
-    if (!positionFound && "geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          if (!map || !map.getContainer()) return;
-          const { latitude, longitude } = position.coords;
-          map.setView([latitude, longitude], 10);
-          setPositionFound(true);
-        },
-        (error) => {
-          console.warn("Geolocalização bloqueada:", error.message);
-          map.setZoom(7); // Fallback zoom
-        },
-        { timeout: 10000, maximumAge: 60000 } // Cache da posição por 1 min
-      );
+    // 2. Lógica de Foco Automático
+    if (map) {
+      const validOps = activeOps.filter(op => op.latitude && op.longitude);
+      
+      if (validOps.length > 0) {
+        // Se tem operações ativas, foca nelas
+        const bounds = L.latLngBounds(validOps.map(op => [op.latitude, op.longitude]));
+        map.fitBounds(bounds, { 
+          padding: [50, 50], 
+          maxZoom: 15,
+          animate: true 
+        });
+        setPositionFound(true);
+      } else if (!positionFound && "geolocation" in navigator) {
+        // Se não tem operações, tenta pegar a localização do usuário
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            if (!map || !map.getContainer()) return;
+            const { latitude, longitude } = position.coords;
+            map.setView([latitude, longitude], 10);
+            setPositionFound(true);
+          },
+          (error) => {
+            console.warn("Geolocalização bloqueada:", error.message);
+            // Default view já está no MapContainer
+          },
+          { timeout: 10000, maximumAge: 60000 }
+        );
+      }
     }
 
     return () => {
       clearTimeout(timer);
       cancelAnimationFrame(frameId);
     };
-  }, [map, positionFound]);
+  }, [map, activeOps, positionFound]);
 
   return null;
 });
@@ -143,10 +157,34 @@ export default function Dashboard() {
      }
   };
 
-  const openWhatsApp = (phone: string) => {
-      if (!phone) return;
-      const cleanPhone = phone.replace(/\D/g, '');
-      window.open(`https://wa.me/55${cleanPhone}`, '_blank');
+  const showConflictDetails = (alert: ConflictNotification) => {
+      window.alert(
+          `DETALHES DA OCORRÊNCIA CONFLITANTE:\n\n` +
+          `Operação: ${alert.new_op_name}\n` +
+          `Piloto: ${alert.new_pilot_name}\n` +
+          `Telefone: ${alert.new_pilot_phone || 'Não informado'}\n` +
+          `Altitude: ${alert.new_op_altitude}m\n` +
+          `Raio: ${alert.new_op_radius}m\n\n` +
+          `Recomendação: Entre em contato imediato via rádio ou telefone para coordenação.`
+      );
+  };
+
+  const handleShareOp = (op: Operation) => {
+      const mapLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
+      const streamText = op.stream_url ? `\n📡 *Transmissão:* ${op.stream_url}` : '';
+      const missionLabel = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
+
+      const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n` +
+          `🚁 *Ocorrência:* ${op.name}\n` +
+          `🔢 *Protocolo:* ${op.occurrence_number}\n` +
+          `📋 *Natureza:* ${missionLabel}\n` +
+          `📍 *Localização:* ${mapLink}\n` +
+          `🕒 *Início:* ${new Date(op.start_time).toLocaleTimeString()}\n` +
+          `${streamText}\n\n` +
+          `_Enviado via Centro de Comando SYSARP_`;
+
+      const encodedText = encodeURIComponent(text);
+      window.open(`https://wa.me/?text=${encodedText}`, '_blank');
   };
 
   return (
@@ -180,7 +218,7 @@ export default function Dashboard() {
               zoom={7} 
               style={{ height: '100%', width: '100%' }}
             >
-              <MapController />
+              <MapController activeOps={activeOps} />
               
               <TileLayer
                 attribution='&copy; OpenStreetMap'
@@ -287,7 +325,9 @@ export default function Dashboard() {
                            <span className="text-[10px] text-slate-400">{new Date(op.start_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
                          </div>
                          <p className="text-[10px] text-slate-500 font-mono">#{op.occurrence_number}</p>
-                         <div className="mt-1">
+                         
+                         {/* Status Bar with Share Button */}
+                         <div className="mt-1 flex justify-between items-center">
                             <span className={`text-[9px] px-1.5 py-0.5 rounded border uppercase font-bold ${
                               op.status === 'active' 
                               ? 'bg-green-50 text-green-700 border-green-100' 
@@ -295,6 +335,16 @@ export default function Dashboard() {
                             }`}>
                               {op.status === 'active' ? 'Em Andamento' : 'Encerrada'}
                             </span>
+
+                            {op.status === 'active' && (
+                                <button 
+                                    onClick={() => handleShareOp(op)}
+                                    className="text-green-600 hover:bg-green-50 p-1 rounded transition-colors"
+                                    title="Compartilhar via WhatsApp"
+                                >
+                                    <Share2 className="w-4 h-4" />
+                                </button>
+                            )}
                          </div>
                       </div>
                    </div>
@@ -302,7 +352,48 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* BOX 3: MAINTENANCE ALERTS */}
+            {/* BOX 3: TRAFFIC CONFLICTS (ALWAYS VISIBLE) */}
+            <div className={`bg-white rounded-xl shadow-sm border ${conflictAlerts.length > 0 ? 'border-red-500' : 'border-green-200'} overflow-hidden flex-shrink-0 transition-colors duration-300`}>
+              <div className={`${conflictAlerts.length > 0 ? 'bg-red-600 animate-pulse' : 'bg-green-600'} px-4 py-2 flex justify-between items-center transition-colors duration-300`}>
+                <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
+                  {conflictAlerts.length > 0 ? <AlertTriangle className="w-3 h-3" /> : <Shield className="w-3 h-3" />}
+                  Tráfego Aéreo
+                </h3>
+                {conflictAlerts.length > 0 && <span className="bg-white text-red-700 text-[10px] font-bold px-1.5 rounded-full">{conflictAlerts.length}</span>}
+              </div>
+
+              <div className="p-3">
+                 {conflictAlerts.length === 0 ? (
+                    <div className="flex items-center gap-2 text-green-700 bg-green-50 p-2 rounded text-xs border border-green-100">
+                       <Check className="w-4 h-4" />
+                       <span className="font-bold">Sem conflitos no momento.</span>
+                    </div>
+                 ) : (
+                    <div className="space-y-2">
+                       {conflictAlerts.map(alert => (
+                         <div key={alert.id} className="bg-red-50 border border-red-100 p-2 rounded text-xs space-y-2">
+                            <div className="flex justify-between items-start">
+                               <strong className="text-red-800 truncate pr-2">{alert.new_op_name}</strong>
+                               <span className="text-[10px] text-red-600 font-mono whitespace-nowrap">Alt: {alert.new_op_altitude}m</span>
+                            </div>
+                            <p className="text-slate-600">Piloto: {alert.new_pilot_name}</p>
+
+                            <div className="flex gap-2 mt-1">
+                               <Button size="sm" variant="outline" className="flex-1 h-7 text-[10px] bg-white border-red-200 text-red-700 hover:bg-red-100" onClick={() => showConflictDetails(alert)}>
+                                  <Info className="w-3 h-3 mr-1"/> Ver Detalhes
+                               </Button>
+                               <Button size="sm" className="flex-1 h-7 text-[10px] bg-red-600 text-white hover:bg-red-700" onClick={() => handleAckConflict(alert.id)}>
+                                  Ciente
+                               </Button>
+                            </div>
+                         </div>
+                       ))}
+                    </div>
+                 )}
+              </div>
+            </div>
+
+            {/* BOX 4: MAINTENANCE ALERTS */}
             <div className="bg-white rounded-xl shadow-sm border border-amber-200 overflow-hidden flex-shrink-0">
               <div className="bg-amber-600 px-4 py-2 flex justify-between items-center">
                 <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
@@ -337,25 +428,6 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
-            
-            {/* Conflict Alerts */}
-            {conflictAlerts.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border border-red-500 overflow-hidden flex-shrink-0 animate-pulse">
-                <div className="bg-red-600 px-4 py-2 flex justify-between items-center">
-                  <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
-                    <AlertTriangle className="w-3 h-3" /> Tráfego Convergente
-                  </h3>
-                </div>
-                <div className="p-3">
-                   {conflictAlerts.map(alert => (
-                     <div key={alert.id} className="text-xs text-red-800 bg-red-50 p-2 rounded mb-1">
-                        <strong>{alert.new_op_name}</strong> - Detectado próximo à sua posição.
-                        <Button size="sm" className="w-full mt-2 h-6 text-[10px]" onClick={() => handleAckConflict(alert.id)}>Ciente</Button>
-                     </div>
-                   ))}
-                </div>
-              </div>
-            )}
 
           </div>
         </div>
