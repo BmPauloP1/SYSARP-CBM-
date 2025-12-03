@@ -82,6 +82,7 @@ export default function Dashboard() {
   const [conflictAlerts, setConflictAlerts] = useState<ConflictNotification[]>([]);
   const [liveStreams, setLiveStreams] = useState<Operation[]>([]);
   const [drones, setDrones] = useState<Drone[]>([]);
+  const [pilots, setPilots] = useState<Pilot[]>([]);
   const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   
   // Ref para controle de montagem e evitar updates em componente desmontado
@@ -90,10 +91,11 @@ export default function Dashboard() {
   const loadData = useCallback(async (user?: Pilot) => {
     try {
       // Paraleliza as requisições para performance
-      const [ops, maints, drn] = await Promise.all([
+      const [ops, maints, drn, pils] = await Promise.all([
         base44.entities.Operation.list('-start_time'),
         base44.entities.Maintenance.filter(m => m.status !== 'completed'),
-        base44.entities.Drone.list()
+        base44.entities.Drone.list(),
+        base44.entities.Pilot.list()
       ]);
 
       if (!isMounted.current) return;
@@ -106,6 +108,7 @@ export default function Dashboard() {
       setMaintenanceAlerts(maints);
       setLiveStreams(active.filter(o => o.stream_url));
       setDrones(drn);
+      setPilots(pils);
 
       // Load Conflict Notifications for current user
       if (user) {
@@ -170,6 +173,9 @@ export default function Dashboard() {
   };
 
   const handleShareOp = (op: Operation) => {
+      const pilot = pilots.find(p => p.id === op.pilot_id);
+      const drone = drones.find(d => d.id === op.drone_id);
+
       const mapLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
       const streamText = op.stream_url ? `\n📡 *Transmissão:* ${op.stream_url}` : '';
       const missionLabel = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
@@ -178,7 +184,11 @@ export default function Dashboard() {
           `🚁 *Ocorrência:* ${op.name}\n` +
           `🔢 *Protocolo:* ${op.occurrence_number}\n` +
           `📋 *Natureza:* ${missionLabel}\n` +
-          `📍 *Localização:* ${mapLink}\n` +
+          `👤 *Piloto:* ${pilot ? pilot.full_name : 'N/A'}\n` +
+          `📞 *Contato:* ${pilot ? pilot.phone : 'N/A'}\n` +
+          `🛸 *Aeronave:* ${drone ? `${drone.model} (${drone.prefix})` : 'N/A'}\n` +
+          `📍 *Coord:* ${op.latitude}, ${op.longitude}\n` +
+          `🗺️ *Mapa:* ${mapLink}\n` +
           `🕒 *Início:* ${new Date(op.start_time).toLocaleTimeString()}\n` +
           `${streamText}\n\n` +
           `_Enviado via Centro de Comando SYSARP_`;
