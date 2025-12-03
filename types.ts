@@ -1,6 +1,21 @@
 
 
-export type MissionType = 'search_rescue' | 'fire' | 'civil_defense' | 'monitoring' | 'air_support' | 'disaster';
+export type MissionType = 
+  | 'fire' 
+  | 'sar' 
+  | 'aph' 
+  | 'traffic_accident' 
+  | 'hazmat' 
+  | 'natural_disaster' 
+  | 'public_security' 
+  | 'inspection' 
+  | 'air_support' 
+  | 'maritime' 
+  | 'environmental' 
+  | 'training' 
+  | 'admin_support' 
+  | 'diverse';
+
 export type OperationStatus = 'active' | 'completed' | 'cancelled';
 export type PilotRole = 'admin' | 'operator';
 export type PilotStatus = 'active' | 'inactive';
@@ -51,6 +66,18 @@ export interface Drone {
   status: DroneStatus;
   total_flight_hours: number; // Novo campo para controle de manutenção (TBO)
   last_30day_check?: string; // Data do último checklist (Relógio 7 dias)
+}
+
+// --- System Audit Log ---
+export interface SystemAuditLog {
+  id: string;
+  user_id: string;
+  action: 'LOGIN' | 'LOGOUT' | 'CREATE' | 'UPDATE' | 'DELETE' | 'VIEW' | 'EXPORT';
+  entity: string; // ex: 'Pilot', 'Operation', 'Drone'
+  entity_id?: string;
+  details: string;
+  timestamp: string;
+  ip_address?: string;
 }
 
 // --- Checklist 7 Dias Definitions ---
@@ -167,7 +194,12 @@ export interface Operation {
   latitude: number;
   longitude: number;
   drone_id: string;
-  pilot_id: string;
+  
+  // Equipe
+  pilot_id: string; // Piloto em Comando (PIC)
+  second_pilot_id?: string; // Segundo Piloto (Opcional)
+  observer_id?: string; // Observador (Opcional)
+
   radius: number;
   flight_altitude?: number; // Added flight altitude
   mission_type: MissionType;
@@ -243,40 +275,183 @@ export interface FlightLog {
 
 // Hierarquia de Missões (Natureza -> Sub-natureza)
 export const MISSION_HIERARCHY: Record<MissionType, { label: string; subtypes: string[] }> = {
-  search_rescue: {
-    label: "Busca e Salvamento (SAR)",
-    subtypes: ["Pessoas (Terrestre)", "Pessoas (Aquático/Afogamento)", "Animais", "Objetos / Evidências", "Veículos"]
-  },
   fire: {
-    label: "Incêndio",
-    subtypes: ["Ambiental / Vegetação", "Estrutural / Edificação", "Veicular", "Industrial", "Espaço Confinado"]
+    label: "1. Incêndios",
+    subtypes: [
+      "Incêndio Urbano",
+      "Incêndio em Vegetação",
+      "Incêndio Florestal",
+      "Incêndio Industrial",
+      "Incêndio Comercial",
+      "Incêndio em Residência",
+      "Incêndio em Veículo",
+      "Incêndio em Subsolo",
+      "Foco de Calor / Hotspot detectado",
+      "Risco de Incêndio (monitoramento)"
+    ]
   },
-  civil_defense: {
-    label: "Defesa Civil",
-    subtypes: ["Vistoria Estrutural", "Deslizamento / Encostas", "Inundação / Enxurrada", "Mapeamento de Risco"]
+  sar: {
+    label: "2. Busca e Salvamento (SAR)",
+    subtypes: [
+      "Pessoa Desaparecida em Área Urbana",
+      "Pessoa Desaparecida em Área de Mata",
+      "Busca Aquática",
+      "Busca em Área de Risco",
+      "Localização de Vítima",
+      "Acompanhamento de Equipes de Solo",
+      "Resgate em Altura (visão aérea)",
+      "Monitoramento de Área Colapsada",
+      "Mapeamento para Planejamento SAR"
+    ]
   },
-  monitoring: {
-    label: "Monitoramento",
-    subtypes: ["Preventivo (Eventos)", "Ostensivo (Apoio Policial)", "Levantamento de Dados", "Patrulhamento"]
+  aph: {
+    label: "3. Atendimento Pré-Hospitalar (APH)",
+    subtypes: [
+      "Acompanhamento de Ocorrência com Múltiplas Vítimas",
+      "Suporte a Acidente de Trânsito",
+      "Entrega de Equipamento Médico (DEA, torniquete, etc.)",
+      "Abertura de Rotas para Equipe",
+      "Avaliação Inicial da Cena"
+    ]
+  },
+  traffic_accident: {
+    label: "4. Acidente de Trânsito",
+    subtypes: [
+      "Colisão Veicular",
+      "Capotamento",
+      "Atropelamento",
+      "Engavetamento",
+      "Acidente com Caminhão / Carga Perigosa",
+      "Monitoramento de Fluxo",
+      "Abertura de Acesso para Resgate",
+      "Avaliação de Derramamento"
+    ]
+  },
+  hazmat: {
+    label: "5. Produtos Perigosos (HazMat)",
+    subtypes: [
+      "Vazamento de Produto Químico",
+      "Vazamento de Gás",
+      "Vazamento de Combustível",
+      "Identificação de Placas de Risco",
+      "Monitoramento do Nuvem Tóxica",
+      "Análise Térmica à Distância"
+    ]
+  },
+  natural_disaster: {
+    label: "6. Desastres Naturais",
+    subtypes: [
+      "Enchente / Alagamento",
+      "Deslizamento",
+      "Rompimento de Barragem",
+      "Vendaval / Tempestade",
+      "Enxurrada",
+      "Avaliação de Dano Estrutural",
+      "Mapeamento de Área Afetada",
+      "Identificação de Rotas Acessíveis",
+      "Localização de Vítimas em Telhados"
+    ]
+  },
+  public_security: {
+    label: "7. Operações de Segurança Pública",
+    subtypes: [
+      "Monitoramento de Área de Risco",
+      "Apoio a Operações Integradas",
+      "Acompanhamento de Distúrbio Urbano",
+      "Vigilância Aérea",
+      "Reconhecimento de Área Suspeita",
+      "Perseguição / Acompanhamento Veicular (apoio)"
+    ]
+  },
+  inspection: {
+    label: "8. Monitoramento e Inspeção",
+    subtypes: [
+      "Inspeção de Estruturas",
+      "Inspeção de Fachadas / Telhados",
+      "Inspeção de Torres e Antenas",
+      "Monitoramento de Eventos / Grandes Multidões",
+      "Monitoramento de Áreas de Preservação",
+      "Mapeamento de Terreno",
+      "Termografia"
+    ]
   },
   air_support: {
-    label: "Apoio Aéreo",
-    subtypes: ["Transporte de Carga", "Lançamento de Boia", "Iluminação de Cena", "Retransmissão de Sinal"]
+    label: "9. Apoio a Operações Aéreas",
+    subtypes: [
+      "Reconhecimento de Área para Pouso de Helicóptero",
+      "Acompanhamento de Manobras",
+      "Segurança de Heliponto",
+      "Avaliação de Obstáculos Aéreos"
+    ]
   },
-  disaster: {
-    label: "Desastre / HazMat",
-    subtypes: ["Produto Perigoso (QBRN)", "Colapso Estrutural", "Acidente Múltiplas Vítimas", "Rompimento de Barragem"]
+  maritime: {
+    label: "10. Operações Marítimas / Fluviais",
+    subtypes: [
+      "Busca em Represa / Rio",
+      "Monitoramento de Embarcações",
+      "Identificação de Correnteza",
+      "Localização de Náufragos",
+      "Avaliação de Risco de Afogamento"
+    ]
+  },
+  environmental: {
+    label: "11. Ocorrências Ambientais",
+    subtypes: [
+      "Desmatamento",
+      "Queimada Ilegal",
+      "Poluição em Rios/Lagos",
+      "Monitoramento de Fauna",
+      "Identificação de Animais Perigosos",
+      "Monitoramento de Rejeitos"
+    ]
+  },
+  training: {
+    label: "12. Operações de Treinamento",
+    subtypes: [
+      "Simulado de Incêndio",
+      "Simulado de SAR",
+      "Treinamento de Pilotos",
+      "Teste de Equipamentos",
+      "Avaliação Pós-Missão"
+    ]
+  },
+  admin_support: {
+    label: "13. Apoio Administrativo",
+    subtypes: [
+      "Filmagem Institucional",
+      "Cobertura de Eventos Oficiais",
+      "Registro de Obras e Reformas",
+      "Inspeção de Unidades"
+    ]
+  },
+  diverse: {
+    label: "14. Ocorrências Diversas",
+    subtypes: [
+      "Apoio à Defesa Civil",
+      "Avaliação de Área de Risco",
+      "Reconhecimento de Rotas Evacuadas",
+      "Monitoramento de Comunidades Isoladas",
+      "Documentação para Relatórios Técnicos"
+    ]
   }
 };
 
-// Mantido para compatibilidade reversa onde necessário, mapeado da hierarquia
+// Mapeamento simples para compatibilidade
 export const MISSION_LABELS: Record<MissionType, string> = {
-  search_rescue: MISSION_HIERARCHY.search_rescue.label,
   fire: MISSION_HIERARCHY.fire.label,
-  civil_defense: MISSION_HIERARCHY.civil_defense.label,
-  monitoring: MISSION_HIERARCHY.monitoring.label,
+  sar: MISSION_HIERARCHY.sar.label,
+  aph: MISSION_HIERARCHY.aph.label,
+  traffic_accident: MISSION_HIERARCHY.traffic_accident.label,
+  hazmat: MISSION_HIERARCHY.hazmat.label,
+  natural_disaster: MISSION_HIERARCHY.natural_disaster.label,
+  public_security: MISSION_HIERARCHY.public_security.label,
+  inspection: MISSION_HIERARCHY.inspection.label,
   air_support: MISSION_HIERARCHY.air_support.label,
-  disaster: MISSION_HIERARCHY.disaster.label
+  maritime: MISSION_HIERARCHY.maritime.label,
+  environmental: MISSION_HIERARCHY.environmental.label,
+  training: MISSION_HIERARCHY.training.label,
+  admin_support: MISSION_HIERARCHY.admin_support.label,
+  diverse: MISSION_HIERARCHY.diverse.label
 };
 
 // Estrutura Organizacional do CBM-PR (Mapeamento CRBM -> Unidades)

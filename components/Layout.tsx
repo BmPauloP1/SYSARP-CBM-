@@ -1,3 +1,5 @@
+
+
 import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { base44 } from "../services/base44Client";
@@ -47,7 +49,16 @@ const navigationItems: NavigationItem[] = [
   },
   { title: "Transmissão", url: "/transmissions", icon: Activity, adminOnly: false },
   { title: "Manutenção", url: "/maintenance", icon: Wrench, adminOnly: false },
-  { title: "Relatórios", url: "/reports", icon: FileText, adminOnly: false }
+  { title: "Relatórios", url: "/reports", icon: FileText, adminOnly: false },
+  // Módulo Administração
+  {
+    title: "Administração",
+    icon: Shield,
+    adminOnly: true,
+    children: [
+      { title: "Auditoria", url: "/admin/audit" }
+    ]
+  }
 ];
 
 interface LayoutProps {
@@ -135,7 +146,8 @@ export default function Layout({ children }: LayoutProps) {
   // State for collapsible menus
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
     "Operações": true,
-    "Op. Verão 2025/2026": true // Default expanded
+    "Op. Verão 2025/2026": true,
+    "Administração": true
   });
   
   // Notification State

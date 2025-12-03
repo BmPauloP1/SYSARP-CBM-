@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { operationSummerService } from '../services/operationSummerService';
 import { base44 } from '../services/base44Client';
@@ -6,7 +5,7 @@ import { SummerStats, SUMMER_MISSION_LABELS, SummerFlight, SUMMER_LOCATIONS } fr
 import { Pilot, Drone } from '../types';
 import { Card, Select, Input, Button } from '../components/ui_components';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { Clock, MapPin, Activity, Sun, Filter, RefreshCcw, Map as MapIcon } from 'lucide-react';
+import { Clock, MapPin, Activity, Sun, Filter, RefreshCcw, Map as MapIcon, Search, Loader2 } from 'lucide-react';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 
@@ -49,6 +48,7 @@ export default function OperationSummerStats() {
   const [pilots, setPilots] = useState<Pilot[]>([]);
   const [drones, setDrones] = useState<Drone[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   // Filter State
   const [filterMission, setFilterMission] = useState('all');
@@ -61,17 +61,29 @@ export default function OperationSummerStats() {
     loadData();
   }, []);
 
-  const loadData = async () => {
-    setLoading(true);
-    const [f, p, d] = await Promise.all([
-      operationSummerService.list(),
-      base44.entities.Pilot.list(),
-      base44.entities.Drone.list()
-    ]);
-    setAllFlights(f);
-    setPilots(p);
-    setDrones(d);
-    setLoading(false);
+  const loadData = async (isRefresh = false) => {
+    if (!isRefresh) setLoading(true);
+    else setSearchLoading(true);
+
+    try {
+      const [f, p, d] = await Promise.all([
+        operationSummerService.list(),
+        base44.entities.Pilot.list(),
+        base44.entities.Drone.list()
+      ]);
+      setAllFlights(f);
+      setPilots(p);
+      setDrones(d);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+      setSearchLoading(false);
+    }
+  };
+
+  const handleSearch = () => {
+    loadData(true);
   };
 
   const handleResetFilters = () => {
@@ -241,9 +253,27 @@ export default function OperationSummerStats() {
              ))}
           </Select>
 
-          <div className="flex items-end">
-            <Button onClick={handleResetFilters} variant="outline" className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600">
-              <RefreshCcw className="w-4 h-4 mr-2" /> Limpar
+          <div className="flex items-end gap-2">
+            <Button 
+                onClick={handleSearch} 
+                disabled={searchLoading}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs h-10 shadow-sm transition-all active:scale-95"
+            >
+                {searchLoading ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                ) : (
+                    <Search className="w-3.5 h-3.5 mr-2" />
+                )}
+                {searchLoading ? 'Buscando...' : 'Pesquisar'}
+            </Button>
+            
+            <Button 
+                onClick={handleResetFilters} 
+                variant="outline" 
+                className="px-3 bg-white border-slate-300 hover:bg-slate-100 text-slate-600 h-10 shadow-sm transition-colors" 
+                title="Limpar Filtros"
+            >
+              <RefreshCcw className={`w-4 h-4 ${searchLoading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
         </div>

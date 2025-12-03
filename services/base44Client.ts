@@ -1,6 +1,7 @@
 
+
 import { supabase, isConfigured } from './supabase';
-import { Drone, Operation, Pilot, Maintenance, FlightLog, ConflictNotification, DroneChecklist } from '../types';
+import { Drone, Operation, Pilot, Maintenance, FlightLog, ConflictNotification, DroneChecklist, SystemAuditLog } from '../types';
 
 // Mapeamento de nomes de tabelas
 const TABLE_MAP = {
@@ -10,7 +11,8 @@ const TABLE_MAP = {
   Maintenance: 'maintenances',
   FlightLog: 'flight_logs',
   ConflictNotification: 'conflict_notifications',
-  DroneChecklist: 'drone_checklists'
+  DroneChecklist: 'drone_checklists',
+  SystemAudit: 'system_audit' // Tabela de auditoria
 };
 
 // Chaves do LocalStorage para Fallback Offline
@@ -21,7 +23,8 @@ const STORAGE_KEYS = {
   Maintenance: 'sysarp_maintenance',
   FlightLog: 'sysarp_flight_logs',
   ConflictNotification: 'sysarp_notifications',
-  DroneChecklist: 'sysarp_drone_checklists'
+  DroneChecklist: 'sysarp_drone_checklists',
+  SystemAudit: 'sysarp_system_audit'
 };
 
 // Default Catalog Data
@@ -276,8 +279,23 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
         }
         const missingCol = msg.match(/Could not find the '(.+?)' column/)?.[1];
         if (missingCol) {
+           // Fallback gracioso para a tabela de Auditoria se ela não existir
+           if (entityName === 'SystemAudit') {
+             console.warn("Tabela de auditoria não encontrada no backend. Usando apenas LocalStorage.");
+             const newItem = { ...cleanItem, id: crypto.randomUUID(), created_at: new Date().toISOString() } as T;
+             updateLocalCache(newItem);
+             return newItem;
+           }
            throw new Error(`Banco de Dados desatualizado: Falta a coluna '${missingCol}' na tabela '${tableName}'.`);
         }
+        
+        // Fallback para auditoria
+        if (entityName === 'SystemAudit') {
+           const newItem = { ...cleanItem, id: crypto.randomUUID(), created_at: new Date().toISOString() } as T;
+           updateLocalCache(newItem);
+           return newItem;
+        }
+
         throw new Error(`Erro ao salvar: ${msg}`);
       }
     },
@@ -415,6 +433,9 @@ const authHandler = {
     if (!isConfigured) {
       if(adminEmails.includes(email.toLowerCase()) && password === 'admin123') {
         localStorage.setItem('sysarp_admin_session', 'true');
+        // Audit Mock
+        const auditLog = { user_id: MOCK_ADMIN.id, action: 'LOGIN', entity: 'System', details: 'Login de Admin (Offline)', timestamp: new Date().toISOString() };
+        const logs = getLocal('sysarp_system_audit'); logs.unshift(auditLog); setLocal('sysarp_system_audit', logs);
         return MOCK_ADMIN;
       }
       const pilots = seedPilotsIfEmpty();
@@ -452,6 +473,18 @@ const authHandler = {
       }
 
       localStorage.setItem('sysarp_user_session', JSON.stringify(profile));
+
+      // Audit Login
+      try {
+          base44.entities.SystemAudit.create({
+              user_id: profile.id,
+              action: 'LOGIN',
+              entity: 'Auth',
+              details: 'Login realizado com sucesso',
+              timestamp: new Date().toISOString()
+          });
+      } catch(e) { console.warn("Erro ao auditar login", e); }
+
       return profile as Pilot;
     } catch (e: any) {
       console.warn("Login Supabase falhou:", e);
@@ -513,6 +546,16 @@ const authHandler = {
              terms_accepted_at: new Date().toISOString()
          };
          await supabase.from('profiles').upsert(profilePayload);
+
+         // Audit
+         base44.entities.SystemAudit.create({
+              user_id: data.user.id,
+              action: 'CREATE',
+              entity: 'Pilot',
+              details: `Novo cadastro: ${pilotData.email}`,
+              timestamp: new Date().toISOString()
+         });
+
        } catch (upsertError: any) {
          console.warn("Aviso: Upsert manual de perfil falhou:", upsertError.message);
        }
@@ -552,12 +595,37 @@ const authHandler = {
          terms_accepted: true,
          terms_accepted_at: termsAcceptedAt
        }).eq('id', userId);
+
+       // Audit
+       base44.entities.SystemAudit.create({
+            user_id: userId,
+            action: 'UPDATE',
+            entity: 'Auth',
+            details: 'Senha alterada pelo usuário',
+            timestamp: new Date().toISOString()
+       });
+
      } catch (e) {
        console.error(e);
      }
   },
 
   logout: async () => {
+    // Try to log logout action before removing session
+    try {
+        const localSession = localStorage.getItem('sysarp_user_session');
+        if (localSession) {
+            const user = JSON.parse(localSession);
+            await base44.entities.SystemAudit.create({
+                user_id: user.id,
+                action: 'LOGOUT',
+                entity: 'Auth',
+                details: 'Logout realizado',
+                timestamp: new Date().toISOString()
+            });
+        }
+    } catch(e) {}
+
     localStorage.removeItem('sysarp_admin_session');
     localStorage.removeItem('sysarp_user_session');
     if (isConfigured) await supabase.auth.signOut();
@@ -607,6 +675,7 @@ export const base44 = {
     FlightLog: createEntityHandler<FlightLog>('FlightLog'),
     ConflictNotification: createEntityHandler<ConflictNotification>('ConflictNotification'),
     DroneChecklist: createEntityHandler<DroneChecklist>('DroneChecklist'),
+    SystemAudit: createEntityHandler<SystemAuditLog>('SystemAudit'), // Nova entidade
   },
   auth: authHandler,
   system: authHandler.system,

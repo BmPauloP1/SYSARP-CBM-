@@ -16,14 +16,22 @@ type ExtendedOperation = Operation & {
   drone?: Drone;
 }
 
-// Colors for Map and Charts
+// Colors for Map and Charts - Updated for new mission types
 const MISSION_COLORS: Record<string, string> = {
-  search_rescue: "#3b82f6", // Blue
-  fire: "#ef4444", // Red
-  civil_defense: "#f97316", // Orange
-  monitoring: "#10b981", // Emerald
-  air_support: "#8b5cf6", // Violet
-  disaster: "#64748b" // Slate
+  fire: "#ef4444",             // Red (Incêndios)
+  sar: "#3b82f6",              // Blue (SAR)
+  aph: "#f43f5e",              // Rose (APH)
+  traffic_accident: "#f97316", // Orange (Trânsito)
+  hazmat: "#eab308",           // Yellow/Lime (Hazmat)
+  natural_disaster: "#64748b", // Slate (Desastres)
+  public_security: "#1e3a8a",  // Dark Blue (Segurança Pública)
+  inspection: "#14b8a6",       // Teal (Inspeção)
+  air_support: "#0ea5e9",      // Sky Blue (Apoio Aéreo)
+  maritime: "#06b6d4",         // Cyan (Marítimo)
+  environmental: "#22c55e",    // Green (Ambiental)
+  training: "#8b5cf6",         // Violet (Treinamento)
+  admin_support: "#94a3b8",    // Gray (Admin)
+  diverse: "#71717a"           // Zinc (Diversos)
 };
 
 const ORGANIZATION_CHART_KEYS = [
@@ -181,7 +189,7 @@ export default function Reports() {
       stats[op.mission_type] = (stats[op.mission_type] || 0) + 1;
     });
     return Object.entries(stats).map(([name, value]) => ({
-      name: MISSION_LABELS[name as keyof typeof MISSION_LABELS],
+      name: MISSION_LABELS[name as keyof typeof MISSION_LABELS] || name,
       value,
       color: MISSION_COLORS[name] || "#ccc"
     }));
@@ -239,7 +247,7 @@ export default function Reports() {
           head: [['Dados da Operação', 'Informações']],
           body: [
             ['Nome', op.name],
-            ['Tipo', MISSION_HIERARCHY[op.mission_type].label],
+            ['Tipo', MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type],
             ['Sub-natureza', op.sub_mission_type || '-'],
             ['Status', op.status === 'completed' ? 'Concluída' : 'Outro'],
             ['Início', new Date(op.start_time).toLocaleString('pt-BR')],
@@ -459,7 +467,7 @@ export default function Reports() {
           <Popup>
               <div className="text-xs">
                 <strong>{op.name}</strong><br/>
-                {MISSION_HIERARCHY[op.mission_type].label}<br/>
+                {MISSION_HIERARCHY[op.mission_type]?.label}<br/>
                 {op.sub_mission_type && <i>{op.sub_mission_type}<br/></i>}
                 {new Date(op.start_time).toLocaleDateString()}
               </div>
@@ -717,7 +725,7 @@ export default function Reports() {
            </Card>
 
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 
+
 import { Operation, Drone, Pilot, MissionType } from "../types";
 
 const API_BASE_URL = "http://brutm.xmobots.com/api/brutm";
@@ -10,7 +11,18 @@ const API_BASE_URL = "http://brutm.xmobots.com/api/brutm";
  * - Rotina (Monitoramento, Mapeamento, Foto, Formatura) = STANDARD
  */
 const getSarpasOperationType = (missionType?: MissionType): string => {
-  const specialTypes: MissionType[] = ['search_rescue', 'fire', 'disaster', 'civil_defense', 'air_support'];
+  const specialTypes: MissionType[] = [
+    'sar', 
+    'fire', 
+    'natural_disaster', 
+    'civil_defense' as any, // Mantido para compatibilidade se houver
+    'air_support',
+    'traffic_accident',
+    'hazmat',
+    'public_security',
+    'maritime',
+    'aph'
+  ];
   
   if (missionType && specialTypes.includes(missionType)) {
     return "SPECIAL"; // Operações Especiais / State Aircraft

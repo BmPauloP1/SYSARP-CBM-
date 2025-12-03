@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMapEvents, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -7,7 +9,7 @@ import { operationSummerService } from "../services/operationSummerService";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, ARO_SCENARIOS, AroItem, AroAssessment, MissionType, ConflictNotification } from "../types";
 import { SUMMER_LOCATIONS } from "../types_summer";
 import { Button, Input, Select, Badge } from "../components/ui_components";
-import { Plus, Video, Map as MapIcon, Clock, ArrowLeft, Save, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, FileText, Timer, Anchor } from "lucide-react";
+import { Plus, Video, Map as MapIcon, Clock, ArrowLeft, Save, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, FileText, Timer, Anchor, Users, Eye } from "lucide-react";
 
 // Fix Leaflet icons
 const icon = L.icon({
@@ -191,8 +193,10 @@ export default function OperationManagement() {
   const initialFormState = {
     name: '',
     pilot_id: '',
+    second_pilot_id: '',
+    observer_id: '',
     drone_id: '',
-    mission_type: 'search_rescue' as MissionType,
+    mission_type: 'sar' as MissionType, // Updated default to 'sar'
     sub_mission_type: '',
     latitude: -25.2521, 
     longitude: -52.0215,
@@ -200,7 +204,9 @@ export default function OperationManagement() {
     flight_altitude: 60,
     stream_url: '',
     description: '',
-    duration_minutes: 60
+    // Novos campos de tempo
+    start_time_local: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
+    end_time_local: new Date(new Date().getTime() + 60*60*1000).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
   };
 
   // Estado estendido para o formulário
@@ -258,9 +264,14 @@ export default function OperationManagement() {
 
   // Função para iniciar edição populando o formulário
   const handleStartEdit = (op: Operation) => {
+    const start = new Date(op.start_time);
+    const end = op.end_time ? new Date(op.end_time) : new Date(start.getTime() + 60*60000);
+
     setFormData({
         name: op.name,
         pilot_id: op.pilot_id,
+        second_pilot_id: op.second_pilot_id || '',
+        observer_id: op.observer_id || '',
         drone_id: op.drone_id,
         mission_type: op.mission_type,
         sub_mission_type: op.sub_mission_type || '',
@@ -270,7 +281,8 @@ export default function OperationManagement() {
         flight_altitude: op.flight_altitude || 60,
         stream_url: op.stream_url || '',
         description: op.description || '',
-        duration_minutes: 60 // Padrão, pois não guardamos a previsão no DB
+        start_time_local: start.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
+        end_time_local: end.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
     });
     setTempMarker({ lat: op.latitude, lng: op.longitude });
     setIsEditing(op.id);
@@ -291,7 +303,7 @@ export default function OperationManagement() {
     if (isEditing) {
        performSave();
     } else {
-       if (!formData.pilot_id || !formData.drone_id) { alert("Selecione piloto e drone"); return; }
+       if (!formData.pilot_id || !formData.drone_id) { alert("Selecione piloto em comando e aeronave"); return; }
        if (!formData.name) { alert("Nome da operação é obrigatório"); return; }
        
        if (isSummerOp) {
@@ -317,14 +329,27 @@ export default function OperationManagement() {
     setShowChecklist(true);
   };
 
+  // Helper para combinar Data Hoje + Hora Input
+  const combineDateAndTime = (timeStr: string): string => {
+    const now = new Date();
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+    return date.toISOString();
+  };
+
   const performSave = async () => {
     setLoading(true);
     try {
+      const startTimeISO = combineDateAndTime(formData.start_time_local);
+      const endTimeISO = combineDateAndTime(formData.end_time_local);
+
       if (isEditing) {
         // Atualiza a operação existente
         await base44.entities.Operation.update(isEditing, {
           name: formData.name,
           pilot_id: formData.pilot_id,
+          second_pilot_id: formData.second_pilot_id,
+          observer_id: formData.observer_id,
           drone_id: formData.drone_id,
           stream_url: formData.stream_url,
           radius: formData.radius,
@@ -333,7 +358,9 @@ export default function OperationManagement() {
           sub_mission_type: formData.sub_mission_type,
           description: formData.description,
           latitude: formData.latitude,
-          longitude: formData.longitude
+          longitude: formData.longitude,
+          start_time: startTimeISO,
+          end_time: endTimeISO
         });
         alert("Operação atualizada com sucesso!");
         handleCancelForm();
@@ -342,11 +369,6 @@ export default function OperationManagement() {
         const selectedDrone = drones.find(d => d.id === formData.drone_id);
         
         let sarpasProtocol = "";
-        let finalEndTime = undefined;
-
-        const startTime = new Date();
-        const endTime = new Date(startTime.getTime() + formData.duration_minutes * 60000);
-        finalEndTime = endTime.toISOString();
         
         let finalDescription = formData.description;
         if (isSummerOp && summerCity && summerPost) {
@@ -361,8 +383,8 @@ export default function OperationManagement() {
              sarpasProtocol = await sarpasApi.submitFlightRequest({
                 ...formData,
                 description: finalDescription,
-                start_time: startTime.toISOString(),
-                end_time: finalEndTime
+                start_time: startTimeISO,
+                end_time: endTimeISO
              }, selectedPilot, selectedDrone);
              alert(`Solicitação SARPAS enviada! Protocolo: ${sarpasProtocol}`);
            } catch (sarpasError) {
@@ -376,20 +398,20 @@ export default function OperationManagement() {
 
         const occurrenceNumber = `${new Date().getFullYear()}${selectedPilot?.unit?.split(' ')[0] || 'BM'}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
 
-        // Remove duration_minutes from payload
-        const { duration_minutes, ...dbPayload } = formData;
+        // Remove campos temporários
+        const { start_time_local, end_time_local, ...dbPayload } = formData;
 
         await base44.entities.Operation.create({
           ...dbPayload,
           occurrence_number: occurrenceNumber,
           status: 'active',
-          start_time: startTime.toISOString(),
-          end_time: finalEndTime,
+          start_time: startTimeISO,
+          end_time: endTimeISO,
           photos: [],
           sarpas_protocol: sarpasProtocol,
           aro: aroData,
           is_summer_op: isSummerOp,
-          description: finalDescription || `Operação iniciada em ${startTime.toLocaleString()}`
+          description: finalDescription || `Operação iniciada em ${new Date().toLocaleString()}`
         } as any);
 
         await base44.entities.Drone.update(formData.drone_id, { status: 'in_operation' });
@@ -472,12 +494,26 @@ export default function OperationManagement() {
       if (isFinishing.is_summer_op) {
          const pilot = pilots.find(p => p.id === isFinishing.pilot_id);
          
+         // Mapping old types if they exist or new types to summer types
          const missionMap: Record<string, 'patrulha' | 'resgate' | 'prevencao' | 'apoio' | 'treinamento'> = {
-           search_rescue: 'resgate',
+           sar: 'resgate',
            fire: 'apoio',
+           aph: 'apoio',
+           traffic_accident: 'apoio',
+           hazmat: 'apoio',
+           natural_disaster: 'apoio',
+           public_security: 'patrulha',
+           inspection: 'prevencao',
+           air_support: 'apoio',
+           maritime: 'resgate',
+           environmental: 'patrulha',
+           training: 'treinamento',
+           admin_support: 'apoio',
+           diverse: 'prevencao',
+           // Backwards compatibility
+           search_rescue: 'resgate',
            civil_defense: 'apoio',
            monitoring: 'patrulha',
-           air_support: 'apoio',
            disaster: 'apoio'
          };
          
@@ -542,6 +578,13 @@ export default function OperationManagement() {
                   <Popup>
                     <b>{op.name}</b><br/>
                     {op.is_summer_op && <span className="text-orange-600 font-bold text-xs">☀️ Op. Verão</span>}
+                    {(op.second_pilot_id || op.observer_id) && (
+                        <div className="flex gap-1 mt-1 text-xs text-blue-600 font-bold">
+                            {op.second_pilot_id && <span title="Múltiplos Pilotos"><Users className="w-3 h-3 inline"/></span>}
+                            {op.observer_id && <span title="Observador Presente"><Eye className="w-3 h-3 inline"/></span>}
+                            Equipe Estendida
+                        </div>
+                    )}
                   </Popup>
               </Marker>
             );
@@ -570,23 +613,53 @@ export default function OperationManagement() {
               
               <div className="flex-1 overflow-y-auto p-5 space-y-6">
                 <form id="opForm" onSubmit={handleSubmit} className="space-y-6">
-                    {/* Form content maintained... */}
+                    {/* General Info */}
                     <div className="space-y-4">
-                         <h3 className="text-xs font-bold text-slate-500 uppercase border-b pb-1 flex items-center gap-2">
-                            <User className="w-3 h-3" /> Identificação e Meios
-                         </h3>
                          <div className="space-y-3">
                             <Input label="Nome da Operação" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Ex: Busca em Matinhos" required />
-                            <div className="grid grid-cols-2 gap-3">
-                                <Select label="Piloto" required value={formData.pilot_id} onChange={e => setFormData({...formData, pilot_id: e.target.value})}>
-                                    <option value="">Selecione...</option>
-                                    {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-                                </Select>
-                                <Select label="Aeronave" required value={formData.drone_id} onChange={e => setFormData({...formData, drone_id: e.target.value})}>
-                                    <option value="">Selecione...</option>
-                                    {drones.map(d => <option key={d.id} value={d.id}>{d.prefix}</option>)}
-                                </Select>
-                            </div>
+                            <Select label="Aeronave" required value={formData.drone_id} onChange={e => setFormData({...formData, drone_id: e.target.value})}>
+                                <option value="">Selecione...</option>
+                                {drones.map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
+                            </Select>
+                         </div>
+                    </div>
+
+                    {/* Team Section */}
+                    <div className="space-y-4">
+                         <h3 className="text-xs font-bold text-slate-500 uppercase border-b pb-1 flex items-center gap-2">
+                            <Users className="w-3 h-3" /> Equipe de Voo
+                         </h3>
+                         <div className="space-y-3">
+                            <Select 
+                                label="Piloto em Comando (PIC) *" 
+                                required 
+                                value={formData.pilot_id} 
+                                onChange={e => setFormData({...formData, pilot_id: e.target.value})}
+                                className="font-semibold bg-blue-50 border-blue-200"
+                            >
+                                <option value="">Selecione o Piloto Responsável...</option>
+                                {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                            </Select>
+
+                            <Select 
+                                label="Segundo Piloto (Opcional)" 
+                                value={formData.second_pilot_id} 
+                                onChange={e => setFormData({...formData, second_pilot_id: e.target.value})}
+                            >
+                                <option value="">Selecione...</option>
+                                {pilots
+                                    .filter(p => p.id !== formData.pilot_id)
+                                    .map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                            </Select>
+
+                            <Select 
+                                label="Observador (Opcional)" 
+                                value={formData.observer_id} 
+                                onChange={e => setFormData({...formData, observer_id: e.target.value})}
+                            >
+                                <option value="">Selecione...</option>
+                                {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                            </Select>
                          </div>
                     </div>
 
@@ -618,15 +691,13 @@ export default function OperationManagement() {
                          <h3 className="text-xs font-bold text-slate-500 uppercase border-b pb-1 flex items-center gap-2">
                             <Plane className="w-3 h-3" /> Parâmetros de Voo
                          </h3>
-                         <div className="grid grid-cols-3 gap-3">
+                         <div className="grid grid-cols-2 gap-3">
                             <Input label="Raio (m)" type="number" value={formData.radius} onChange={e => setFormData({...formData, radius: Number(e.target.value)})} required />
                             <Input label="Altitude (m)" type="number" value={formData.flight_altitude} onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})} required />
-                            <Select label="Duração Est." value={formData.duration_minutes} onChange={e => setFormData({...formData, duration_minutes: Number(e.target.value)})}>
-                                <option value="30">30 min</option>
-                                <option value="60">1 hora</option>
-                                <option value="120">2 horas</option>
-                                <option value="180">3 horas</option>
-                            </Select>
+                         </div>
+                         <div className="grid grid-cols-2 gap-3">
+                            <Input label="Início (Hora)" type="time" required value={formData.start_time_local} onChange={e => setFormData({...formData, start_time_local: e.target.value})} />
+                            <Input label="Término Previsto" type="time" required value={formData.end_time_local} onChange={e => setFormData({...formData, end_time_local: e.target.value})} />
                          </div>
                          <Input label="Link de Transmissão (Opcional)" placeholder="RTMP / YouTube / DroneDeploy" value={formData.stream_url} onChange={e => setFormData({...formData, stream_url: e.target.value})} />
                     </div>
@@ -655,157 +726,167 @@ export default function OperationManagement() {
                                     <span className="text-xs text-indigo-600 block">Envia solicitação automaticamente</span>
                                 </div>
                             </div>
-                            <input type="checkbox" className="accent-indigo-600 w-4 h-4" checked={sendToSarpas} onChange={(e) => setSendToSarpas(e.target.checked)} />
+                            <input type="checkbox" className="w-5 h-5 accent-indigo-600" checked={sendToSarpas} onChange={e => setSendToSarpas(e.target.checked)} />
                         </div>
 
-                        <div className={`p-3 border rounded-lg transition-colors ${isSummerOp ? 'bg-orange-100 border-orange-300' : 'bg-orange-50 border-orange-200'}`}>
-                            <div className="flex items-center justify-between mb-2">
+                        <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg space-y-3">
+                            <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
-                                    <Sun className="w-5 h-5 text-orange-500" />
+                                    <Sun className="w-4 h-4 text-orange-600" />
                                     <div>
-                                    <p className="text-xs font-bold text-orange-800">Op. Verão 2025/2026</p>
-                                    <p className="text-xs text-orange-600">Vincular estatísticas</p>
+                                        <span className="text-xs font-bold text-orange-800 block">Operação Verão</span>
+                                        <span className="text-xs text-orange-600 block">Registro automático no diário</span>
                                     </div>
                                 </div>
-                                <label className="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" className="sr-only peer" checked={isSummerOp} onChange={(e) => setIsSummerOp(e.target.checked)} />
-                                    <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-orange-500"></div>
-                                </label>
+                                <input type="checkbox" className="w-5 h-5 accent-orange-600" checked={isSummerOp} onChange={e => setIsSummerOp(e.target.checked)} />
                             </div>
                             
                             {isSummerOp && (
-                                <div className="space-y-3 mt-3 pt-3 border-t border-orange-200 animate-fade-in">
-                                    <div className="text-xs font-bold text-orange-800 uppercase flex items-center gap-1 mb-1">
-                                       <Anchor className="w-3 h-3" /> Detalhamento Operacional
-                                    </div>
-                                    <div className="space-y-3">
-                                        <Select 
-                                            label="Localidade / Município" 
-                                            value={summerCity} 
-                                            onChange={(e) => {
-                                                setSummerCity(e.target.value); 
-                                                setSummerPost(''); 
-                                                if(e.target.value && formData.name === '') {
-                                                    setFormData(prev => ({...prev, name: `Op. ${e.target.value}`}));
-                                                }
-                                            }}
-                                            className="bg-white"
-                                            labelClassName="text-orange-900"
-                                        >
-                                            <option value="">Selecione...</option>
-                                            {Object.keys(SUMMER_LOCATIONS).map(city => (
-                                                <option key={city} value={city}>{city}</option>
-                                            ))}
-                                        </Select>
-
-                                        <Select 
-                                            label="Posto de Guarda-Vidas (PGV)" 
-                                            value={summerPost} 
-                                            onChange={(e) => {
-                                                setSummerPost(e.target.value);
-                                                if(summerCity && e.target.value && formData.name.startsWith('Op.')) {
-                                                    setFormData(prev => ({...prev, name: `${e.target.value} - ${summerCity}`}));
-                                                }
-                                            }} 
-                                            disabled={!summerCity}
-                                            className="bg-white"
-                                            labelClassName="text-orange-900"
-                                        >
-                                            <option value="">Selecione o PGV...</option>
-                                            {summerCity && SUMMER_LOCATIONS[summerCity]?.map(pgv => (
-                                                <option key={pgv} value={pgv}>{pgv}</option>
-                                            ))}
-                                        </Select>
-                                    </div>
+                                <div className="grid grid-cols-2 gap-2 pt-1 animate-fade-in">
+                                    <Select 
+                                        className="text-xs bg-white" 
+                                        value={summerCity} 
+                                        onChange={e => { setSummerCity(e.target.value); setSummerPost(""); }}
+                                    >
+                                        <option value="">Cidade...</option>
+                                        {Object.keys(SUMMER_LOCATIONS).map(city => <option key={city} value={city}>{city}</option>)}
+                                    </Select>
+                                    <Select 
+                                        className="text-xs bg-white" 
+                                        value={summerPost} 
+                                        disabled={!summerCity}
+                                        onChange={e => setSummerPost(e.target.value)}
+                                    >
+                                        <option value="">Posto...</option>
+                                        {summerCity && SUMMER_LOCATIONS[summerCity].map(post => <option key={post} value={post}>{post}</option>)}
+                                    </Select>
                                 </div>
                             )}
                         </div>
                     </div>
+
+                    <div className="sticky bottom-0 bg-white pt-4 border-t border-slate-100 flex gap-3">
+                        <Button type="button" variant="outline" onClick={handleCancelForm} className="flex-1">Cancelar</Button>
+                        <Button type="submit" className="flex-1" disabled={loading}>
+                            {loading ? 'Salvando...' : (isEditing ? 'Atualizar' : 'Prosseguir')}
+                        </Button>
+                    </div>
                 </form>
               </div>
-
-              <div className="p-4 border-t bg-white shrink-0">
-                 <Button form="opForm" type="submit" disabled={loading} className="w-full bg-blue-600 text-white h-12 font-bold text-lg shadow-lg hover:bg-blue-700">
-                    {loading ? "Processando..." : (isEditing ? "SALVAR ALTERAÇÕES" : "INICIAR OPERAÇÃO")}
-                 </Button>
+           </div>
+        ) : isFinishing ? (
+           // TELA DE ENCERRAMENTO (Mantida como estava, apenas re-renderizada no fluxo)
+           <div className="flex-1 flex flex-col h-full overflow-hidden">
+              <div className="p-4 border-b flex items-center justify-between bg-slate-50 shrink-0">
+                 <h2 className="font-bold text-lg text-slate-800">Encerrar Operação</h2>
+                 <Button variant="outline" onClick={() => setIsFinishing(null)} size="sm"><X className="w-4 h-4"/></Button>
+              </div>
+              <div className="p-6 overflow-y-auto">
+                 <form onSubmit={handleFinishSubmit} className="space-y-4">
+                    <div className="bg-slate-50 p-3 rounded text-sm mb-2">
+                       <p className="font-bold text-slate-700">{isFinishing.name}</p>
+                       <p className="text-slate-500 text-xs">Início: {new Date(isFinishing.start_time).toLocaleString()}</p>
+                    </div>
+                    <div>
+                        <label className="text-sm font-medium text-slate-700 mb-1 block">Descrição Final / Resultado</label>
+                        <textarea 
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm h-24 focus:ring-2 focus:ring-green-500 outline-none"
+                            placeholder="Descreva o desfecho da operação..."
+                            required
+                            value={finishData.description}
+                            onChange={e => setFinishData({...finishData, description: e.target.value})}
+                        />
+                    </div>
+                    <div>
+                        <label className="text-sm font-medium text-slate-700 mb-1 block">Ações Realizadas</label>
+                        <textarea 
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm h-20 focus:ring-2 focus:ring-green-500 outline-none"
+                            placeholder="Voo de busca, varredura, monitoramento..."
+                            value={finishData.actions_taken}
+                            onChange={e => setFinishData({...finishData, actions_taken: e.target.value})}
+                        />
+                    </div>
+                    <div>
+                        <label className="text-sm font-medium text-slate-700 mb-1 block">Anexar Log de Voo (KMZ/KML)</label>
+                        <input 
+                            type="file" 
+                            accept=".kmz,.kml,.gpx"
+                            className="text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                            onChange={e => setFinishData({...finishData, kmz_file: e.target.files ? e.target.files[0] : null})}
+                        />
+                    </div>
+                    <Button type="submit" disabled={loading} className="w-full bg-green-600 hover:bg-green-700 text-white mt-4">
+                        {loading ? 'Encerrando...' : 'Confirmar Encerramento'}
+                    </Button>
+                 </form>
               </div>
            </div>
         ) : (
-           <div className="p-4 h-full flex flex-col">
-              <div className="flex justify-between items-center mb-4 flex-shrink-0">
-                 <h2 className="font-bold text-lg text-slate-800">Operações Ativas</h2>
-                 <Button onClick={() => setIsCreating(true)} className="shadow-md"><Plus className="w-4 h-4 mr-1"/> Nova</Button>
+           // LISTA DE OPERAÇÕES (Estado Inicial da Sidebar)
+           <div className="flex-1 flex flex-col h-full overflow-hidden">
+              <div className="p-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
+                 <div>
+                    <h2 className="font-bold text-lg text-slate-800">Operações</h2>
+                    <p className="text-xs text-slate-500">Gerencie missões em andamento</p>
+                 </div>
+                 <Button onClick={() => { setFormData(initialFormState); setIsCreating(true); }} size="sm" className="shadow-sm">
+                    <Plus className="w-4 h-4 mr-1" /> Nova
+                 </Button>
               </div>
               
-              <div className="flex-1 overflow-y-auto space-y-3 pr-1 pb-4">
-                 {activeOps.length === 0 && (
-                    <div className="text-center p-8 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
-                        <Radio className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">Nenhuma operação em andamento.</p>
+              <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                 {operations.length === 0 ? (
+                    <div className="text-center p-8 text-slate-400 text-sm italic">
+                       Nenhuma operação ativa.
                     </div>
+                 ) : (
+                    operations.map(op => (
+                       <div key={op.id} className={`bg-white border rounded-lg p-3 hover:shadow-md transition-shadow relative ${op.status === 'completed' ? 'opacity-70 bg-slate-50' : 'border-l-4 border-l-green-500'}`}>
+                          <div className="flex justify-between items-start mb-1">
+                             <h3 className="font-bold text-slate-800 text-sm">{op.name}</h3>
+                             <Badge variant={op.status === 'active' ? 'success' : 'default'} className="text-[10px] uppercase">{op.status}</Badge>
+                          </div>
+                          <div className="text-xs text-slate-500 space-y-1">
+                             <div className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" /> {new Date(op.start_time).toLocaleString()}
+                             </div>
+                             <div className="flex items-center gap-1 font-mono">
+                                <ShieldCheck className="w-3 h-3" /> {op.occurrence_number}
+                             </div>
+                             {/* Indicadores de Equipe na Lista */}
+                             {(op.second_pilot_id || op.observer_id) && (
+                                <div className="flex gap-2 mt-1">
+                                    {op.second_pilot_id && <span title="Segundo Piloto" className="flex items-center gap-1 text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded"><Users className="w-3 h-3"/> 2º Piloto</span>}
+                                    {op.observer_id && <span title="Observador" className="flex items-center gap-1 text-purple-600 font-bold bg-purple-50 px-1.5 py-0.5 rounded"><Eye className="w-3 h-3"/> Obs.</span>}
+                                </div>
+                             )}
+                          </div>
+                          {op.status === 'active' && (
+                             <div className="mt-3 flex gap-2 border-t pt-2">
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="flex-1 h-8 text-xs" 
+                                    onClick={() => handleStartEdit(op)}
+                                >
+                                    <Pencil className="w-3 h-3 mr-1" /> Editar
+                                </Button>
+                                <Button 
+                                    size="sm" 
+                                    className="flex-1 h-8 text-xs bg-slate-800 text-white hover:bg-black" 
+                                    onClick={() => setIsFinishing(op)}
+                                >
+                                    <CheckSquare className="w-3 h-3 mr-1" /> Encerrar
+                                </Button>
+                             </div>
+                          )}
+                       </div>
+                    ))
                  )}
-                 {activeOps.map(op => (
-                    <div key={op.id} className="p-4 border border-l-4 border-l-red-600 rounded-lg bg-white shadow-sm hover:shadow-md transition-shadow">
-                       <div className="flex justify-between items-start mb-2">
-                          <h4 className="font-bold text-sm text-slate-900">{op.name}</h4>
-                          {op.is_summer_op && <Sun className="w-4 h-4 text-orange-500" />}
-                       </div>
-                       <p className="text-xs text-slate-500 font-mono mb-2">{op.occurrence_number}</p>
-                       
-                       <div className="flex gap-2 mb-3">
-                          <Badge variant="default">{MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}</Badge>
-                          {op.sarpas_protocol && <Badge variant="success" className="text-[10px]">SARPAS OK</Badge>}
-                       </div>
-
-                       <div className="flex gap-2 pt-2 border-t border-slate-100">
-                          <Button size="sm" variant="outline" className="flex-1 text-xs h-8" onClick={() => handleStartEdit(op)}>
-                             <Pencil className="w-3 h-3 mr-1"/> Editar
-                          </Button>
-                          <Button size="sm" className="flex-1 text-xs h-8 bg-red-600 text-white hover:bg-red-700" onClick={() => setIsFinishing(op)}>
-                             Encerrar
-                          </Button>
-                       </div>
-                    </div>
-                 ))}
               </div>
            </div>
         )}
       </div>
-      
-      {/* FINISH MODAL */}
-      {isFinishing && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-           <div className="bg-white p-6 rounded-lg max-w-lg w-full shadow-2xl overflow-y-auto max-h-[90vh]">
-              <h3 className="font-bold text-lg mb-4 border-b pb-2">Encerrar Operação</h3>
-              <form onSubmit={handleFinishSubmit} className="space-y-4">
-                 <div>
-                    <label className="text-sm font-bold text-slate-700 mb-1 block">Relatório Final / Descrição</label>
-                    <textarea 
-                        className="w-full border p-2 rounded text-sm h-24 resize-none focus:ring-2 focus:ring-red-500 outline-none" 
-                        placeholder="Descreva como foi a operação..." 
-                        value={finishData.description}
-                        onChange={e => setFinishData({...finishData, description: e.target.value})}
-                        required
-                    />
-                 </div>
-                 <div>
-                    <label className="text-sm font-bold text-slate-700 mb-1 block">Ações Realizadas</label>
-                    <textarea 
-                        className="w-full border p-2 rounded text-sm h-20 resize-none focus:ring-2 focus:ring-red-500 outline-none" 
-                        placeholder="Quais medidas foram tomadas..." 
-                        value={finishData.actions_taken}
-                        onChange={e => setFinishData({...finishData, actions_taken: e.target.value})}
-                        required
-                    />
-                 </div>
-                 <div className="flex justify-end gap-2 pt-2">
-                    <Button variant="outline" onClick={() => setIsFinishing(null)}>Cancelar</Button>
-                    <Button type="submit" className="bg-red-600 text-white hover:bg-red-700">Confirmar Encerramento</Button>
-                 </div>
-              </form>
-           </div>
-        </div>
-      )}
     </div>
   );
 }
