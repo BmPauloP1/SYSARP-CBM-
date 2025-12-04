@@ -6,8 +6,8 @@ import { sarpasApi } from "../services/sarpasApi";
 import { operationSummerService } from "../services/operationSummerService";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, ARO_SCENARIOS, AroItem, AroAssessment, MissionType, ConflictNotification } from "../types";
 import { SUMMER_LOCATIONS } from "../types_summer";
-import { Button, Input, Select, Badge } from "../components/ui_components";
-import { Plus, Video, Map as MapIcon, Clock, ArrowLeft, Save, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, FileText, Timer, Anchor, Users, Eye } from "lucide-react";
+import { Button, Input, Select, Badge, Card } from "../components/ui_components";
+import { Plus, Video, Map as MapIcon, Clock, ArrowLeft, Save, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, FileText, Timer, Anchor, Users, Eye, History, Activity } from "lucide-react";
 
 // Fix Leaflet icons
 const icon = L.icon({
@@ -20,7 +20,6 @@ const icon = L.icon({
   shadowSize: [41, 41]
 });
 
-// Icone para o marcador temporário (seleção manual)
 const tempIcon = L.icon({
   iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png",
   shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
@@ -30,7 +29,6 @@ const tempIcon = L.icon({
   shadowSize: [41, 41]
 });
 
-// Component to handle map clicks
 const LocationSelector = ({ onLocationSelect, isSelecting }: { onLocationSelect: (lat: number, lng: number) => void, isSelecting: boolean }) => {
   useMapEvents({
     click(e) {
@@ -42,7 +40,6 @@ const LocationSelector = ({ onLocationSelect, isSelecting }: { onLocationSelect:
   return null;
 };
 
-// Safe Map Controller
 const MapController = () => {
   const map = useMap();
   useEffect(() => {
@@ -54,11 +51,11 @@ const MapController = () => {
   return null;
 };
 
-// Weather Widget Component
+// Weather Widget
 const WeatherWidget = ({ lat, lng }: { lat: number, lng: number }) => {
-  const windSpeed = Math.floor(Math.random() * 25) + 5; // 5-30 km/h
-  const kpIndex = Math.floor(Math.random() * 4); // 0-4
-  const rainProb = Math.floor(Math.random() * 30); // 0-30%
+  const windSpeed = Math.floor(Math.random() * 25) + 5; 
+  const kpIndex = Math.floor(Math.random() * 4);
+  const rainProb = Math.floor(Math.random() * 30);
 
   return (
     <div className="bg-slate-900 text-white p-3 rounded-xl border border-slate-700 w-full animate-fade-in mt-2 shadow-md">
@@ -90,42 +87,28 @@ const WeatherWidget = ({ lat, lng }: { lat: number, lng: number }) => {
   );
 };
 
-// Haversine Distance Calculation (in meters)
+// Distance Helper
 const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-  const R = 6371e3; // Earth radius in meters
+  const R = 6371e3;
   const φ1 = lat1 * Math.PI / 180;
   const φ2 = lat2 * Math.PI / 180;
   const Δφ = (lat2 - lat1) * Math.PI / 180;
   const Δλ = (lon2 - lon1) * Math.PI / 180;
-
-  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-          Math.cos(φ1) * Math.cos(φ2) *
-          Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
   return R * c;
-};
-
-const getRiskColor = (code: string) => {
-    const red = ["5A", "5B", "5C", "4A", "4B", "3A"];
-    const orange = ["5D", "4C", "3B", "2A", "2B"];
-    const yellow = ["5E", "4D", "4E", "3C", "3D", "2C", "1A", "1B"];
-    if (red.includes(code)) return "bg-red-600 text-white";
-    if (orange.includes(code)) return "bg-orange-500 text-white";
-    if (yellow.includes(code)) return "bg-yellow-400 text-black";
-    return "bg-green-500 text-white";
 };
 
 const AroModal = ({ onConfirm, onCancel }: any) => {
     return (
         <div className="fixed inset-0 bg-black/80 z-[2000] flex items-center justify-center p-4">
             <div className="bg-white p-6 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-                <h2 className="font-bold text-xl mb-4">Avaliação de Risco Operacional (Simulação)</h2>
+                <h2 className="font-bold text-xl mb-4">Avaliação de Risco Operacional</h2>
                 <p className="mb-4 text-slate-600">Confirme que a avaliação de risco foi realizada para esta operação.</p>
                 <div className="flex justify-end gap-2">
                     <Button variant="outline" onClick={onCancel}>Cancelar</Button>
                     <Button onClick={() => onConfirm({items: [], declaration_accepted: true, rubric: "SYSTEM", created_at: new Date().toISOString()})}>
-                        Confirmar A.R.O.
+                        Confirmar A.R.O. e Prosseguir
                     </Button>
                 </div>
             </div>
@@ -151,14 +134,12 @@ const ConflictModal = ({ conflicts, onAck, onCancel }: any) => (
                 <AlertTriangle className="w-6 h-6"/> ALERTA DE CONFLITO
             </h2>
             <p className="mb-4 text-slate-700 font-medium">Conflito de espaço aéreo detectado com {conflicts.length} operação(ões) ativa(s).</p>
-            
             <div className="bg-red-50 p-3 rounded mb-4 text-sm">
                 <p className="font-bold text-red-800">Aeronave(s) próxima(s):</p>
                 <ul className="list-disc list-inside text-red-700">
                     {conflicts.map((c: Operation) => <li key={c.id}>{c.name} ({c.radius}m)</li>)}
                 </ul>
             </div>
-
             <Button onClick={onAck} className="w-full bg-red-600 text-white hover:bg-red-700">Estou Ciente (Manter Coordenação)</Button>
             <Button variant="outline" onClick={onCancel} className="w-full mt-2">Abortar Criação</Button>
         </div>
@@ -183,6 +164,8 @@ export default function OperationManagement() {
   const [tempMarker, setTempMarker] = useState<{lat: number, lng: number} | null>(null);
   const [sendToSarpas, setSendToSarpas] = useState(false); 
   
+  const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
+
   // Summer Op States
   const [isSummerOp, setIsSummerOp] = useState(false);
   const [summerCity, setSummerCity] = useState("");
@@ -191,11 +174,11 @@ export default function OperationManagement() {
   const initialFormState = {
     name: '',
     pilot_id: '',
-    pilot_name: '', // Novo
+    pilot_name: '', 
     second_pilot_id: '',
-    second_pilot_name: '', // Novo
+    second_pilot_name: '', 
     observer_id: '',
-    observer_name: '', // Novo
+    observer_name: '', 
     drone_id: '',
     mission_type: 'sar' as MissionType,
     sub_mission_type: '',
@@ -205,13 +188,11 @@ export default function OperationManagement() {
     flight_altitude: 60,
     stream_url: '',
     description: '',
-    sarpas_protocol: '', // Campo manual de protocolo
-    // Novos campos de tempo
+    sarpas_protocol: '', 
     start_time_local: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
     end_time_local: new Date(new Date().getTime() + 60*60*1000).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
   };
 
-  // Estado estendido para o formulário
   const [formData, setFormData] = useState(initialFormState);
 
   const [finishData, setFinishData] = useState({
@@ -233,9 +214,7 @@ export default function OperationManagement() {
       setPilots(pils);
       setDrones(drns);
     } catch(e: any) {
-      if (e.message && e.message.includes("Failed to fetch")) {
-         console.warn("Network error during data load (retrying...)");
-      } else {
+      if (e.message && !e.message.includes("Failed to fetch")) {
          console.error(e);
       }
     }
@@ -263,12 +242,9 @@ export default function OperationManagement() {
     return conflicts;
   };
 
-  // Função para iniciar edição populando o formulário
   const handleStartEdit = (op: Operation) => {
     const start = new Date(op.start_time);
     const end = op.end_time ? new Date(op.end_time) : new Date(start.getTime() + 60*60000);
-
-    // Tenta encontrar os nomes se não estiverem salvos no objeto, usando os IDs
     const pilot = pilots.find(p => p.id === op.pilot_id);
     const second = pilots.find(p => p.id === op.second_pilot_id);
     const observer = pilots.find(p => p.id === op.observer_id);
@@ -296,7 +272,7 @@ export default function OperationManagement() {
     });
     setTempMarker({ lat: op.latitude, lng: op.longitude });
     setIsEditing(op.id);
-    setIsCreating(true); // Força a exibição do formulário
+    setIsCreating(true); 
   };
 
   const handleCancelForm = () => {
@@ -339,7 +315,6 @@ export default function OperationManagement() {
     setShowChecklist(true);
   };
 
-  // Helper para combinar Data Hoje + Hora Input
   const combineDateAndTime = (timeStr: string): string => {
     const now = new Date();
     const [hours, minutes] = timeStr.split(':').map(Number);
@@ -352,7 +327,6 @@ export default function OperationManagement() {
     try {
       const startTimeISO = combineDateAndTime(formData.start_time_local);
       const endTimeISO = combineDateAndTime(formData.end_time_local);
-
       const sanitizeUuid = (val: string | undefined) => (!val || val === "") ? null : val;
 
       if (isEditing) {
@@ -382,8 +356,6 @@ export default function OperationManagement() {
       } else {
         const selectedPilot = pilots.find(p => p.id === formData.pilot_id);
         const selectedDrone = drones.find(d => d.id === formData.drone_id);
-        
-        // Inicializa com o valor manual digitado
         let sarpasProtocol = formData.sarpas_protocol || "";
         
         let finalDescription = formData.description;
@@ -394,7 +366,6 @@ export default function OperationManagement() {
                : summerHeader;
         }
 
-        // Integração SARPAS: Só funciona se houver um piloto vinculado com cadastro
         if (sendToSarpas && selectedPilot && selectedDrone) {
            try {
              sarpasProtocol = await sarpasApi.submitFlightRequest({
@@ -406,8 +377,7 @@ export default function OperationManagement() {
              alert(`Solicitação SARPAS enviada! Protocolo: ${sarpasProtocol}`);
            } catch (sarpasError: any) {
              console.error("Erro SARPAS", sarpasError);
-             const shouldContinue = window.confirm(`Erro ao conectar com SARPAS: ${sarpasError.message}\n\nDeseja continuar criando a operação APENAS localmente (sem registro oficial no espaço aéreo)?`);
-             
+             const shouldContinue = window.confirm(`Erro ao conectar com SARPAS: ${sarpasError.message}\n\nDeseja continuar criando a operação APENAS localmente?`);
              if (!shouldContinue) {
                 setLoading(false);
                 return; 
@@ -416,7 +386,6 @@ export default function OperationManagement() {
         }
 
         const occurrenceNumber = `${new Date().getFullYear()}${selectedPilot?.unit?.split(' ')[0] || 'BM'}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
-
         const { start_time_local, end_time_local, ...rawPayload } = formData;
         
         const dbPayload = {
@@ -460,7 +429,6 @@ export default function OperationManagement() {
               }
            }
         }
-        
         handleCancelForm();
       }
       loadData();
@@ -517,26 +485,13 @@ export default function OperationManagement() {
 
       if (isFinishing.is_summer_op) {
          const pilot = pilots.find(p => p.id === isFinishing.pilot_id);
-         
          const missionMap: Record<string, 'patrulha' | 'resgate' | 'prevencao' | 'apoio' | 'treinamento'> = {
-           sar: 'resgate',
-           fire: 'apoio',
-           aph: 'apoio',
-           traffic_accident: 'apoio',
-           hazmat: 'apoio',
-           natural_disaster: 'apoio',
-           public_security: 'patrulha',
-           inspection: 'prevencao',
-           air_support: 'apoio',
-           maritime: 'resgate',
-           environmental: 'patrulha',
-           training: 'treinamento',
-           admin_support: 'apoio',
-           diverse: 'prevencao',
-           search_rescue: 'resgate',
-           civil_defense: 'apoio',
-           monitoring: 'patrulha',
-           disaster: 'apoio'
+           sar: 'resgate', fire: 'apoio', aph: 'apoio', traffic_accident: 'apoio',
+           hazmat: 'apoio', natural_disaster: 'apoio', public_security: 'patrulha',
+           inspection: 'prevencao', air_support: 'apoio', maritime: 'resgate',
+           environmental: 'patrulha', training: 'treinamento', admin_support: 'apoio',
+           diverse: 'prevencao', search_rescue: 'resgate', civil_defense: 'apoio',
+           monitoring: 'patrulha', disaster: 'apoio'
          };
          
          let locationName = isFinishing.name;
@@ -572,7 +527,40 @@ export default function OperationManagement() {
     }
   };
 
+  const handleShareOp = (op: Operation) => {
+      const pilot = pilots.find(p => p.id === op.pilot_id);
+      const drone = drones.find(d => d.id === op.drone_id);
+      const mapLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
+      const streamText = op.stream_url ? `\n📡 *Transmissão:* ${op.stream_url}` : '';
+      const missionLabel = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
+
+      const startTime = new Date(op.start_time);
+      const endTime = op.end_time 
+          ? new Date(op.end_time) 
+          : new Date(startTime.getTime() + 2 * 60 * 60 * 1000); // +2h se não definido
+
+      const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n` +
+          `🚁 *Ocorrência:* ${op.name}\n` +
+          `🔢 *Protocolo:* ${op.occurrence_number}\n` +
+          `📋 *Natureza:* ${missionLabel}\n` +
+          `👤 *Piloto:* ${op.pilot_name || pilot?.full_name || 'N/A'}\n` +
+          `📞 *Contato:* ${pilot ? pilot.phone : 'N/A'}\n` +
+          `🛸 *Aeronave:* ${drone ? `${drone.model} (${drone.prefix})` : 'N/A'}\n` +
+          `📍 *Coord:* ${op.latitude}, ${op.longitude}\n` +
+          `🗺️ *Mapa:* ${mapLink}\n` +
+          `🕒 *Início:* ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
+          `🏁 *Término Previsto:* ${endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
+          `📝 *Protocolo SARPAS:* ${op.sarpas_protocol || 'N/A'}\n` +
+          `${streamText}\n\n` +
+          `_Enviado via Centro de Comando SYSARP_`;
+
+      const encodedText = encodeURIComponent(text);
+      window.open(`https://wa.me/?text=${encodedText}`, '_blank');
+  };
+
   const activeOps = operations.filter(o => o.status === 'active');
+  const historyOps = operations.filter(o => o.status === 'completed');
+  const displayedOps = activeTab === 'active' ? activeOps : historyOps;
 
   return (
     <div className="flex flex-col lg:flex-row h-full w-full relative bg-slate-100 overflow-hidden">
@@ -580,11 +568,11 @@ export default function OperationManagement() {
       {showAroModal && <AroModal onConfirm={handleAroConfirm} onCancel={() => setShowAroModal(false)} />}
       {showChecklist && <ChecklistModal onConfirm={performSave} onCancel={() => setShowChecklist(false)} />}
 
-      {/* Datalist para autocomplete dos pilotos */}
       <datalist id="pilots-list">
           {pilots.map(p => <option key={p.id} value={p.full_name} />)}
       </datalist>
 
+      {/* Mapa (Esquerda) */}
       <div className="w-full h-[40vh] lg:h-full lg:flex-1 z-0 relative order-1 lg:order-1 border-b lg:border-r border-slate-200">
         <MapContainer 
           center={[-25.2521, -52.0215]} 
@@ -594,12 +582,11 @@ export default function OperationManagement() {
           <MapController />
           <TileLayer attribution='OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           <LocationSelector onLocationSelect={handleLocationSelect} isSelecting={isCreating} />
+          
           {activeOps.map(op => {
-            // Safety check for valid coordinates
             const lat = Number(op.latitude);
             const lng = Number(op.longitude);
             if (isNaN(lat) || isNaN(lng)) return null;
-
             return (
               <Marker key={op.id} position={[lat, lng]} icon={icon}>
                   <Popup>
@@ -607,8 +594,6 @@ export default function OperationManagement() {
                     {op.is_summer_op && <span className="text-orange-600 font-bold text-xs">☀️ Op. Verão</span>}
                     {(op.second_pilot_name || op.observer_name) && (
                         <div className="flex gap-1 mt-1 text-xs text-blue-600 font-bold">
-                            {op.second_pilot_name && <span title="Múltiplos Pilotos"><Users className="w-3 h-3 inline"/></span>}
-                            {op.observer_name && <span title="Observador Presente"><Eye className="w-3 h-3 inline"/></span>}
                             Equipe Estendida
                         </div>
                     )}
@@ -616,6 +601,7 @@ export default function OperationManagement() {
               </Marker>
             );
           })}
+          
           {tempMarker && !isNaN(Number(formData.radius)) && formData.radius > 0 && (
             <>
               <Marker key="temp-marker" position={[tempMarker.lat, tempMarker.lng]} icon={tempIcon} />
@@ -629,16 +615,18 @@ export default function OperationManagement() {
         </MapContainer>
       </div>
 
+      {/* Painel Lateral (Direita) */}
       <div className="w-full lg:w-[28rem] h-auto flex-1 lg:h-full bg-white lg:border-l border-slate-200 z-10 flex flex-col shadow-xl overflow-hidden order-2 lg:order-2">
+        
         {isCreating ? (
            <div className="flex-1 flex flex-col h-full overflow-hidden">
               <div className="p-4 border-b flex items-center justify-between bg-slate-50 shrink-0">
                  <h2 className="font-bold text-lg text-slate-800">{isEditing ? 'Editar Operação' : 'Nova Operação'}</h2>
                  <Button variant="outline" onClick={handleCancelForm} size="sm"><X className="w-4 h-4"/></Button>
               </div>
-              
               <div className="flex-1 overflow-y-auto p-5 space-y-6">
                 <form id="opForm" onSubmit={handleSubmit} className="space-y-6">
+                    {/* ... Campos do formulário (Mantidos iguais) ... */}
                     <div className="space-y-4">
                          <div className="space-y-3">
                             <Input label="Nome da Operação" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Ex: Busca em Matinhos" required />
@@ -654,56 +642,31 @@ export default function OperationManagement() {
                             <Users className="w-3 h-3" /> Equipe de Voo
                          </h3>
                          <div className="space-y-3">
-                            
-                            {/* PIC (Input with Datalist) */}
                             <Input 
-                                label="Piloto em Comando (PIC) *"
-                                required
-                                list="pilots-list"
-                                value={formData.pilot_name}
+                                label="Piloto em Comando (PIC) *" required list="pilots-list" value={formData.pilot_name}
                                 onChange={(e) => {
                                     const val = e.target.value;
                                     const found = pilots.find(p => p.full_name === val);
-                                    setFormData({
-                                        ...formData, 
-                                        pilot_name: val, 
-                                        pilot_id: found ? found.id : ''
-                                    });
+                                    setFormData({...formData, pilot_name: val, pilot_id: found ? found.id : ''});
                                 }}
-                                placeholder="Digite ou selecione o nome..."
+                                placeholder="Digite ou selecione..."
                                 className="font-semibold bg-blue-50 border-blue-200"
                             />
-                            
-                            {/* Second Pilot (Input with Datalist) */}
                             <Input 
-                                label="Segundo Piloto (Opcional)"
-                                list="pilots-list"
-                                value={formData.second_pilot_name}
+                                label="Segundo Piloto (Opcional)" list="pilots-list" value={formData.second_pilot_name}
                                 onChange={(e) => {
                                     const val = e.target.value;
                                     const found = pilots.find(p => p.full_name === val);
-                                    setFormData({
-                                        ...formData, 
-                                        second_pilot_name: val, 
-                                        second_pilot_id: found ? found.id : ''
-                                    });
+                                    setFormData({...formData, second_pilot_name: val, second_pilot_id: found ? found.id : ''});
                                 }}
                                 placeholder="Digite ou selecione..."
                             />
-
-                            {/* Observer (Input with Datalist) */}
                             <Input 
-                                label="Observador (Opcional)"
-                                list="pilots-list"
-                                value={formData.observer_name}
+                                label="Observador (Opcional)" list="pilots-list" value={formData.observer_name}
                                 onChange={(e) => {
                                     const val = e.target.value;
                                     const found = pilots.find(p => p.full_name === val);
-                                    setFormData({
-                                        ...formData, 
-                                        observer_name: val, 
-                                        observer_id: found ? found.id : ''
-                                    });
+                                    setFormData({...formData, observer_name: val, observer_id: found ? found.id : ''});
                                 }}
                                 placeholder="Digite ou selecione..."
                             />
@@ -727,7 +690,7 @@ export default function OperationManagement() {
                             <label className="text-sm font-medium text-slate-700 mb-1 block">Descrição / Observações (SARPAS)</label>
                             <textarea 
                                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none h-20 resize-none"
-                                placeholder="Detalhes da ocorrência para solicitação de voo..."
+                                placeholder="Detalhes da ocorrência..."
                                 value={formData.description}
                                 onChange={e => setFormData({...formData, description: e.target.value})}
                             />
@@ -778,7 +741,6 @@ export default function OperationManagement() {
                                     </div>
                                 </div>
                             </div>
-                            
                             <div className="pt-1 animate-fade-in">
                                 <Input 
                                     label="Protocolo SARPAS (Manual)"
@@ -796,28 +758,17 @@ export default function OperationManagement() {
                                     <Sun className="w-4 h-4 text-orange-600" />
                                     <div>
                                         <span className="text-xs font-bold text-orange-800 block">Operação Verão</span>
-                                        <span className="text-xs text-orange-600 block">Registro automático no diário</span>
                                     </div>
                                 </div>
                                 <input type="checkbox" className="w-5 h-5 accent-orange-600" checked={isSummerOp} onChange={e => setIsSummerOp(e.target.checked)} />
                             </div>
-                            
                             {isSummerOp && (
                                 <div className="grid grid-cols-2 gap-2 pt-1 animate-fade-in">
-                                    <Select 
-                                        className="text-xs bg-white" 
-                                        value={summerCity} 
-                                        onChange={e => { setSummerCity(e.target.value); setSummerPost(""); }}
-                                    >
+                                    <Select className="text-xs bg-white" value={summerCity} onChange={e => { setSummerCity(e.target.value); setSummerPost(""); }}>
                                         <option value="">Cidade...</option>
                                         {Object.keys(SUMMER_LOCATIONS).map(city => <option key={city} value={city}>{city}</option>)}
                                     </Select>
-                                    <Select 
-                                        className="text-xs bg-white" 
-                                        value={summerPost} 
-                                        disabled={!summerCity}
-                                        onChange={e => setSummerPost(e.target.value)}
-                                    >
+                                    <Select className="text-xs bg-white" value={summerPost} disabled={!summerCity} onChange={e => setSummerPost(e.target.value)}>
                                         <option value="">Posto...</option>
                                         {summerCity && SUMMER_LOCATIONS[summerCity].map(post => <option key={post} value={post}>{post}</option>)}
                                     </Select>
@@ -883,27 +834,45 @@ export default function OperationManagement() {
            </div>
         ) : (
            <div className="flex-1 flex flex-col h-full overflow-hidden">
-              <div className="p-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
-                 <div>
-                    <h2 className="font-bold text-lg text-slate-800">Operações</h2>
-                    <p className="text-xs text-slate-500">Gerencie missões em andamento</p>
+              <div className="p-4 border-b flex flex-col gap-4 bg-slate-50 shrink-0">
+                 <div className="flex justify-between items-center">
+                    <div>
+                       <h2 className="font-bold text-lg text-slate-800">Operações</h2>
+                       <p className="text-xs text-slate-500">Gerencie missões</p>
+                    </div>
+                    <Button onClick={() => { setFormData(initialFormState); setIsCreating(true); }} size="sm" className="shadow-sm">
+                       <Plus className="w-4 h-4 mr-1" /> Nova
+                    </Button>
                  </div>
-                 <Button onClick={() => { setFormData(initialFormState); setIsCreating(true); }} size="sm" className="shadow-sm">
-                    <Plus className="w-4 h-4 mr-1" /> Nova
-                 </Button>
+                 
+                 {/* Tabs Navigation */}
+                 <div className="flex bg-slate-200 p-1 rounded-lg">
+                     <button 
+                        className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-2 ${activeTab === 'active' ? 'bg-white text-green-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        onClick={() => setActiveTab('active')}
+                     >
+                        <Activity className="w-3 h-3" /> Em Andamento ({activeOps.length})
+                     </button>
+                     <button 
+                        className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all flex items-center justify-center gap-2 ${activeTab === 'history' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        onClick={() => setActiveTab('history')}
+                     >
+                        <History className="w-3 h-3" /> Histórico Recente
+                     </button>
+                 </div>
               </div>
               
               <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                 {operations.length === 0 ? (
+                 {displayedOps.length === 0 ? (
                     <div className="text-center p-8 text-slate-400 text-sm italic">
-                       Nenhuma operação ativa.
+                       Nenhuma operação {activeTab === 'active' ? 'ativa' : 'no histórico'}.
                     </div>
                  ) : (
-                    operations.map(op => (
-                       <div key={op.id} className={`bg-white border rounded-lg p-3 hover:shadow-md transition-shadow relative ${op.status === 'completed' ? 'opacity-70 bg-slate-50' : 'border-l-4 border-l-green-500'}`}>
+                    displayedOps.map(op => (
+                       <div key={op.id} className={`bg-white border rounded-lg p-3 hover:shadow-md transition-shadow relative ${op.status === 'completed' ? 'opacity-80 bg-slate-50 border-slate-200' : 'border-l-4 border-l-green-500'}`}>
                           <div className="flex justify-between items-start mb-1">
                              <h3 className="font-bold text-slate-800 text-sm">{op.name}</h3>
-                             <Badge variant={op.status === 'active' ? 'success' : 'default'} className="text-[10px] uppercase">{op.status}</Badge>
+                             <Badge variant={op.status === 'active' ? 'success' : 'default'} className="text-[10px] uppercase">{op.status === 'active' ? 'Ativa' : 'Finalizada'}</Badge>
                           </div>
                           <div className="text-xs text-slate-500 space-y-1">
                              <div className="flex items-center gap-1">
@@ -922,25 +891,31 @@ export default function OperationManagement() {
                                 </div>
                              )}
                           </div>
-                          {op.status === 'active' && (
-                             <div className="mt-3 flex gap-2 border-t pt-2">
-                                <Button 
-                                    variant="outline" 
-                                    size="sm" 
-                                    className="flex-1 h-8 text-xs" 
-                                    onClick={() => handleStartEdit(op)}
-                                >
-                                    <Pencil className="w-3 h-3 mr-1" /> Editar
+                          
+                          <div className="mt-3 flex gap-2 border-t pt-2">
+                            {op.status === 'active' ? (
+                                <>
+                                    <Button variant="outline" size="sm" className="flex-1 h-8 text-xs" onClick={() => handleStartEdit(op)}>
+                                        <Pencil className="w-3 h-3 mr-1" /> Editar
+                                    </Button>
+                                    <Button size="sm" className="flex-1 h-8 text-xs bg-slate-800 text-white hover:bg-black" onClick={() => setIsFinishing(op)}>
+                                        <CheckSquare className="w-3 h-3 mr-1" /> Encerrar
+                                    </Button>
+                                    <Button 
+                                        size="sm"
+                                        className="h-8 px-2 bg-green-100 text-green-700 hover:bg-green-200 border-green-200"
+                                        onClick={() => handleShareOp(op)}
+                                        title="Compartilhar"
+                                    >
+                                        <Share2 className="w-4 h-4" />
+                                    </Button>
+                                </>
+                            ) : (
+                                <Button variant="outline" size="sm" className="w-full h-8 text-xs text-slate-500" disabled>
+                                    Arquivado
                                 </Button>
-                                <Button 
-                                    size="sm" 
-                                    className="flex-1 h-8 text-xs bg-slate-800 text-white hover:bg-black" 
-                                    onClick={() => setIsFinishing(op)}
-                                >
-                                    <CheckSquare className="w-3 h-3 mr-1" /> Encerrar
-                                </Button>
-                             </div>
-                          )}
+                            )}
+                          </div>
                        </div>
                     ))
                  )}

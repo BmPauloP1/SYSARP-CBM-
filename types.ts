@@ -197,8 +197,11 @@ export interface Operation {
   
   // Equipe
   pilot_id: string; // Piloto em Comando (PIC)
+  pilot_name?: string; // Denormalized name
   second_pilot_id?: string; // Segundo Piloto (Opcional)
+  second_pilot_name?: string; // Denormalized name
   observer_id?: string; // Observador (Opcional)
+  observer_name?: string; // Denormalized name
 
   radius: number;
   flight_altitude?: number; // Added flight altitude

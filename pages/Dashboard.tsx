@@ -183,6 +183,11 @@ export default function Dashboard() {
       const mapLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
       const streamText = op.stream_url ? `\n📡 *Transmissão:* ${op.stream_url}` : '';
       const missionLabel = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
+      
+      const startTime = new Date(op.start_time);
+      const endTime = op.end_time 
+          ? new Date(op.end_time) 
+          : new Date(startTime.getTime() + 2 * 60 * 60 * 1000); // +2h se não definido
 
       const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n` +
           `🚁 *Ocorrência:* ${op.name}\n` +
@@ -193,7 +198,8 @@ export default function Dashboard() {
           `🛸 *Aeronave:* ${drone ? `${drone.model} (${drone.prefix})` : 'N/A'}\n` +
           `📍 *Coord:* ${op.latitude}, ${op.longitude}\n` +
           `🗺️ *Mapa:* ${mapLink}\n` +
-          `🕒 *Início:* ${new Date(op.start_time).toLocaleTimeString()}\n` +
+          `🕒 *Início:* ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
+          `🏁 *Término Previsto:* ${endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
           `${streamText}\n\n` +
           `_Enviado via Centro de Comando SYSARP_`;
 
