@@ -7,7 +7,7 @@ import { operationSummerService } from "../services/operationSummerService";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, ARO_SCENARIOS, AroItem, AroAssessment, MissionType, ConflictNotification } from "../types";
 import { SUMMER_LOCATIONS } from "../types_summer";
 import { Button, Input, Select, Badge, Card } from "../components/ui_components";
-import { Plus, Video, Map as MapIcon, Clock, ArrowLeft, Save, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, FileText, Timer, Anchor, Users, Eye, History, Activity } from "lucide-react";
+import { Plus, Video, Map as MapIcon, Clock, ArrowLeft, Save, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, FileText, Timer, Anchor, Users, Eye, History, Activity, Pause, Play } from "lucide-react";
 
 // Fix Leaflet icons
 const icon = L.icon({
@@ -29,6 +29,7 @@ const tempIcon = L.icon({
   shadowSize: [41, 41]
 });
 
+// Component to handle map clicks
 const LocationSelector = ({ onLocationSelect, isSelecting }: { onLocationSelect: (lat: number, lng: number) => void, isSelecting: boolean }) => {
   useMapEvents({
     click(e) {
@@ -40,6 +41,7 @@ const LocationSelector = ({ onLocationSelect, isSelecting }: { onLocationSelect:
   return null;
 };
 
+// Safe Map Controller
 const MapController = () => {
   const map = useMap();
   useEffect(() => {
@@ -51,11 +53,11 @@ const MapController = () => {
   return null;
 };
 
-// Weather Widget
+// Weather Widget Component
 const WeatherWidget = ({ lat, lng }: { lat: number, lng: number }) => {
-  const windSpeed = Math.floor(Math.random() * 25) + 5; 
-  const kpIndex = Math.floor(Math.random() * 4);
-  const rainProb = Math.floor(Math.random() * 30);
+  const windSpeed = Math.floor(Math.random() * 25) + 5; // 5-30 km/h
+  const kpIndex = Math.floor(Math.random() * 4); // 0-4
+  const rainProb = Math.floor(Math.random() * 30); // 0-30%
 
   return (
     <div className="bg-slate-900 text-white p-3 rounded-xl border border-slate-700 w-full animate-fade-in mt-2 shadow-md">
@@ -87,15 +89,19 @@ const WeatherWidget = ({ lat, lng }: { lat: number, lng: number }) => {
   );
 };
 
-// Distance Helper
+// Haversine Distance Calculation (in meters)
 const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-  const R = 6371e3;
+  const R = 6371e3; // Earth radius in meters
   const φ1 = lat1 * Math.PI / 180;
   const φ2 = lat2 * Math.PI / 180;
   const Δφ = (lat2 - lat1) * Math.PI / 180;
   const Δλ = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+          Math.cos(φ1) * Math.cos(φ2) *
+          Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
   return R * c;
 };
 
@@ -127,6 +133,43 @@ const ChecklistModal = ({ onConfirm, onCancel }: any) => (
     </div>
 );
 
+// Modal para informar motivo da pausa
+const PauseReasonModal = ({ onConfirm, onCancel }: { onConfirm: (reason: string) => void, onCancel: () => void }) => {
+  const [reason, setReason] = useState("");
+
+  return (
+    <div className="fixed inset-0 bg-black/80 z-[2000] flex items-center justify-center p-4">
+        <div className="bg-white p-6 rounded-lg max-w-md w-full animate-fade-in">
+            <h2 className="font-bold text-lg mb-2 flex items-center gap-2">
+               <Pause className="w-5 h-5 text-amber-600" />
+               Pausar Operação
+            </h2>
+            <p className="text-sm text-slate-500 mb-4">O tempo de voo será congelado. Informe o motivo da pausa.</p>
+            
+            <Input 
+               label="Motivo" 
+               placeholder="Ex: Troca de Bateria, Troca de Hélice, Chuva..."
+               value={reason}
+               onChange={e => setReason(e.target.value)}
+               autoFocus
+            />
+            
+            <div className="flex justify-end gap-2 mt-4">
+                <Button variant="outline" onClick={onCancel}>Cancelar</Button>
+                <Button 
+                  disabled={!reason.trim()} 
+                  onClick={() => onConfirm(reason)}
+                  className="bg-amber-600 hover:bg-amber-700 text-white"
+                >
+                    Confirmar Pausa
+                </Button>
+            </div>
+        </div>
+    </div>
+  );
+};
+
+
 const ConflictModal = ({ conflicts, onAck, onCancel }: any) => (
      <div className="fixed inset-0 bg-red-900/80 z-[2001] flex items-center justify-center p-4">
         <div className="bg-white p-6 rounded-lg max-w-md w-full border-4 border-red-500">
@@ -134,12 +177,14 @@ const ConflictModal = ({ conflicts, onAck, onCancel }: any) => (
                 <AlertTriangle className="w-6 h-6"/> ALERTA DE CONFLITO
             </h2>
             <p className="mb-4 text-slate-700 font-medium">Conflito de espaço aéreo detectado com {conflicts.length} operação(ões) ativa(s).</p>
+            
             <div className="bg-red-50 p-3 rounded mb-4 text-sm">
                 <p className="font-bold text-red-800">Aeronave(s) próxima(s):</p>
                 <ul className="list-disc list-inside text-red-700">
                     {conflicts.map((c: Operation) => <li key={c.id}>{c.name} ({c.radius}m)</li>)}
                 </ul>
             </div>
+
             <Button onClick={onAck} className="w-full bg-red-600 text-white hover:bg-red-700">Estou Ciente (Manter Coordenação)</Button>
             <Button variant="outline" onClick={onCancel} className="w-full mt-2">Abortar Criação</Button>
         </div>
@@ -165,6 +210,9 @@ export default function OperationManagement() {
   const [sendToSarpas, setSendToSarpas] = useState(false); 
   
   const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
+  
+  // Pause State
+  const [pausingOpId, setPausingOpId] = useState<string | null>(null);
 
   // Summer Op States
   const [isSummerOp, setIsSummerOp] = useState(false);
@@ -174,11 +222,11 @@ export default function OperationManagement() {
   const initialFormState = {
     name: '',
     pilot_id: '',
-    pilot_name: '', 
+    pilot_name: '', // Novo
     second_pilot_id: '',
-    second_pilot_name: '', 
+    second_pilot_name: '', // Novo
     observer_id: '',
-    observer_name: '', 
+    observer_name: '', // Novo
     drone_id: '',
     mission_type: 'sar' as MissionType,
     sub_mission_type: '',
@@ -188,11 +236,13 @@ export default function OperationManagement() {
     flight_altitude: 60,
     stream_url: '',
     description: '',
-    sarpas_protocol: '', 
+    sarpas_protocol: '', // Campo manual de protocolo
+    // Novos campos de tempo
     start_time_local: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
     end_time_local: new Date(new Date().getTime() + 60*60*1000).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
   };
 
+  // Estado estendido para o formulário
   const [formData, setFormData] = useState(initialFormState);
 
   const [finishData, setFinishData] = useState({
@@ -242,9 +292,12 @@ export default function OperationManagement() {
     return conflicts;
   };
 
+  // Função para iniciar edição populando o formulário
   const handleStartEdit = (op: Operation) => {
     const start = new Date(op.start_time);
     const end = op.end_time ? new Date(op.end_time) : new Date(start.getTime() + 60*60000);
+
+    // Tenta encontrar os nomes se não estiverem salvos no objeto, usando os IDs
     const pilot = pilots.find(p => p.id === op.pilot_id);
     const second = pilots.find(p => p.id === op.second_pilot_id);
     const observer = pilots.find(p => p.id === op.observer_id);
@@ -272,7 +325,7 @@ export default function OperationManagement() {
     });
     setTempMarker({ lat: op.latitude, lng: op.longitude });
     setIsEditing(op.id);
-    setIsCreating(true); 
+    setIsCreating(true); // Força a exibição do formulário
   };
 
   const handleCancelForm = () => {
@@ -315,6 +368,7 @@ export default function OperationManagement() {
     setShowChecklist(true);
   };
 
+  // Helper para combinar Data Hoje + Hora Input
   const combineDateAndTime = (timeStr: string): string => {
     const now = new Date();
     const [hours, minutes] = timeStr.split(':').map(Number);
@@ -327,6 +381,7 @@ export default function OperationManagement() {
     try {
       const startTimeISO = combineDateAndTime(formData.start_time_local);
       const endTimeISO = combineDateAndTime(formData.end_time_local);
+
       const sanitizeUuid = (val: string | undefined) => (!val || val === "") ? null : val;
 
       if (isEditing) {
@@ -356,6 +411,8 @@ export default function OperationManagement() {
       } else {
         const selectedPilot = pilots.find(p => p.id === formData.pilot_id);
         const selectedDrone = drones.find(d => d.id === formData.drone_id);
+        
+        // Inicializa com o valor manual digitado
         let sarpasProtocol = formData.sarpas_protocol || "";
         
         let finalDescription = formData.description;
@@ -366,6 +423,7 @@ export default function OperationManagement() {
                : summerHeader;
         }
 
+        // Integração SARPAS: Só funciona se houver um piloto vinculado com cadastro
         if (sendToSarpas && selectedPilot && selectedDrone) {
            try {
              sarpasProtocol = await sarpasApi.submitFlightRequest({
@@ -377,7 +435,8 @@ export default function OperationManagement() {
              alert(`Solicitação SARPAS enviada! Protocolo: ${sarpasProtocol}`);
            } catch (sarpasError: any) {
              console.error("Erro SARPAS", sarpasError);
-             const shouldContinue = window.confirm(`Erro ao conectar com SARPAS: ${sarpasError.message}\n\nDeseja continuar criando a operação APENAS localmente?`);
+             const shouldContinue = window.confirm(`Erro ao conectar com SARPAS: ${sarpasError.message}\n\nDeseja continuar criando a operação APENAS localmente (sem registro oficial no espaço aéreo)?`);
+             
              if (!shouldContinue) {
                 setLoading(false);
                 return; 
@@ -386,6 +445,7 @@ export default function OperationManagement() {
         }
 
         const occurrenceNumber = `${new Date().getFullYear()}${selectedPilot?.unit?.split(' ')[0] || 'BM'}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+
         const { start_time_local, end_time_local, ...rawPayload } = formData;
         
         const dbPayload = {
@@ -429,6 +489,7 @@ export default function OperationManagement() {
               }
            }
         }
+        
         handleCancelForm();
       }
       loadData();
@@ -443,6 +504,75 @@ export default function OperationManagement() {
     }
   };
 
+  // --- PAUSE LOGIC ---
+
+  const handlePauseOp = (opId: string) => {
+     setPausingOpId(opId);
+  };
+
+  const confirmPause = async (reason: string) => {
+     if (!pausingOpId) return;
+     setLoading(true);
+     try {
+        const op = operations.find(o => o.id === pausingOpId);
+        if (!op) throw new Error("Operação não encontrada");
+
+        const currentLogs = op.pause_logs || [];
+        const newLog = { start: new Date().toISOString(), reason };
+        
+        await base44.entities.Operation.update(pausingOpId, {
+            is_paused: true,
+            last_pause_start: new Date().toISOString(),
+            pause_logs: [...currentLogs, newLog]
+        });
+        
+        alert("Operação pausada! O tempo de voo está congelado.");
+        setPausingOpId(null);
+        loadData();
+     } catch (e) {
+        console.error(e);
+        alert("Erro ao pausar");
+     } finally {
+        setLoading(false);
+     }
+  };
+
+  const handleResumeOp = async (op: Operation) => {
+     if (!op.is_paused || !op.last_pause_start) return;
+     
+     if (!window.confirm(`Retomar operação "${op.name}"?`)) return;
+     
+     setLoading(true);
+     try {
+        const now = new Date();
+        const pauseStart = new Date(op.last_pause_start);
+        const pauseDurationMinutes = Math.round((now.getTime() - pauseStart.getTime()) / 60000);
+        
+        const currentLogs = op.pause_logs || [];
+        // Update last log with end time
+        if (currentLogs.length > 0) {
+            currentLogs[currentLogs.length - 1].end = now.toISOString();
+            currentLogs[currentLogs.length - 1].duration = pauseDurationMinutes;
+        }
+
+        await base44.entities.Operation.update(op.id, {
+            is_paused: false,
+            last_pause_start: null,
+            total_pause_duration: (op.total_pause_duration || 0) + pauseDurationMinutes,
+            pause_logs: currentLogs
+        });
+        
+        alert("Operação retomada com sucesso!");
+        loadData();
+     } catch (e) {
+        console.error(e);
+        alert("Erro ao retomar");
+     } finally {
+        setLoading(false);
+     }
+  };
+
+
   const handleFinishSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isFinishing) return;
@@ -451,8 +581,19 @@ export default function OperationManagement() {
     try {
       const endTime = new Date();
       const startTime = new Date(isFinishing.start_time);
-      const calculatedDuration = Number(((endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60)).toFixed(2));
       
+      // Tempo total decorrido bruto (minutos)
+      const rawDurationMinutes = (endTime.getTime() - startTime.getTime()) / 60000;
+      
+      // Descontar pausas
+      const totalPauseMinutes = isFinishing.total_pause_duration || 0;
+      
+      // Tempo efetivo em HORAS (com casas decimais)
+      const calculatedDuration = Number(((rawDurationMinutes - totalPauseMinutes) / 60).toFixed(2));
+      
+      // Proteção contra tempo negativo
+      const finalFlightHours = calculatedDuration > 0 ? calculatedDuration : 0.01;
+
       let kmzUrl = "";
       if (finishData.kmz_file) {
         const upload = await base44.integrations.Core.UploadFile({ file: finishData.kmz_file });
@@ -462,7 +603,7 @@ export default function OperationManagement() {
       await base44.entities.Operation.update(isFinishing.id, {
         status: 'completed',
         end_time: endTime.toISOString(),
-        flight_hours: calculatedDuration,
+        flight_hours: finalFlightHours,
         description: finishData.description,
         actions_taken: finishData.actions_taken,
         kmz_file: kmzUrl
@@ -471,7 +612,7 @@ export default function OperationManagement() {
       const currentDrone = drones.find(d => d.id === isFinishing.drone_id);
       await base44.entities.Drone.update(isFinishing.drone_id, { 
           status: 'available',
-          total_flight_hours: (currentDrone?.total_flight_hours || 0) + calculatedDuration
+          total_flight_hours: (currentDrone?.total_flight_hours || 0) + finalFlightHours
       });
       
       await base44.entities.FlightLog.create({
@@ -479,12 +620,13 @@ export default function OperationManagement() {
         pilot_id: isFinishing.pilot_id,
         drone_id: isFinishing.drone_id,
         flight_date: isFinishing.start_time,
-        flight_hours: calculatedDuration,
+        flight_hours: finalFlightHours,
         mission_type: isFinishing.mission_type
       });
 
       if (isFinishing.is_summer_op) {
          const pilot = pilots.find(p => p.id === isFinishing.pilot_id);
+         
          const missionMap: Record<string, 'patrulha' | 'resgate' | 'prevencao' | 'apoio' | 'treinamento'> = {
            sar: 'resgate', fire: 'apoio', aph: 'apoio', traffic_accident: 'apoio',
            hazmat: 'apoio', natural_disaster: 'apoio', public_security: 'patrulha',
@@ -508,7 +650,7 @@ export default function OperationManagement() {
             date: isFinishing.start_time.split('T')[0],
             start_time: new Date(isFinishing.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
             end_time: endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
-            flight_duration: Math.round(calculatedDuration * 60),
+            flight_duration: Math.round(finalFlightHours * 60),
             notes: `Ocorrência: ${isFinishing.occurrence_number}. ${finishData.description}`,
             evidence_photos: [],
             evidence_videos: []
@@ -530,10 +672,11 @@ export default function OperationManagement() {
   const handleShareOp = (op: Operation) => {
       const pilot = pilots.find(p => p.id === op.pilot_id);
       const drone = drones.find(d => d.id === op.drone_id);
+
       const mapLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
       const streamText = op.stream_url ? `\n📡 *Transmissão:* ${op.stream_url}` : '';
       const missionLabel = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
-
+      
       const startTime = new Date(op.start_time);
       const endTime = op.end_time 
           ? new Date(op.end_time) 
@@ -567,6 +710,7 @@ export default function OperationManagement() {
       {conflictData && <ConflictModal conflicts={conflictData} onAck={handleConflictAck} onCancel={() => setConflictData(null)} />}
       {showAroModal && <AroModal onConfirm={handleAroConfirm} onCancel={() => setShowAroModal(false)} />}
       {showChecklist && <ChecklistModal onConfirm={performSave} onCancel={() => setShowChecklist(false)} />}
+      {pausingOpId && <PauseReasonModal onConfirm={confirmPause} onCancel={() => setPausingOpId(null)} />}
 
       <datalist id="pilots-list">
           {pilots.map(p => <option key={p.id} value={p.full_name} />)}
@@ -597,6 +741,7 @@ export default function OperationManagement() {
                             Equipe Estendida
                         </div>
                     )}
+                    {op.is_paused && <span className="block mt-1 text-amber-600 font-bold bg-amber-50 px-1 rounded border border-amber-200 text-xs text-center">PAUSADA</span>}
                   </Popup>
               </Marker>
             );
@@ -620,13 +765,13 @@ export default function OperationManagement() {
         
         {isCreating ? (
            <div className="flex-1 flex flex-col h-full overflow-hidden">
+              {/* ... Form Header ... */}
               <div className="p-4 border-b flex items-center justify-between bg-slate-50 shrink-0">
                  <h2 className="font-bold text-lg text-slate-800">{isEditing ? 'Editar Operação' : 'Nova Operação'}</h2>
                  <Button variant="outline" onClick={handleCancelForm} size="sm"><X className="w-4 h-4"/></Button>
               </div>
               <div className="flex-1 overflow-y-auto p-5 space-y-6">
                 <form id="opForm" onSubmit={handleSubmit} className="space-y-6">
-                    {/* ... Campos do formulário (Mantidos iguais) ... */}
                     <div className="space-y-4">
                          <div className="space-y-3">
                             <Input label="Nome da Operação" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Ex: Busca em Matinhos" required />
@@ -797,6 +942,13 @@ export default function OperationManagement() {
                     <div className="bg-slate-50 p-3 rounded text-sm mb-2">
                        <p className="font-bold text-slate-700">{isFinishing.name}</p>
                        <p className="text-slate-500 text-xs">Início: {new Date(isFinishing.start_time).toLocaleString()}</p>
+                       
+                       {isFinishing.is_paused && (
+                           <div className="bg-amber-100 text-amber-800 p-2 mt-2 rounded text-xs font-bold border border-amber-200 flex items-center gap-2">
+                               <AlertTriangle className="w-4 h-4" />
+                               ATENÇÃO: A operação está PAUSADA. Retome para encerrar corretamente ou confirme abaixo para encerrar e contabilizar o tempo até a última pausa.
+                           </div>
+                       )}
                     </div>
                     <div>
                         <label className="text-sm font-medium text-slate-700 mb-1 block">Descrição Final / Resultado</label>
@@ -872,7 +1024,13 @@ export default function OperationManagement() {
                        <div key={op.id} className={`bg-white border rounded-lg p-3 hover:shadow-md transition-shadow relative ${op.status === 'completed' ? 'opacity-80 bg-slate-50 border-slate-200' : 'border-l-4 border-l-green-500'}`}>
                           <div className="flex justify-between items-start mb-1">
                              <h3 className="font-bold text-slate-800 text-sm">{op.name}</h3>
-                             <Badge variant={op.status === 'active' ? 'success' : 'default'} className="text-[10px] uppercase">{op.status === 'active' ? 'Ativa' : 'Finalizada'}</Badge>
+                             {op.is_paused ? (
+                                 <Badge className="bg-amber-100 text-amber-700 animate-pulse flex items-center gap-1 text-[10px]">
+                                     <Pause className="w-3 h-3" /> PAUSADA
+                                 </Badge>
+                             ) : (
+                                 <Badge variant={op.status === 'active' ? 'success' : 'default'} className="text-[10px] uppercase">{op.status === 'active' ? 'Ativa' : 'Finalizada'}</Badge>
+                             )}
                           </div>
                           <div className="text-xs text-slate-500 space-y-1">
                              <div className="flex items-center gap-1">
@@ -895,15 +1053,37 @@ export default function OperationManagement() {
                           <div className="mt-3 flex gap-2 border-t pt-2">
                             {op.status === 'active' ? (
                                 <>
-                                    <Button variant="outline" size="sm" className="flex-1 h-8 text-xs" onClick={() => handleStartEdit(op)}>
-                                        <Pencil className="w-3 h-3 mr-1" /> Editar
+                                    {op.is_paused ? (
+                                        <Button 
+                                            size="sm" 
+                                            className="flex-1 h-8 text-xs bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100" 
+                                            onClick={() => handleResumeOp(op)}
+                                            title="Retomar Operação"
+                                        >
+                                            <Play className="w-3 h-3 mr-1" /> Retomar
+                                        </Button>
+                                    ) : (
+                                        <Button 
+                                            size="sm" 
+                                            className="flex-1 h-8 text-xs bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100" 
+                                            onClick={() => handlePauseOp(op.id)}
+                                            title="Pausar (Troca de Bateria, etc.)"
+                                        >
+                                            <Pause className="w-3 h-3 mr-1" /> Pausar
+                                        </Button>
+                                    )}
+
+                                    <Button variant="outline" size="sm" className="h-8 w-8 p-0 flex items-center justify-center" onClick={() => handleStartEdit(op)} title="Editar">
+                                        <Pencil className="w-3 h-3" />
                                     </Button>
+                                    
                                     <Button size="sm" className="flex-1 h-8 text-xs bg-slate-800 text-white hover:bg-black" onClick={() => setIsFinishing(op)}>
                                         <CheckSquare className="w-3 h-3 mr-1" /> Encerrar
                                     </Button>
+                                    
                                     <Button 
                                         size="sm"
-                                        className="h-8 px-2 bg-green-100 text-green-700 hover:bg-green-200 border-green-200"
+                                        className="h-8 w-8 p-0 flex items-center justify-center bg-green-100 text-green-700 hover:bg-green-200 border-green-200"
                                         onClick={() => handleShareOp(op)}
                                         title="Compartilhar"
                                     >

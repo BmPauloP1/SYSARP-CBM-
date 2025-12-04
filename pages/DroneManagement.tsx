@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect } from "react";
 import { base44 } from "../services/base44Client";
 import { Drone, Pilot, DroneChecklist, ChecklistItemState, DRONE_CHECKLIST_TEMPLATE, SYSARP_LOGO, Maintenance } from "../types";
@@ -466,21 +463,65 @@ export default function DroneManagement() {
     return { percentage, remaining, color };
   };
 
-  // 7 Day Checklist Helper (Updated from 30)
+  // 7 Day Checklist Helper (Updated Logic)
   const getChecklistStatus = (lastCheck?: string) => {
-    if (!lastCheck) return { daysLeft: 0, color: "text-red-600", bg: "bg-red-100", label: "Vencido" };
+    const CYCLE_DAYS = 7;
+    const CYCLE_MS = CYCLE_DAYS * 24 * 60 * 60 * 1000;
+
+    if (!lastCheck) {
+        return { 
+            daysLeft: 0, 
+            percentage: 0, // Bar empty (or full red depending on UI preference)
+            color: "text-red-600", 
+            barColor: "bg-red-600",
+            bg: "bg-red-100", 
+            label: "Vencido" 
+        };
+    }
 
     const last = new Date(lastCheck).getTime();
     const now = new Date().getTime();
-    const diffDays = Math.floor((now - last) / (1000 * 3600 * 24));
+    const elapsed = now - last;
+    const remainingMs = CYCLE_MS - elapsed;
     
-    // Mudança para ciclo de 7 dias
-    const daysLeft = 7 - diffDays;
+    // Days left (rounded up so 25h left shows 2 days)
+    const daysLeft = Math.ceil(remainingMs / (1000 * 60 * 60 * 24));
 
-    if (daysLeft < 0) return { daysLeft, color: "text-red-600", bg: "bg-red-100", label: `Vencido (${Math.abs(daysLeft)} dias)` };
-    // Alerta começa faltando 2 dias (aprox 30% do tempo)
-    if (daysLeft <= 2) return { daysLeft, color: "text-amber-600", bg: "bg-amber-100", label: `Vence em ${daysLeft} dias` };
-    return { daysLeft, color: "text-green-600", bg: "bg-green-100", label: `${daysLeft} dias restantes` };
+    // Percentage of time remaining (100% = freshly checked, 0% = expired)
+    let percentage = (remainingMs / CYCLE_MS) * 100;
+    if (percentage < 0) percentage = 0;
+    if (percentage > 100) percentage = 100;
+
+    if (remainingMs <= 0) {
+        return { 
+            daysLeft: 0, 
+            percentage: 0,
+            color: "text-red-600", 
+            barColor: "bg-red-600",
+            bg: "bg-red-100", 
+            label: `Vencido há ${Math.abs(daysLeft)} dias` 
+        };
+    }
+    
+    if (daysLeft <= 2) {
+        return { 
+            daysLeft, 
+            percentage,
+            color: "text-amber-600", 
+            barColor: "bg-amber-500",
+            bg: "bg-amber-100", 
+            label: `Vence em ${daysLeft} dias` 
+        };
+    }
+    
+    return { 
+        daysLeft, 
+        percentage,
+        color: "text-green-600", 
+        barColor: "bg-green-500",
+        bg: "bg-green-100", 
+        label: `${daysLeft} dias restantes` 
+    };
   };
 
   return (
@@ -567,9 +608,9 @@ export default function DroneManagement() {
                   </div>
                 </div>
 
-                {/* 7-DAY CHECKLIST CLOCK */}
+                {/* 7-DAY CHECKLIST WITH PROGRESS BAR */}
                 <div className={`p-2 rounded-lg border ${checklist.color === 'text-red-600' ? 'border-red-200 bg-red-50' : 'border-slate-100 bg-slate-50'}`}>
-                   <div className="flex justify-between items-center">
+                   <div className="flex justify-between items-center mb-1">
                       <div className="flex items-center gap-2">
                         <ClipboardCheck className={`w-4 h-4 ${checklist.color}`} />
                         <span className="text-[10px] font-bold text-slate-500 uppercase">Checklist 7 Dias</span>
@@ -582,7 +623,16 @@ export default function DroneManagement() {
                         <RotateCcw className="w-3.5 h-3.5" />
                       </button>
                    </div>
-                   <div className="mt-1 flex items-center gap-2">
+                   
+                   {/* Barra de Progresso do Checklist */}
+                   <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden mb-1">
+                      <div 
+                        className={`h-full ${checklist.barColor} transition-all duration-500`} 
+                        style={{ width: `${checklist.percentage}%` }}
+                      ></div>
+                   </div>
+
+                   <div className="flex items-center justify-between">
                       <span className={`text-xs font-bold ${checklist.color}`}>{checklist.label}</span>
                       {checklist.daysLeft < 2 && (
                         <span className="flex h-2 w-2 relative">
@@ -658,6 +708,7 @@ export default function DroneManagement() {
         })}
       </div>
 
+      {/* ... (Restante do código: Modais de Checklist, Manutenção e Cadastro mantidos) ... */}
       {/* --- CHECKLIST MODAL --- */}
       {isChecklistModalOpen && currentChecklistDrone && (
         <div className="fixed inset-0 bg-black/80 z-[2000] flex items-center justify-center p-4">
@@ -831,7 +882,6 @@ export default function DroneManagement() {
                 />
               </div>
 
-              {/* ... (Rest of the form similar to previous, just included in the full file) */}
               <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
                 <h3 className="text-sm font-bold text-slate-700 mb-3 uppercase">Dados do Fabricante</h3>
                 <div className="grid grid-cols-2 gap-4">
