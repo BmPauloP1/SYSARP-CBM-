@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMapEvents, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -193,10 +191,13 @@ export default function OperationManagement() {
   const initialFormState = {
     name: '',
     pilot_id: '',
+    pilot_name: '', // Novo
     second_pilot_id: '',
+    second_pilot_name: '', // Novo
     observer_id: '',
+    observer_name: '', // Novo
     drone_id: '',
-    mission_type: 'sar' as MissionType, // Updated default to 'sar'
+    mission_type: 'sar' as MissionType,
     sub_mission_type: '',
     latitude: -25.2521, 
     longitude: -52.0215,
@@ -204,6 +205,7 @@ export default function OperationManagement() {
     flight_altitude: 60,
     stream_url: '',
     description: '',
+    sarpas_protocol: '', // Campo manual de protocolo
     // Novos campos de tempo
     start_time_local: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
     end_time_local: new Date(new Date().getTime() + 60*60*1000).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
@@ -231,7 +233,6 @@ export default function OperationManagement() {
       setPilots(pils);
       setDrones(drns);
     } catch(e: any) {
-      // Suppress network errors during polling to avoid console spam
       if (e.message && e.message.includes("Failed to fetch")) {
          console.warn("Network error during data load (retrying...)");
       } else {
@@ -267,11 +268,19 @@ export default function OperationManagement() {
     const start = new Date(op.start_time);
     const end = op.end_time ? new Date(op.end_time) : new Date(start.getTime() + 60*60000);
 
+    // Tenta encontrar os nomes se não estiverem salvos no objeto, usando os IDs
+    const pilot = pilots.find(p => p.id === op.pilot_id);
+    const second = pilots.find(p => p.id === op.second_pilot_id);
+    const observer = pilots.find(p => p.id === op.observer_id);
+
     setFormData({
         name: op.name,
-        pilot_id: op.pilot_id,
+        pilot_id: op.pilot_id || '',
+        pilot_name: op.pilot_name || pilot?.full_name || '',
         second_pilot_id: op.second_pilot_id || '',
+        second_pilot_name: op.second_pilot_name || second?.full_name || '',
         observer_id: op.observer_id || '',
+        observer_name: op.observer_name || observer?.full_name || '',
         drone_id: op.drone_id,
         mission_type: op.mission_type,
         sub_mission_type: op.sub_mission_type || '',
@@ -281,6 +290,7 @@ export default function OperationManagement() {
         flight_altitude: op.flight_altitude || 60,
         stream_url: op.stream_url || '',
         description: op.description || '',
+        sarpas_protocol: op.sarpas_protocol || '',
         start_time_local: start.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
         end_time_local: end.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
     });
@@ -303,7 +313,7 @@ export default function OperationManagement() {
     if (isEditing) {
        performSave();
     } else {
-       if (!formData.pilot_id || !formData.drone_id) { alert("Selecione piloto em comando e aeronave"); return; }
+       if (!formData.pilot_name || !formData.drone_id) { alert("Nome do piloto em comando e aeronave são obrigatórios"); return; }
        if (!formData.name) { alert("Nome da operação é obrigatório"); return; }
        
        if (isSummerOp) {
@@ -343,13 +353,17 @@ export default function OperationManagement() {
       const startTimeISO = combineDateAndTime(formData.start_time_local);
       const endTimeISO = combineDateAndTime(formData.end_time_local);
 
+      const sanitizeUuid = (val: string | undefined) => (!val || val === "") ? null : val;
+
       if (isEditing) {
-        // Atualiza a operação existente
         await base44.entities.Operation.update(isEditing, {
           name: formData.name,
-          pilot_id: formData.pilot_id,
-          second_pilot_id: formData.second_pilot_id,
-          observer_id: formData.observer_id,
+          pilot_id: sanitizeUuid(formData.pilot_id),
+          pilot_name: formData.pilot_name,
+          second_pilot_id: sanitizeUuid(formData.second_pilot_id),
+          second_pilot_name: formData.second_pilot_name,
+          observer_id: sanitizeUuid(formData.observer_id),
+          observer_name: formData.observer_name,
           drone_id: formData.drone_id,
           stream_url: formData.stream_url,
           radius: formData.radius,
@@ -357,6 +371,7 @@ export default function OperationManagement() {
           mission_type: formData.mission_type,
           sub_mission_type: formData.sub_mission_type,
           description: formData.description,
+          sarpas_protocol: formData.sarpas_protocol, 
           latitude: formData.latitude,
           longitude: formData.longitude,
           start_time: startTimeISO,
@@ -368,7 +383,8 @@ export default function OperationManagement() {
         const selectedPilot = pilots.find(p => p.id === formData.pilot_id);
         const selectedDrone = drones.find(d => d.id === formData.drone_id);
         
-        let sarpasProtocol = "";
+        // Inicializa com o valor manual digitado
+        let sarpasProtocol = formData.sarpas_protocol || "";
         
         let finalDescription = formData.description;
         if (isSummerOp && summerCity && summerPost) {
@@ -378,6 +394,7 @@ export default function OperationManagement() {
                : summerHeader;
         }
 
+        // Integração SARPAS: Só funciona se houver um piloto vinculado com cadastro
         if (sendToSarpas && selectedPilot && selectedDrone) {
            try {
              sarpasProtocol = await sarpasApi.submitFlightRequest({
@@ -387,19 +404,27 @@ export default function OperationManagement() {
                 end_time: endTimeISO
              }, selectedPilot, selectedDrone);
              alert(`Solicitação SARPAS enviada! Protocolo: ${sarpasProtocol}`);
-           } catch (sarpasError) {
+           } catch (sarpasError: any) {
              console.error("Erro SARPAS", sarpasError);
-             if(!confirm("Erro ao conectar com SARPAS. Deseja continuar criando a operação apenas localmente?")) {
+             const shouldContinue = window.confirm(`Erro ao conectar com SARPAS: ${sarpasError.message}\n\nDeseja continuar criando a operação APENAS localmente (sem registro oficial no espaço aéreo)?`);
+             
+             if (!shouldContinue) {
                 setLoading(false);
-                return;
+                return; 
              }
            }
         }
 
         const occurrenceNumber = `${new Date().getFullYear()}${selectedPilot?.unit?.split(' ')[0] || 'BM'}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
 
-        // Remove campos temporários
-        const { start_time_local, end_time_local, ...dbPayload } = formData;
+        const { start_time_local, end_time_local, ...rawPayload } = formData;
+        
+        const dbPayload = {
+            ...rawPayload,
+            pilot_id: sanitizeUuid(rawPayload.pilot_id),
+            second_pilot_id: sanitizeUuid(rawPayload.second_pilot_id),
+            observer_id: sanitizeUuid(rawPayload.observer_id),
+        };
 
         await base44.entities.Operation.create({
           ...dbPayload,
@@ -421,14 +446,13 @@ export default function OperationManagement() {
               const notification: Omit<ConflictNotification, 'id'> = {
                  target_pilot_id: existingOp.pilot_id,
                  new_op_name: formData.name,
-                 new_pilot_name: selectedPilot?.full_name || 'Desconhecido',
+                 new_pilot_name: formData.pilot_name || 'Desconhecido',
                  new_pilot_phone: selectedPilot?.phone || '',
                  new_op_altitude: formData.flight_altitude,
                  new_op_radius: formData.radius,
                  created_at: new Date().toISOString(),
                  acknowledged: false
               };
-              
               try {
                 await base44.entities.ConflictNotification.create(notification);
               } catch (e) {
@@ -494,7 +518,6 @@ export default function OperationManagement() {
       if (isFinishing.is_summer_op) {
          const pilot = pilots.find(p => p.id === isFinishing.pilot_id);
          
-         // Mapping old types if they exist or new types to summer types
          const missionMap: Record<string, 'patrulha' | 'resgate' | 'prevencao' | 'apoio' | 'treinamento'> = {
            sar: 'resgate',
            fire: 'apoio',
@@ -510,7 +533,6 @@ export default function OperationManagement() {
            training: 'treinamento',
            admin_support: 'apoio',
            diverse: 'prevencao',
-           // Backwards compatibility
            search_rescue: 'resgate',
            civil_defense: 'apoio',
            monitoring: 'patrulha',
@@ -554,12 +576,15 @@ export default function OperationManagement() {
 
   return (
     <div className="flex flex-col lg:flex-row h-full w-full relative bg-slate-100 overflow-hidden">
-      {/* Modals */}
       {conflictData && <ConflictModal conflicts={conflictData} onAck={handleConflictAck} onCancel={() => setConflictData(null)} />}
       {showAroModal && <AroModal onConfirm={handleAroConfirm} onCancel={() => setShowAroModal(false)} />}
       {showChecklist && <ChecklistModal onConfirm={performSave} onCancel={() => setShowChecklist(false)} />}
 
-      {/* MAP - On mobile: fixed height at top. Desktop: flexible */}
+      {/* Datalist para autocomplete dos pilotos */}
+      <datalist id="pilots-list">
+          {pilots.map(p => <option key={p.id} value={p.full_name} />)}
+      </datalist>
+
       <div className="w-full h-[40vh] lg:h-full lg:flex-1 z-0 relative order-1 lg:order-1 border-b lg:border-r border-slate-200">
         <MapContainer 
           center={[-25.2521, -52.0215]} 
@@ -570,18 +595,20 @@ export default function OperationManagement() {
           <TileLayer attribution='OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           <LocationSelector onLocationSelect={handleLocationSelect} isSelecting={isCreating} />
           {activeOps.map(op => {
-            if (typeof op.latitude !== 'number' || typeof op.longitude !== 'number' || isNaN(op.latitude) || isNaN(op.longitude)) {
-              return null;
-            }
+            // Safety check for valid coordinates
+            const lat = Number(op.latitude);
+            const lng = Number(op.longitude);
+            if (isNaN(lat) || isNaN(lng)) return null;
+
             return (
-              <Marker key={op.id} position={[op.latitude, op.longitude]} icon={icon}>
+              <Marker key={op.id} position={[lat, lng]} icon={icon}>
                   <Popup>
                     <b>{op.name}</b><br/>
                     {op.is_summer_op && <span className="text-orange-600 font-bold text-xs">☀️ Op. Verão</span>}
-                    {(op.second_pilot_id || op.observer_id) && (
+                    {(op.second_pilot_name || op.observer_name) && (
                         <div className="flex gap-1 mt-1 text-xs text-blue-600 font-bold">
-                            {op.second_pilot_id && <span title="Múltiplos Pilotos"><Users className="w-3 h-3 inline"/></span>}
-                            {op.observer_id && <span title="Observador Presente"><Eye className="w-3 h-3 inline"/></span>}
+                            {op.second_pilot_name && <span title="Múltiplos Pilotos"><Users className="w-3 h-3 inline"/></span>}
+                            {op.observer_name && <span title="Observador Presente"><Eye className="w-3 h-3 inline"/></span>}
                             Equipe Estendida
                         </div>
                     )}
@@ -589,12 +616,12 @@ export default function OperationManagement() {
               </Marker>
             );
           })}
-          {tempMarker && (
+          {tempMarker && !isNaN(Number(formData.radius)) && formData.radius > 0 && (
             <>
               <Marker key="temp-marker" position={[tempMarker.lat, tempMarker.lng]} icon={tempIcon} />
               <Circle 
                 center={[tempMarker.lat, tempMarker.lng]} 
-                radius={formData.radius} 
+                radius={Number(formData.radius)} 
                 pathOptions={{ color: 'orange', dashArray: '5, 5', fillColor: 'orange', fillOpacity: 0.2 }}
               />
             </>
@@ -602,7 +629,6 @@ export default function OperationManagement() {
         </MapContainer>
       </div>
 
-      {/* SIDEBAR - Mobile: flex-1 (fills rest). Desktop: fixed width */}
       <div className="w-full lg:w-[28rem] h-auto flex-1 lg:h-full bg-white lg:border-l border-slate-200 z-10 flex flex-col shadow-xl overflow-hidden order-2 lg:order-2">
         {isCreating ? (
            <div className="flex-1 flex flex-col h-full overflow-hidden">
@@ -613,7 +639,6 @@ export default function OperationManagement() {
               
               <div className="flex-1 overflow-y-auto p-5 space-y-6">
                 <form id="opForm" onSubmit={handleSubmit} className="space-y-6">
-                    {/* General Info */}
                     <div className="space-y-4">
                          <div className="space-y-3">
                             <Input label="Nome da Operação" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Ex: Busca em Matinhos" required />
@@ -624,42 +649,64 @@ export default function OperationManagement() {
                          </div>
                     </div>
 
-                    {/* Team Section */}
                     <div className="space-y-4">
                          <h3 className="text-xs font-bold text-slate-500 uppercase border-b pb-1 flex items-center gap-2">
                             <Users className="w-3 h-3" /> Equipe de Voo
                          </h3>
                          <div className="space-y-3">
-                            <Select 
-                                label="Piloto em Comando (PIC) *" 
-                                required 
-                                value={formData.pilot_id} 
-                                onChange={e => setFormData({...formData, pilot_id: e.target.value})}
+                            
+                            {/* PIC (Input with Datalist) */}
+                            <Input 
+                                label="Piloto em Comando (PIC) *"
+                                required
+                                list="pilots-list"
+                                value={formData.pilot_name}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    const found = pilots.find(p => p.full_name === val);
+                                    setFormData({
+                                        ...formData, 
+                                        pilot_name: val, 
+                                        pilot_id: found ? found.id : ''
+                                    });
+                                }}
+                                placeholder="Digite ou selecione o nome..."
                                 className="font-semibold bg-blue-50 border-blue-200"
-                            >
-                                <option value="">Selecione o Piloto Responsável...</option>
-                                {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-                            </Select>
+                            />
+                            
+                            {/* Second Pilot (Input with Datalist) */}
+                            <Input 
+                                label="Segundo Piloto (Opcional)"
+                                list="pilots-list"
+                                value={formData.second_pilot_name}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    const found = pilots.find(p => p.full_name === val);
+                                    setFormData({
+                                        ...formData, 
+                                        second_pilot_name: val, 
+                                        second_pilot_id: found ? found.id : ''
+                                    });
+                                }}
+                                placeholder="Digite ou selecione..."
+                            />
 
-                            <Select 
-                                label="Segundo Piloto (Opcional)" 
-                                value={formData.second_pilot_id} 
-                                onChange={e => setFormData({...formData, second_pilot_id: e.target.value})}
-                            >
-                                <option value="">Selecione...</option>
-                                {pilots
-                                    .filter(p => p.id !== formData.pilot_id)
-                                    .map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-                            </Select>
-
-                            <Select 
-                                label="Observador (Opcional)" 
-                                value={formData.observer_id} 
-                                onChange={e => setFormData({...formData, observer_id: e.target.value})}
-                            >
-                                <option value="">Selecione...</option>
-                                {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-                            </Select>
+                            {/* Observer (Input with Datalist) */}
+                            <Input 
+                                label="Observador (Opcional)"
+                                list="pilots-list"
+                                value={formData.observer_name}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    const found = pilots.find(p => p.full_name === val);
+                                    setFormData({
+                                        ...formData, 
+                                        observer_name: val, 
+                                        observer_id: found ? found.id : ''
+                                    });
+                                }}
+                                placeholder="Digite ou selecione..."
+                            />
                          </div>
                     </div>
 
@@ -673,7 +720,7 @@ export default function OperationManagement() {
                             </Select>
                             <Select label="Sub-natureza" required value={formData.sub_mission_type} onChange={e => setFormData({...formData, sub_mission_type: e.target.value})}>
                                 <option value="">Selecione...</option>
-                                {MISSION_HIERARCHY[formData.mission_type]?.subtypes.map(sub => <option key={sub} value={sub}>{sub}</option>)}
+                                {(MISSION_HIERARCHY[formData.mission_type]?.subtypes || []).map(sub => <option key={sub} value={sub}>{sub}</option>)}
                             </Select>
                          </div>
                          <div>
@@ -718,15 +765,29 @@ export default function OperationManagement() {
                     </div>
 
                     <div className="space-y-3 pt-2">
-                        <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <Send className="w-4 h-4 text-indigo-600" />
-                                <div>
-                                    <span className="text-xs font-bold text-indigo-800 block">Solicitar Voo (SARPAS)</span>
-                                    <span className="text-xs text-indigo-600 block">Envia solicitação automaticamente</span>
+                        <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg space-y-3">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Send className="w-4 h-4 text-indigo-600" />
+                                    <div>
+                                        <span className="text-xs font-bold text-indigo-800 flex items-center gap-2">
+                                            Solicitar Voo (SARPAS)
+                                            <span className="text-[10px] bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded border border-indigo-300">EM CONSTRUÇÃO</span>
+                                        </span>
+                                        <span className="text-xs text-indigo-600 block">Integração automática temporariamente desativada</span>
+                                    </div>
                                 </div>
                             </div>
-                            <input type="checkbox" className="w-5 h-5 accent-indigo-600" checked={sendToSarpas} onChange={e => setSendToSarpas(e.target.checked)} />
+                            
+                            <div className="pt-1 animate-fade-in">
+                                <Input 
+                                    label="Protocolo SARPAS (Manual)"
+                                    placeholder="Ex: SRPS-12345678"
+                                    value={formData.sarpas_protocol}
+                                    onChange={e => setFormData({...formData, sarpas_protocol: e.target.value})}
+                                    className="bg-white text-xs"
+                                />
+                            </div>
                         </div>
 
                         <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg space-y-3">
@@ -775,7 +836,6 @@ export default function OperationManagement() {
               </div>
            </div>
         ) : isFinishing ? (
-           // TELA DE ENCERRAMENTO (Mantida como estava, apenas re-renderizada no fluxo)
            <div className="flex-1 flex flex-col h-full overflow-hidden">
               <div className="p-4 border-b flex items-center justify-between bg-slate-50 shrink-0">
                  <h2 className="font-bold text-lg text-slate-800">Encerrar Operação</h2>
@@ -822,7 +882,6 @@ export default function OperationManagement() {
               </div>
            </div>
         ) : (
-           // LISTA DE OPERAÇÕES (Estado Inicial da Sidebar)
            <div className="flex-1 flex flex-col h-full overflow-hidden">
               <div className="p-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
                  <div>
@@ -853,11 +912,13 @@ export default function OperationManagement() {
                              <div className="flex items-center gap-1 font-mono">
                                 <ShieldCheck className="w-3 h-3" /> {op.occurrence_number}
                              </div>
-                             {/* Indicadores de Equipe na Lista */}
-                             {(op.second_pilot_id || op.observer_id) && (
+                             <div className="flex items-center gap-1 text-slate-600">
+                                <User className="w-3 h-3" /> {op.pilot_name || 'Piloto N/I'}
+                             </div>
+                             {(op.second_pilot_name || op.observer_name) && (
                                 <div className="flex gap-2 mt-1">
-                                    {op.second_pilot_id && <span title="Segundo Piloto" className="flex items-center gap-1 text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded"><Users className="w-3 h-3"/> 2º Piloto</span>}
-                                    {op.observer_id && <span title="Observador" className="flex items-center gap-1 text-purple-600 font-bold bg-purple-50 px-1.5 py-0.5 rounded"><Eye className="w-3 h-3"/> Obs.</span>}
+                                    {op.second_pilot_name && <span title="Segundo Piloto" className="flex items-center gap-1 text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded"><Users className="w-3 h-3"/> 2º Piloto</span>}
+                                    {op.observer_name && <span title="Observador" className="flex items-center gap-1 text-purple-600 font-bold bg-purple-50 px-1.5 py-0.5 rounded"><Eye className="w-3 h-3"/> Obs.</span>}
                                 </div>
                              )}
                           </div>

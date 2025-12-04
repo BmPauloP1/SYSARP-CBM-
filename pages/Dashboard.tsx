@@ -1,5 +1,3 @@
-
-
 import React, { useEffect, useState, useCallback, memo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -37,17 +35,23 @@ const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
 
     // 2. Lógica de Foco Automático
     if (map) {
-      const validOps = activeOps.filter(op => op.latitude && op.longitude);
+      const validOps = activeOps.filter(op => {
+         const lat = Number(op.latitude);
+         const lng = Number(op.longitude);
+         return !isNaN(lat) && !isNaN(lng);
+      });
       
       if (validOps.length > 0) {
         // Se tem operações ativas, foca nelas
-        const bounds = L.latLngBounds(validOps.map(op => [op.latitude, op.longitude]));
-        map.fitBounds(bounds, { 
-          padding: [50, 50], 
-          maxZoom: 15,
-          animate: true 
-        });
-        setPositionFound(true);
+        const bounds = L.latLngBounds(validOps.map(op => [Number(op.latitude), Number(op.longitude)]));
+        if (bounds.isValid()) {
+            map.fitBounds(bounds, { 
+            padding: [50, 50], 
+            maxZoom: 15,
+            animate: true 
+            });
+            setPositionFound(true);
+        }
       } else if (!positionFound && "geolocation" in navigator) {
         // Se não tem operações, tenta pegar a localização do usuário
         navigator.geolocation.getCurrentPosition(
@@ -235,13 +239,15 @@ export default function Dashboard() {
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
               {activeOps.map(op => {
-                // Safety check for valid coordinates
-                if (typeof op.latitude !== 'number' || typeof op.longitude !== 'number' || isNaN(op.latitude)) return null;
+                // Safety check for valid coordinates to prevent _leaflet_pos error
+                const lat = Number(op.latitude);
+                const lng = Number(op.longitude);
+                if (isNaN(lat) || isNaN(lng)) return null;
 
                 return (
                     <Marker 
                       key={op.id} 
-                      position={[op.latitude, op.longitude]} 
+                      position={[lat, lng]} 
                       icon={icon}
                     >
                       <Popup>

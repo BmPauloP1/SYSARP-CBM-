@@ -1,184 +1,101 @@
+import { Operation, Drone, Pilot } from "../types";
 
+// =============================================================================
+// SERVIÇO FRONTEND (Cliente HTTP)
+// Este arquivo roda no navegador e comunica com o backend local (/api/sarpas/send)
+// =============================================================================
 
-import { Operation, Drone, Pilot, MissionType } from "../types";
-
-const API_BASE_URL = "http://brutm.xmobots.com/api/brutm";
-
-/**
- * Mapeia o tipo de missão interna do SYSARP para os tipos aceitos pelo SARPAS.
- * Regra: 
- * - Ocorrências reais (Busca, Incêndio, Desastre, etc) = SPECIAL
- * - Rotina (Monitoramento, Mapeamento, Foto, Formatura) = STANDARD
- */
-const getSarpasOperationType = (missionType?: MissionType): string => {
-  const specialTypes: MissionType[] = [
-    'sar', 
-    'fire', 
-    'natural_disaster', 
-    'civil_defense' as any, // Mantido para compatibilidade se houver
-    'air_support',
-    'traffic_accident',
-    'hazmat',
-    'public_security',
-    'maritime',
-    'aph'
-  ];
-  
-  if (missionType && specialTypes.includes(missionType)) {
-    return "SPECIAL"; // Operações Especiais / State Aircraft
-  }
-  return "STANDARD"; // Operações Padrão (Mapeamento, Foto, Treino, Formatura)
-};
-
-/**
- * Formata datas para o padrão separado dia/hora exigido pelo DTO da API
- */
-const formatSarpasDate = (dateObj: Date) => {
-  return {
-    day: dateObj.toISOString().split('T')[0], // YYYY-MM-DD
-    hour: dateObj.toTimeString().slice(0, 5) // HH:mm
-  };
-};
+interface SolicitationResponse {
+  success: boolean;
+  protocol?: string;
+  error?: string;
+  raw?: any;
+}
 
 export const sarpasApi = {
   
   /**
-   * Envia uma solicitação de operação para o SARPAS.
-   * Endpoint: POST /sarpas/solicitation
-   * Payload: SolicitationDataDTO
+   * Envia a solicitação para o Backend Proxy (/api/sarpas/send).
+   * O Backend (server.js) se encarrega de montar o payload complexo do Swagger,
+   * autenticar com o Token seguro e realizar a chamada HTTPS real para a XMobots.
    */
-  submitFlightRequest: async (operation: Partial<Operation>, pilot: Pilot, drone: Drone): Promise<string> => {
+  submitFlightRequest: async (
+    operation: Partial<Operation>,
+    pilot: Pilot,
+    drone: Drone
+  ): Promise<string> => {
     
-    // 1. Definição de Horários
-    const startDate = new Date(operation.start_time || Date.now());
-    // Se não houver data fim definida, define uma janela de operação padrão de 3 horas
-    const endDate = operation.end_time 
-      ? new Date(operation.end_time) 
-      : new Date(startDate.getTime() + 3 * 60 * 60 * 1000);
+    // 1. Validações de Pré-requisitos (Client-Side Fail Fast)
+    if (!pilot.sarpas_code || pilot.sarpas_code.length < 3) {
+      throw new Error("O piloto selecionado não possui um Código SARPAS válido cadastrado.");
+    }
 
-    const startFmt = formatSarpasDate(startDate);
-    const endFmt = formatSarpasDate(endDate);
+    if (!drone.sisant || drone.sisant.length < 5) {
+      throw new Error("A aeronave selecionada não possui cadastro SISANT válido.");
+    }
 
-    // 2. Definição de Geometria
-    const lat = operation.latitude || 0;
-    const lng = operation.longitude || 0;
-    
-    // Pontos em formato [Lat, Lng] para campos simples
-    const centerPointLatLng = [lat, lng];
-    
-    // Pontos em formato [Lng, Lat] para GeoJSON (Padrão OGC)
-    const centerPointGeoJSON = [lng, lat];
+    // Garante que são números
+    const lat = Number(operation.latitude);
+    const lng = Number(operation.longitude);
 
-    const altitude = operation.flight_altitude || 60; // Metros AGL
-    const radius = operation.radius || 500; // Metros
+    if (isNaN(lat) || isNaN(lng) || lat === 0 || lng === 0) {
+      throw new Error("Coordenadas geográficas da operação são inválidas ou ausentes.");
+    }
 
-    // 3. Construção do Payload (SolicitationDataDTO)
-    const payload = {
-      data: {
-        type: "solicitation",
-        attributes: {
-          operation: {
-            basic_information: {
-              name: operation.name || `OP-${operation.occurrence_number}`,
-              type: getSarpasOperationType(operation.mission_type), 
-              agree_terms: 1
-            },
-            aircrafts: [
-              {
-                id: 0, // API resolve pelo UUID
-                uuid: drone.sisant // Usando SISANT conforme solicitação
-              }
-            ],
-            flight: {
-              // ATENÇÃO: Array de pilotos deve ser vazio conforme doc, o piloto responsável vai em 'sarpas_code'
-              pilots: [], 
-              sarpas_code: pilot.sarpas_code,
-              
-              // Tipo de Voo
-              type: "VLOS", // Visual Line of Sight
-              
-              // Datas
-              date: {
-                start_day: startFmt.day,
-                start_hour: startFmt.hour,
-                finish_day: endFmt.day,
-                finish_hour: endFmt.hour
-              },
-              
-              // Dados Espaciais (AreaDTO)
-              area: {
-                flight_distance: radius,
-                flight_type: "CIRCULAR",
-                // Decolagem e Pouso no centro do raio
-                takeoff_point: centerPointLatLng,
-                landing_point: centerPointLatLng,
-                
-                // Rota Requerida (RequiredRouteDTO -> GeojsonDTO)
-                required_route: {
-                  geojson: {
-                    type: "Feature",
-                    properties: {
-                      radius: radius,
-                      upperLimit: altitude,
-                      lowerLimit: 0
-                    },
-                    geometry: {
-                      type: "Point",
-                      coordinates: centerPointGeoJSON
-                    }
-                  }
-                }
-              },
-              
-              // Comunicação (CommunicationDTO) - Obrigatório para contato ATS
-              communication: {
-                ats_call_type: "TEL", // Contato via Telefone
-                rpa_call_type: "TEL",
-                rps: [
-                  {
-                    name: pilot.full_name,
-                    lat: String(lat),
-                    lng: String(lng),
-                    contact_info: pilot.phone,
-                    radius: radius
-                  }
-                ]
-              },
-              
-              observations: operation.description || `Operação Bombeiros: ${pilot.unit}. Ocorrência: ${operation.occurrence_number}`,
-              
-              // Campo obrigatório conforme Schema da API
-              documents: [] 
-            }
-          }
-        }
-      }
-    };
-
-    console.log("Enviando Payload para SARPAS:", JSON.stringify(payload, null, 2));
+    // 2. Envio para o Backend (Proxy Seguro)
+    console.log("[SARPAS CLIENT] Iniciando envio via Backend (/api/sarpas/send)...");
 
     try {
-      // Simulação de delay de rede
-      await new Promise(r => setTimeout(r, 2000));
-      
-      // Gera protocolo mockado baseado no tipo
-      const typePrefix = getSarpasOperationType(operation.mission_type) === "SPECIAL" ? "EMG" : "SRP";
-      const year = new Date().getFullYear();
-      const randomId = String(Math.floor(Math.random() * 100000)).padStart(6, '0');
-      const mockProtocol = `${typePrefix}-${year}-${randomId}`;
-      
-      return mockProtocol;
+      // Usa o endpoint local /api que o Vite redireciona para o server.js (porta 8080)
+      const response = await fetch('/api/sarpas/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          operation,
+          pilot,
+          drone
+        })
+      });
 
-    } catch (error) {
-      console.error("Erro na integração SARPAS", error);
+      // Tratamento de Erros de Rede / Servidor Down
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+          const text = await response.text();
+          console.error("[SARPAS CLIENT] Resposta inválida do backend:", text);
+          throw new Error(`Erro de comunicação com o servidor local (Status ${response.status}). Verifique se o backend está rodando.`);
+      }
+
+      const data: SolicitationResponse = await response.json();
+
+      if (!response.ok || !data.success) {
+        console.error("[SARPAS CLIENT] Erro retornado:", data);
+        throw new Error(data.error || "O servidor rejeitou a solicitação.");
+      }
+
+      if (!data.protocol) {
+        throw new Error("A operação foi aceita, mas o protocolo não foi retornado.");
+      }
+
+      console.log(`[SARPAS CLIENT] Sucesso! Protocolo Oficial: ${data.protocol}`);
+      return data.protocol;
+
+    } catch (error: any) {
+      console.error("[SARPAS CLIENT] Falha no fluxo:", error);
+      
+      if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+         throw new Error("Não foi possível conectar ao servidor local (Backend). Verifique a conexão.");
+      }
+      
       throw error;
     }
   },
 
   /**
-   * Verifica status da solicitação (Mock)
+   * Consulta status via Backend (placeholder por enquanto)
    */
-  checkStatus: async (protocol: string) => {
-    return { status: "APPROVED", message: "Operação autorizada." };
+  checkStatus: async (protocol: string): Promise<any> => {
+    return { status: "UNKNOWN", message: "Verifique no painel oficial do SARPAS" };
   }
 };
