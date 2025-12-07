@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
-import { Operation, Pilot, Drone, MISSION_LABELS, MISSION_HIERARCHY, SYSARP_LOGO, AroAssessment, MissionType } from "../types";
+import { Operation, Pilot, Drone, MISSION_LABELS, MISSION_HIERARCHY, SYSARP_LOGO, AroAssessment } from "../types";
 import { Card, Input, Select, Button, Badge } from "../components/ui_components";
-import { Filter, FileText, Calendar, Download, CheckSquare, Search, Map as MapIcon, BarChart2, PieChart as PieIcon, Layers, ShieldCheck, AlertTriangle, Navigation } from "lucide-react";
+import { Filter, FileText, Download, CheckSquare, Search, Map as MapIcon, PieChart as PieIcon, Navigation } from "lucide-react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from 'recharts';
 import L from "leaflet";
@@ -14,7 +14,7 @@ type ExtendedOperation = Operation & {
   drone?: Drone;
 }
 
-// Colors for Map and Charts - Updated for new mission types
+// Colors for Map and Charts
 const MISSION_COLORS: Record<string, string> = {
   fire: "#ef4444",             // Red (Incêndios)
   sar: "#3b82f6",              // Blue (SAR)
@@ -43,7 +43,6 @@ const ORGANIZATION_CHART_KEYS = [
 // Helper para carregar imagem para o PDF
 const getImageData = (url: string): Promise<string> => {
   return new Promise((resolve, reject) => {
-    // Se já for data URI, retorna direto
     if (url.startsWith('data:')) {
       resolve(url);
       return;
@@ -51,7 +50,7 @@ const getImageData = (url: string): Promise<string> => {
     
     const img = new Image();
     img.crossOrigin = "Anonymous";
-    img.referrerPolicy = "no-referrer"; // Fix Wikimedia 403
+    img.referrerPolicy = "no-referrer";
     img.onload = () => {
       const canvas = document.createElement('canvas');
       canvas.width = img.width;
@@ -66,14 +65,13 @@ const getImageData = (url: string): Promise<string> => {
     };
     img.onerror = (e) => {
       console.warn("Image load error fallback", e);
-      // Fallback para imagem transparente se falhar
       resolve("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
     };
     img.src = url;
   });
 };
 
-// Componente auxiliar para corrigir renderização do mapa (Tiles Cinzas)
+// Componente auxiliar para corrigir renderização do mapa
 const MapController = () => {
   const map = useMap();
   useEffect(() => {
@@ -93,16 +91,14 @@ export default function Reports() {
   const [drones, setDrones] = useState<Drone[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Selection for PDF
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [generating, setGenerating] = useState(false);
   
-  // Filters State
   const [dateStart, setDateStart] = useState("");
   const [dateEnd, setDateEnd] = useState("");
   const [missionType, setMissionType] = useState<string>("all");
   const [selectedCRBM, setSelectedCRBM] = useState<string>("all");
-  const [selectedBBM, setSelectedBBM] = useState<string>(""); // Text input for flexibility or mapped if strict
+  const [selectedBBM, setSelectedBBM] = useState<string>(""); 
   const [selectedDroneId, setSelectedDroneId] = useState<string>("all");
 
   useEffect(() => {
@@ -117,7 +113,6 @@ export default function Reports() {
       base44.entities.Drone.list()
     ]);
 
-    // Join Data
     const extended: ExtendedOperation[] = opsData.map(op => ({
       ...op,
       pilot: pilotsData.find(p => p.id === op.pilot_id),
@@ -133,7 +128,6 @@ export default function Reports() {
   const handleSearch = () => {
     let result = operations;
 
-    // Date Filter
     if (dateStart) {
       result = result.filter(op => new Date(op.start_time) >= new Date(dateStart));
     }
@@ -143,29 +137,25 @@ export default function Reports() {
       result = result.filter(op => new Date(op.start_time) < endDate);
     }
 
-    // Mission Type Filter
     if (missionType !== "all") {
       result = result.filter(op => op.mission_type === missionType);
     }
 
-    // Drone Filter
     if (selectedDroneId !== "all") {
       result = result.filter(op => op.drone_id === selectedDroneId);
     }
 
-    // CRBM Filter (via Pilot)
     if (selectedCRBM !== "all") {
       result = result.filter(op => op.pilot?.crbm === selectedCRBM);
     }
 
-    // BBM/Unit Filter (via Pilot - Partial Match)
     if (selectedBBM.trim()) {
       const term = selectedBBM.toLowerCase();
       result = result.filter(op => op.pilot?.unit.toLowerCase().includes(term));
     }
 
     setFilteredOps(result);
-    setSelectedIds(new Set()); // Reset selection on new search
+    setSelectedIds(new Set());
   };
 
   const toggleSelection = (id: string) => {
@@ -180,7 +170,6 @@ export default function Reports() {
     else setSelectedIds(new Set(filteredOps.map(op => op.id)));
   };
 
-  // Generate Charts Data
   const getMissionStats = () => {
     const stats: Record<string, number> = {};
     filteredOps.forEach(op => {
@@ -197,7 +186,6 @@ export default function Reports() {
     return filteredOps.reduce((acc, op) => acc + (op.flight_hours || 0), 0).toFixed(1);
   };
 
-  // 1. RELATÓRIO CONSOLIDADO (TABULAR)
   const handleExport = async () => {
     if (selectedIds.size === 0) {
       alert("Selecione pelo menos uma ocorrência para gerar o relatório.");
@@ -205,21 +193,18 @@ export default function Reports() {
     }
     setGenerating(true);
     try {
-      // Dynamic Import for Performance
       const jsPDFModule = await import('jspdf');
       const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
       const autoTableModule = await import('jspdf-autotable');
       const autoTable = autoTableModule.default;
 
-      const doc = new jsPDF('l', 'mm', 'a4'); // Paisagem (Landscape) para caber mais colunas
+      const doc = new jsPDF('l', 'mm', 'a4');
       const pageWidth = doc.internal.pageSize.width;
       const generationDate = new Date().toLocaleString('pt-BR');
       const selectedOpsList = filteredOps.filter(op => selectedIds.has(op.id));
       
-      // Pre-load logo
       const logoData = await getImageData(SYSARP_LOGO);
 
-      // --- HEADER GLOBAL (Todas as Páginas) ---
       const drawHeader = (data: any) => {
          doc.setFillColor(153, 27, 27);
          doc.rect(0, 0, pageWidth, 25, 'F');
@@ -239,16 +224,14 @@ export default function Reports() {
          doc.text(`Gerado em: ${generationDate}`, pageWidth - 10, 22, { align: "right" });
       };
 
-      // --- DADOS DA TABELA ---
-      // AQUI: Apenas "Sim/Não" para documentos
       const tableBody = selectedOpsList.map(op => {
          const nature = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
          const subNature = op.sub_mission_type || '';
          const pilot = op.pilot?.full_name || 'N/A';
          const drone = op.drone?.prefix || 'N/A';
          const status = op.status === 'active' ? 'Ativa' : 'Encerrada';
-         const aro = op.aro ? 'SIM' : 'NÃO'; // Apenas indicativo
-         const plan = op.flight_plan_data ? 'SIM' : 'NÃO'; // Apenas indicativo
+         const aro = op.aro ? 'SIM' : 'NÃO';
+         const plan = op.flight_plan_data ? 'SIM' : 'NÃO';
          const coords = `${op.latitude.toFixed(4)}, ${op.longitude.toFixed(4)}`;
          
          return [
@@ -263,7 +246,6 @@ export default function Reports() {
          ];
       });
 
-      // --- GERAÇÃO DA TABELA ---
       autoTable(doc, {
          startY: 30,
          head: [['Ocorrência', 'Data/Hora', 'Natureza', 'Piloto/Aeronave', 'Local (Lat/Lon)', 'Tempo/Status', 'Docs (Feito?)', 'Descrição']],
@@ -283,19 +265,18 @@ export default function Reports() {
             valign: 'middle' 
          },
          columnStyles: {
-            0: { cellWidth: 25, halign: 'center', fontStyle: 'bold' }, // Ocorrencia
-            1: { cellWidth: 20, halign: 'center' }, // Data
-            2: { cellWidth: 35 }, // Natureza
-            3: { cellWidth: 35 }, // Piloto
-            4: { cellWidth: 30, fontStyle: 'italic', halign: 'center' }, // Local
-            5: { cellWidth: 20, halign: 'center' }, // Status
-            6: { cellWidth: 20, halign: 'center', fontStyle: 'bold' }, // Docs (Sim/Nao)
-            7: { cellWidth: 'auto' } // Descricao (expands)
+            0: { cellWidth: 25, halign: 'center', fontStyle: 'bold' },
+            1: { cellWidth: 20, halign: 'center' },
+            2: { cellWidth: 35 },
+            3: { cellWidth: 35 },
+            4: { cellWidth: 30, fontStyle: 'italic', halign: 'center' },
+            5: { cellWidth: 20, halign: 'center' },
+            6: { cellWidth: 20, halign: 'center', fontStyle: 'bold' },
+            7: { cellWidth: 'auto' }
          },
          didDrawPage: drawHeader,
       });
 
-      // Footer numbering
       const pageCount = (doc as any).internal.getNumberOfPages();
       for(let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
@@ -313,7 +294,6 @@ export default function Reports() {
     }
   };
 
-  // 2. DOCUMENTO INDIVIDUAL: PLANO DE VOO (COMPLETO)
   const handleDownloadFlightPlan = async (op: ExtendedOperation, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!op.flight_plan_data) return;
@@ -325,11 +305,9 @@ export default function Reports() {
       const formData = JSON.parse(op.flight_plan_data);
       const doc = new jsPDF();
       
-      // Pilot and Drone info from joined data if not in formData (fallback)
       const pilotName = op.pilot?.full_name || formData.pilot_id;
       const droneName = op.drone?.prefix || formData.drone_id;
 
-      // Header
       doc.setFillColor(200, 200, 200);
       doc.rect(0, 0, 210, 20, 'F');
       doc.setFontSize(16);
@@ -342,7 +320,6 @@ export default function Reports() {
       let y = 30;
       const lineHeight = 7;
 
-      // Section 1: Identificação
       doc.setFont("helvetica", "bold");
       doc.text("1. IDENTIFICAÇÃO", 14, y);
       y += lineHeight;
@@ -360,7 +337,6 @@ export default function Reports() {
       
       y += lineHeight * 2;
 
-      // Section 2: Voo
       doc.setFont("helvetica", "bold");
       doc.text("2. DADOS DO VOO", 14, y);
       y += lineHeight;
@@ -387,7 +363,6 @@ export default function Reports() {
 
       y += lineHeight * 2;
 
-      // Section 3: Outras Informações
       doc.setFont("helvetica", "bold");
       doc.text("3. OUTRAS INFORMAÇÕES (RMK)", 14, y);
       y += lineHeight;
@@ -402,14 +377,12 @@ export default function Reports() {
 
       y += lineHeight * 2;
 
-      // Section 4: Piloto em Comando
       doc.setFont("helvetica", "bold");
       doc.text("4. PILOTO EM COMANDO", 14, y);
       y += lineHeight;
       doc.setFont("helvetica", "normal");
       doc.text(`Nome: ${pilotName}`, 14, y);
       
-      // Footer
       y = 280;
       doc.setFontSize(8);
       doc.text("Cópia de Arquivo SYSARP.", 105, y, { align: "center" });
@@ -422,7 +395,6 @@ export default function Reports() {
     }
   };
 
-  // 3. DOCUMENTO INDIVIDUAL: A.R.O. (COMPLETO)
   const handleDownloadAro = async (op: ExtendedOperation, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!op.aro) return;
@@ -436,7 +408,6 @@ export default function Reports() {
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.width;
       
-      // Header CBMPR
       const logoData = await getImageData(SYSARP_LOGO);
       
       try {
@@ -452,19 +423,16 @@ export default function Reports() {
       doc.setFontSize(16);
       doc.text("AVALIAÇÃO DE RISCO OPERACIONAL", pageWidth/2, 45, {align: "center"});
 
-      // Data abaixo do Título e Centralizada
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
       doc.text(`Data de Emissão: ${new Date(op.aro.created_at).toLocaleString()}`, pageWidth / 2, 52, {align: "center"});
 
-      // Info Formatado conforme pedido - Deslocado um pouco para baixo
       doc.setFont("helvetica", "bold");
       const droneInfo = `Aeronave: ${op.drone?.prefix || 'N/A'} - SISANT: ${op.drone?.sisant || 'N/A'} - Modelo: ${op.drone?.model || 'N/A'}`;
       doc.text(droneInfo, 14, 65);
       doc.text(`Ocorrência: ${op.occurrence_number}`, 14, 71);
       doc.text(`Piloto: ${op.pilot?.full_name || 'N/A'}`, 14, 77);
 
-      // Table - ARO COMPLETO - Início ajustado
       autoTable(doc, {
         startY: 85,
         head: [['Situação', 'Prob.', 'Sev.', 'Risco', 'Aut. Nível', 'Mitigação']],
@@ -476,12 +444,11 @@ export default function Reports() {
           item.authorization_level || '-',
           item.mitigation || '-'
         ]),
-        headStyles: { fillColor: [153, 27, 27] }, // Red header
+        headStyles: { fillColor: [153, 27, 27] },
         theme: 'grid',
         styles: { fontSize: 8 }
       });
 
-      // Footer / Declaration
       let currentY = (doc as any).lastAutoTable.finalY + 15;
       doc.setFontSize(9);
       doc.text("Declaro para os devidos fins que conheço e cumpro as legislações e regulamentações aplicáveis, em especial as listadas neste documento, assim como conheço as consequências do seu descumprimento.", 14, currentY, { maxWidth: pageWidth - 28 });
@@ -498,9 +465,7 @@ export default function Reports() {
     }
   };
 
-  // Memoize markers to prevent excessive re-rendering and freezing
   const mapMarkers = useMemo(() => {
-    // Performance optimization: Limit displayed markers on heatmap to 1000 most recent
     const displayOps = filteredOps.slice(0, 1000);
 
     return displayOps.map(op => {
@@ -590,7 +555,7 @@ export default function Reports() {
               </div>
            </Card>
 
-           {/* FILTERS - RESPONSIVE MATRIX GRID */}
+           {/* FILTERS */}
            <Card className="p-4 border-t-4 border-t-red-600">
               <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
                  <Filter className="w-4 h-4" /> Filtros Avançados
