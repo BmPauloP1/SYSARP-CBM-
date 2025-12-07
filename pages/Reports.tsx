@@ -768,7 +768,7 @@ export default function Reports() {
            </Card>
 
         </div>
-      )}
+      </div>
     </div>
   );
 }
