@@ -1,5 +1,3 @@
-
-
 import { supabase, isConfigured } from './supabase';
 import { Drone, Operation, Pilot, Maintenance, FlightLog, ConflictNotification, DroneChecklist, SystemAuditLog } from '../types';
 
@@ -253,10 +251,19 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
          setLocal(storageKey, items);
       };
 
+      // Helper function for offline creation
+      const createOffline = () => {
+         const newItem = { 
+             ...cleanItem, 
+             id: crypto.randomUUID(), 
+             created_at: new Date().toISOString() 
+         } as T;
+         updateLocalCache(newItem);
+         return newItem;
+      };
+
       if (!isConfigured) {
-        const newItem = { ...cleanItem, id: crypto.randomUUID(), created_at: new Date().toISOString() } as T;
-        updateLocalCache(newItem);
-        return newItem;
+        return createOffline();
       }
 
       try {
@@ -274,26 +281,25 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
 
       } catch (e: any) {
         const msg = e.message || '';
-        if (msg.includes("Failed to fetch")) {
-          throw new Error("Erro de Conexão: Verifique sua internet. O dado não foi salvo na nuvem.");
+        
+        // Network or Fetch error -> Fallback to Offline Mode
+        if (msg.includes("Failed to fetch") || msg.includes("Timeout")) {
+          console.warn(`[Offline Fallback] Erro de conexão ao criar ${entityName}. Salvando localmente.`);
+          return createOffline();
         }
+
         const missingCol = msg.match(/Could not find the '(.+?)' column/)?.[1];
         if (missingCol) {
            // Fallback gracioso para a tabela de Auditoria se ela não existir
            if (entityName === 'SystemAudit') {
-             console.warn("Tabela de auditoria não encontrada no backend. Usando apenas LocalStorage.");
-             const newItem = { ...cleanItem, id: crypto.randomUUID(), created_at: new Date().toISOString() } as T;
-             updateLocalCache(newItem);
-             return newItem;
+             return createOffline();
            }
            throw new Error(`Banco de Dados desatualizado: Falta a coluna '${missingCol}' na tabela '${tableName}'.`);
         }
         
-        // Fallback para auditoria
+        // Fallback for SystemAudit on any error to prevent blocking main flow
         if (entityName === 'SystemAudit') {
-           const newItem = { ...cleanItem, id: crypto.randomUUID(), created_at: new Date().toISOString() } as T;
-           updateLocalCache(newItem);
-           return newItem;
+           return createOffline();
         }
 
         throw new Error(`Erro ao salvar: ${msg}`);
@@ -308,17 +314,22 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
             items[index] = { ...items[index], ...updatedItem };
             setLocal(storageKey, items);
          }
+         return items[index];
+      };
+
+      const updateOffline = () => {
+         const items = getLocal<T>(storageKey);
+         const index = items.findIndex(i => i.id === id);
+         if (index === -1) throw new Error("Item não encontrado localmente para atualização offline.");
+         
+         const updatedItem = { ...items[index], ...updates };
+         items[index] = updatedItem;
+         setLocal(storageKey, items);
+         return updatedItem;
       };
 
       if (!isConfigured) {
-        const items = getLocal<T>(storageKey);
-        const index = items.findIndex(i => i.id === id);
-        if (index === -1) throw new Error("Item não encontrado localmente");
-        
-        const updatedItem = { ...items[index], ...updates };
-        items[index] = updatedItem;
-        setLocal(storageKey, items);
-        return updatedItem;
+        return updateOffline();
       }
 
       try {
@@ -334,7 +345,12 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
         updateLocalCache(data as T);
         return data as T;
       } catch (e: any) {
-        throw new Error(`Erro ao atualizar: ${e.message}`);
+        const msg = e.message || '';
+        if (msg.includes("Failed to fetch") || msg.includes("Timeout")) {
+           console.warn(`[Offline Fallback] Erro de conexão ao atualizar ${entityName}. Atualizando localmente.`);
+           return updateOffline();
+        }
+        throw new Error(`Erro ao atualizar: ${msg}`);
       }
     },
 
@@ -355,7 +371,13 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
         if (error) throw error;
         updateLocalCache();
       } catch (e: any) {
-        throw new Error(`Erro ao excluir: ${e.message}`);
+        const msg = e.message || '';
+        if (msg.includes("Failed to fetch") || msg.includes("Timeout")) {
+           console.warn(`[Offline Fallback] Erro de conexão ao excluir ${entityName}. Excluindo localmente.`);
+           updateLocalCache();
+           return;
+        }
+        throw new Error(`Erro ao excluir: ${msg}`);
       }
     }
   };
@@ -365,10 +387,11 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
 const authHandler = {
   me: async (): Promise<Pilot> => {
     const isAdminSession = localStorage.getItem('sysarp_admin_session');
+    const localSession = localStorage.getItem('sysarp_user_session');
     
+    // Check Local Session First if Offline is suspected or forced
     if (!isConfigured) {
        if (isAdminSession === 'true') return MOCK_ADMIN;
-       const localSession = localStorage.getItem('sysarp_user_session');
        if (localSession) return JSON.parse(localSession) as Pilot;
        throw new Error("Sessão não encontrada (Offline)");
     } else {
@@ -417,10 +440,12 @@ const authHandler = {
          throw new Error("Perfil não encontrado.");
       }
       return profile as Pilot;
-    } catch (e) {
+    } catch (e: any) {
       // Fallback para sessão local se a rede falhar
-      const localSession = localStorage.getItem('sysarp_user_session');
-      if (localSession) return JSON.parse(localSession) as Pilot;
+      if (localSession && (e.message.includes("Failed to fetch") || e.message === "Timeout")) {
+         console.warn("[Auth] Network error, using local session.");
+         return JSON.parse(localSession) as Pilot;
+      }
       throw e;
     }
   },
@@ -430,7 +455,8 @@ const authHandler = {
     
     if (!password) throw new Error("Senha obrigatória");
 
-    if (!isConfigured) {
+    // Offline / Mock Admin Logic
+    if (!isConfigured || (adminEmails.includes(email.toLowerCase()) && password === 'admin123' && !navigator.onLine)) {
       if(adminEmails.includes(email.toLowerCase()) && password === 'admin123') {
         localStorage.setItem('sysarp_admin_session', 'true');
         // Audit Mock

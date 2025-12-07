@@ -1,5 +1,4 @@
 
-
 export type MissionType = 
   | 'fire' 
   | 'sar' 
@@ -231,6 +230,15 @@ export interface Operation {
 
   // Plano de Voo (ARO/Notificação)
   flight_plan_data?: string; // Stores the JSON string of the flight plan form
+
+  // Shapes Geoman (GeoJSON)
+  shapes?: any; // Stores GeoJSON FeatureCollection of drawn shapes
+
+  // Pause Logic
+  is_paused?: boolean;
+  last_pause_start?: string | null; // ISO string
+  total_pause_duration?: number; // in minutes
+  pause_logs?: { start: string; end?: string; reason: string; duration?: number }[];
 }
 
 export interface Maintenance {

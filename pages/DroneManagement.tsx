@@ -1,10 +1,10 @@
+
 import React, { useState, useEffect } from "react";
 import { base44 } from "../services/base44Client";
 import { Drone, Pilot, DroneChecklist, ChecklistItemState, DRONE_CHECKLIST_TEMPLATE, SYSARP_LOGO, Maintenance } from "../types";
 import { Card, Button, Badge, DroneIcon, Input, Select } from "../components/ui_components";
-import { Plus, AlertTriangle, X, Save, Activity, Pencil, RotateCcw, ClipboardCheck, CheckCircle, Printer, FileText, Trash2 } from "lucide-react";
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { Plus, AlertTriangle, X, Save, Activity, Pencil, RotateCcw, ClipboardCheck, CheckCircle, Printer, FileText, Trash2, Box } from "lucide-react";
+import DroneInventoryModal from './DroneInventoryModal'; // NOVO IMPORT
 
 // Generate HARPIA 01 to 100
 const PREFIX_OPTIONS = Array.from({ length: 100 }, (_, i) => 
@@ -73,6 +73,9 @@ export default function DroneManagement() {
   const [checklistItems, setChecklistItems] = useState<ChecklistItemState[]>([]);
   const [checklistNotes, setChecklistNotes] = useState("");
   const [checklistPilotId, setChecklistPilotId] = useState("");
+
+  // NOVO: Inventory Modal State
+  const [inventoryDrone, setInventoryDrone] = useState<Drone | null>(null);
 
   // Delete State
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -347,6 +350,11 @@ export default function DroneManagement() {
         base44.entities.DroneChecklist.filter({ drone_id: drone.id })
       ]);
       
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = autoTableModule.default;
+
       const doc = new jsPDF();
       const logoData = await getImageData(SYSARP_LOGO);
       
@@ -526,6 +534,15 @@ export default function DroneManagement() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6 h-full overflow-y-auto">
+      
+      {/* NOVO MODAL DE ALMOXARIFADO */}
+      {inventoryDrone && (
+        <DroneInventoryModal 
+          drone={inventoryDrone} 
+          onClose={() => setInventoryDrone(null)} 
+        />
+      )}
+
       {/* Header */}
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
         <div className="flex items-center gap-4">
@@ -589,6 +606,7 @@ export default function DroneManagement() {
               </div>
               
               <div className="p-4 space-y-4 flex-1 flex flex-col">
+                {/* ... Stats Grid ... */}
                 <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
                   <div>
                     <p className="text-slate-500 text-[10px] uppercase font-bold">SISANT</p>
@@ -659,6 +677,15 @@ export default function DroneManagement() {
                   </div>
                 </div>
 
+                {/* --- BOTÃO ALMOXARIFADO (NOVO) --- */}
+                <Button 
+                  onClick={() => setInventoryDrone(drone)}
+                  variant="outline" 
+                  className="w-full h-8 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200"
+                >
+                  <Box className="w-3 h-3 mr-1.5" /> Almoxarifado
+                </Button>
+
                 {/* Tech Report Button */}
                 <Button 
                   onClick={() => handleDownloadDroneReport(drone)}
@@ -708,7 +735,8 @@ export default function DroneManagement() {
         })}
       </div>
 
-      {/* ... (Restante do código: Modais de Checklist, Manutenção e Cadastro mantidos) ... */}
+      {/* ... Existing Modals (Checklist, Maintenance, Create) ... */}
+      
       {/* --- CHECKLIST MODAL --- */}
       {isChecklistModalOpen && currentChecklistDrone && (
         <div className="fixed inset-0 bg-black/80 z-[2000] flex items-center justify-center p-4">

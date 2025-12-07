@@ -4,8 +4,6 @@ import { base44 } from '../services/base44Client';
 import { SystemAuditLog, Pilot } from '../types';
 import { Card, Input, Select, Button, Badge } from '../components/ui_components';
 import { Shield, Search, RefreshCw, User, Calendar, Activity, Filter, Database, Download } from 'lucide-react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 
 export default function SystemAudit() {
   const [logs, setLogs] = useState<SystemAuditLog[]>([]);
@@ -62,30 +60,43 @@ export default function SystemAudit() {
     });
   }, [logs, filterAction, filterEntity, filterUser, dateStart, dateEnd]);
 
-  const handleExportPDF = () => {
-    const doc = new jsPDF();
-    doc.text("Relatório de Auditoria do Sistema - SYSARP", 14, 15);
-    doc.setFontSize(10);
-    doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 22);
+  const handleExportPDF = async () => {
+    setLoading(true);
+    try {
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = autoTableModule.default;
 
-    const tableData = filteredLogs.map(log => [
-       new Date(log.timestamp).toLocaleString(),
-       getPilotName(log.user_id),
-       log.action,
-       log.entity,
-       log.details
-    ]);
+      const doc = new jsPDF();
+      doc.text("Relatório de Auditoria do Sistema - SYSARP", 14, 15);
+      doc.setFontSize(10);
+      doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 22);
 
-    autoTable(doc, {
-      startY: 30,
-      head: [['Data/Hora', 'Usuário', 'Ação', 'Entidade', 'Detalhes']],
-      body: tableData,
-      theme: 'grid',
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [185, 28, 28] }
-    });
+      const tableData = filteredLogs.map(log => [
+         new Date(log.timestamp).toLocaleString(),
+         getPilotName(log.user_id),
+         log.action,
+         log.entity,
+         log.details
+      ]);
 
-    doc.save(`Auditoria_SYSARP_${new Date().toISOString().split('T')[0]}.pdf`);
+      autoTable(doc, {
+        startY: 30,
+        head: [['Data/Hora', 'Usuário', 'Ação', 'Entidade', 'Detalhes']],
+        body: tableData,
+        theme: 'grid',
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [185, 28, 28] }
+      });
+
+      doc.save(`Auditoria_SYSARP_${new Date().toISOString().split('T')[0]}.pdf`);
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao exportar PDF.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getActionColor = (action: string) => {

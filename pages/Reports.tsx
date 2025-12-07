@@ -6,8 +6,6 @@ import { Card, Input, Select, Button, Badge } from "../components/ui_components"
 import { Filter, FileText, Calendar, Download, CheckSquare, Search, Map as MapIcon, BarChart2, PieChart as PieIcon, Layers, ShieldCheck, AlertTriangle, Navigation } from "lucide-react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from 'recharts';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import L from "leaflet";
 
 // Extended Operation type to include joined data for filtering
@@ -199,6 +197,7 @@ export default function Reports() {
     return filteredOps.reduce((acc, op) => acc + (op.flight_hours || 0), 0).toFixed(1);
   };
 
+  // 1. RELATÓRIO CONSOLIDADO (TABULAR)
   const handleExport = async () => {
     if (selectedIds.size === 0) {
       alert("Selecione pelo menos uma ocorrência para gerar o relatório.");
@@ -206,7 +205,13 @@ export default function Reports() {
     }
     setGenerating(true);
     try {
-      const doc = new jsPDF();
+      // Dynamic Import for Performance
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = autoTableModule.default;
+
+      const doc = new jsPDF('l', 'mm', 'a4'); // Paisagem (Landscape) para caber mais colunas
       const pageWidth = doc.internal.pageSize.width;
       const generationDate = new Date().toLocaleString('pt-BR');
       const selectedOpsList = filteredOps.filter(op => selectedIds.has(op.id));
@@ -214,68 +219,92 @@ export default function Reports() {
       // Pre-load logo
       const logoData = await getImageData(SYSARP_LOGO);
 
-      selectedOpsList.forEach((op, index) => {
-        if (index > 0) doc.addPage();
+      // --- HEADER GLOBAL (Todas as Páginas) ---
+      const drawHeader = (data: any) => {
+         doc.setFillColor(153, 27, 27);
+         doc.rect(0, 0, pageWidth, 25, 'F');
+         
+         try {
+            doc.addImage(logoData, "PNG", 10, 2, 20, 20);
+         } catch (e) { console.warn("Logo error", e); }
 
-        // Header
-        doc.setFillColor(153, 27, 27);
-        doc.rect(0, 0, pageWidth, 25, 'F');
-        
-        // Add Logo in Header if available
-        try {
-           doc.addImage(logoData, "PNG", 10, 2, 20, 20);
-        } catch (e) { console.warn("Logo error", e); }
+         doc.setTextColor(255, 255, 255);
+         doc.setFontSize(14);
+         doc.setFont("helvetica", "bold");
+         doc.text("CORPO DE BOMBEIROS MILITAR DO PARANÁ", pageWidth / 2, 10, { align: "center" });
+         doc.setFontSize(10);
+         doc.text("RELATÓRIO DE OCORRÊNCIAS COM DRONES", pageWidth / 2, 18, { align: "center" });
+         
+         doc.setFontSize(8);
+         doc.text(`Gerado em: ${generationDate}`, pageWidth - 10, 22, { align: "right" });
+      };
 
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(14);
-        doc.setFont("helvetica", "bold");
-        doc.text("CORPO DE BOMBEIROS MILITAR DO PARANÁ", pageWidth / 2, 10, { align: "center" });
-        doc.setFontSize(10);
-        doc.text("SYSARP - RELATÓRIO OPERACIONAL", pageWidth / 2, 18, { align: "center" });
-
-        // Content
-        doc.setTextColor(0, 0, 0);
-        doc.setFontSize(16);
-        doc.setFont("helvetica", "bold");
-        doc.text(`OCORRÊNCIA #${op.occurrence_number}`, 14, 40);
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text(`Gerado em: ${generationDate}`, pageWidth - 14, 40, { align: "right" });
-
-        autoTable(doc, {
-          startY: 45,
-          head: [['Dados da Operação', 'Informações']],
-          body: [
-            ['Nome', op.name],
-            ['Tipo', MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type],
-            ['Sub-natureza', op.sub_mission_type || '-'],
-            ['Status', op.status === 'completed' ? 'Concluída' : 'Outro'],
-            ['Início', new Date(op.start_time).toLocaleString('pt-BR')],
-            ['Tempo de Voo', `${op.flight_hours || 0} horas`],
-            ['Piloto', `${op.pilot?.full_name || 'N/A'} (${op.pilot?.unit || ''})`],
-            ['Aeronave', `${op.drone?.prefix || 'N/A'} - ${op.drone?.model || ''}`],
-            ['Protocolo SARPAS', op.sarpas_protocol || 'N/A'],
-            ['Status A.R.O.', op.aro ? 'Confeccionado' : 'Pendente'],
-            ['Plano de Voo', op.flight_plan_data ? 'Realizado' : 'Não Realizado'],
-          ],
-          headStyles: { fillColor: [60, 60, 60] },
-          theme: 'grid',
-        });
-
-        // Description
-        let currentY = (doc as any).lastAutoTable.finalY + 10;
-        doc.setFont("helvetica", "bold");
-        doc.text("DESCRIÇÃO E AÇÕES:", 14, currentY);
-        currentY += 5;
-        doc.setFont("helvetica", "normal");
-        const desc = op.description || "Sem descrição.";
-        const actions = op.actions_taken || "Sem ações registradas.";
-        const combined = `DESCRIÇÃO:\n${desc}\n\nAÇÕES REALIZADAS:\n${actions}`;
-        const splitText = doc.splitTextToSize(combined, pageWidth - 28);
-        doc.text(splitText, 14, currentY);
+      // --- DADOS DA TABELA ---
+      // AQUI: Apenas "Sim/Não" para documentos
+      const tableBody = selectedOpsList.map(op => {
+         const nature = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
+         const subNature = op.sub_mission_type || '';
+         const pilot = op.pilot?.full_name || 'N/A';
+         const drone = op.drone?.prefix || 'N/A';
+         const status = op.status === 'active' ? 'Ativa' : 'Encerrada';
+         const aro = op.aro ? 'SIM' : 'NÃO'; // Apenas indicativo
+         const plan = op.flight_plan_data ? 'SIM' : 'NÃO'; // Apenas indicativo
+         const coords = `${op.latitude.toFixed(4)}, ${op.longitude.toFixed(4)}`;
+         
+         return [
+            op.occurrence_number,
+            `${new Date(op.start_time).toLocaleDateString()}\n${new Date(op.start_time).toLocaleTimeString().slice(0,5)}`,
+            `${nature}\n${subNature}`,
+            `${pilot}\n${drone}`,
+            `${coords}`,
+            `${op.flight_hours || 0}h\n${status}`,
+            `ARO: ${aro}\nPlan: ${plan}`,
+            `${op.name}\n${op.description || ''}`
+         ];
       });
 
-      doc.save(`SYSARP_Relatorio_${new Date().toISOString().split('T')[0]}.pdf`);
+      // --- GERAÇÃO DA TABELA ---
+      autoTable(doc, {
+         startY: 30,
+         head: [['Ocorrência', 'Data/Hora', 'Natureza', 'Piloto/Aeronave', 'Local (Lat/Lon)', 'Tempo/Status', 'Docs (Feito?)', 'Descrição']],
+         body: tableBody,
+         theme: 'grid',
+         headStyles: { 
+            fillColor: [60, 60, 60], 
+            textColor: 255, 
+            fontSize: 9, 
+            fontStyle: 'bold',
+            halign: 'center'
+         },
+         styles: { 
+            fontSize: 8, 
+            cellPadding: 3, 
+            overflow: 'linebreak', 
+            valign: 'middle' 
+         },
+         columnStyles: {
+            0: { cellWidth: 25, halign: 'center', fontStyle: 'bold' }, // Ocorrencia
+            1: { cellWidth: 20, halign: 'center' }, // Data
+            2: { cellWidth: 35 }, // Natureza
+            3: { cellWidth: 35 }, // Piloto
+            4: { cellWidth: 30, fontStyle: 'italic', halign: 'center' }, // Local
+            5: { cellWidth: 20, halign: 'center' }, // Status
+            6: { cellWidth: 20, halign: 'center', fontStyle: 'bold' }, // Docs (Sim/Nao)
+            7: { cellWidth: 'auto' } // Descricao (expands)
+         },
+         didDrawPage: drawHeader,
+      });
+
+      // Footer numbering
+      const pageCount = (doc as any).internal.getNumberOfPages();
+      for(let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(100);
+        doc.text(`Página ${i} de ${pageCount}`, pageWidth / 2, doc.internal.pageSize.height - 10, { align: "center" });
+      }
+
+      doc.save(`SYSARP_Relatorio_Geral_${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (error) {
       console.error(error);
       alert("Erro ao gerar PDF.");
@@ -284,11 +313,15 @@ export default function Reports() {
     }
   };
 
+  // 2. DOCUMENTO INDIVIDUAL: PLANO DE VOO (COMPLETO)
   const handleDownloadFlightPlan = async (op: ExtendedOperation, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!op.flight_plan_data) return;
 
     try {
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+      
       const formData = JSON.parse(op.flight_plan_data);
       const doc = new jsPDF();
       
@@ -314,10 +347,16 @@ export default function Reports() {
       doc.text("1. IDENTIFICAÇÃO", 14, y);
       y += lineHeight;
       doc.setFont("helvetica", "normal");
-      doc.text(`Identificação da Aeronave: ${formData.callsign || droneName}`, 14, y);
-      doc.text(`Regras de Voo: ${formData.flight_rules}`, 110, y);
+      doc.text(`Identificação (Callsign/SISANT): ${formData.callsign || droneName}`, 14, y);
+      
+      if (formData.operation_mode) {
+         doc.text(`Modo de Operação: ${formData.operation_mode}`, 110, y);
+      } else {
+         doc.text(`Regras de Voo: ${formData.flight_rules || 'VFR'}`, 110, y);
+      }
+      
       y += lineHeight;
-      doc.text(`Tipo de Voo: ${formData.type_of_flight}`, 14, y);
+      doc.text(`Tipo de Aeronave: ${formData.aircraft_type || "RPA"}`, 14, y);
       
       y += lineHeight * 2;
 
@@ -330,8 +369,15 @@ export default function Reports() {
       doc.text(`Hora (EOBT): ${formData.departure_time || "0000"}`, 110, y);
       y += lineHeight;
       doc.text(`Velocidade de Cruzeiro: ${formData.cruising_speed}`, 14, y);
-      doc.text(`Nível: ${formData.level}`, 110, y);
-      y += lineHeight;
+      
+      if (formData.max_altitude_agl) {
+          doc.text(`Alt. Máxima AGL: ${formData.max_altitude_agl}m`, 110, y);
+          y += lineHeight;
+          doc.text(`Alt. Mínima AGL: ${formData.min_altitude_agl}m`, 110, y);
+      } else {
+          doc.text(`Nível: ${formData.level || "-"}`, 110, y);
+      }
+
       doc.text(`Rota: ${formData.route}`, 14, y);
       y += lineHeight;
       doc.text(`Aeródromo de Destino: ${formData.destination_aerodrome}`, 14, y);
@@ -348,7 +394,10 @@ export default function Reports() {
       doc.setFont("helvetica", "normal");
       doc.text(`${formData.remarks}`, 14, y);
       y += lineHeight;
-      doc.text(`Autonomia: ${formData.endurance || "0045"}`, 14, y);
+      
+      const enduranceLabel = formData.max_altitude_agl ? "Autonomia Útil (min)" : "Autonomia";
+      doc.text(`${enduranceLabel}: ${formData.endurance || "0"}`, 14, y);
+      
       doc.text(`Pessoas a Bordo: ${formData.persons_on_board}`, 110, y);
 
       y += lineHeight * 2;
@@ -373,11 +422,17 @@ export default function Reports() {
     }
   };
 
+  // 3. DOCUMENTO INDIVIDUAL: A.R.O. (COMPLETO)
   const handleDownloadAro = async (op: ExtendedOperation, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!op.aro) return;
 
     try {
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = autoTableModule.default;
+
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.width;
       
@@ -397,20 +452,21 @@ export default function Reports() {
       doc.setFontSize(16);
       doc.text("AVALIAÇÃO DE RISCO OPERACIONAL", pageWidth/2, 45, {align: "center"});
 
+      // Data abaixo do Título e Centralizada
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
-      doc.text(`Data: ${new Date(op.aro.created_at).toLocaleString()}`, pageWidth - 14, 45, {align: "right"});
+      doc.text(`Data de Emissão: ${new Date(op.aro.created_at).toLocaleString()}`, pageWidth / 2, 52, {align: "center"});
 
-      // Info Formatado conforme pedido
+      // Info Formatado conforme pedido - Deslocado um pouco para baixo
       doc.setFont("helvetica", "bold");
       const droneInfo = `Aeronave: ${op.drone?.prefix || 'N/A'} - SISANT: ${op.drone?.sisant || 'N/A'} - Modelo: ${op.drone?.model || 'N/A'}`;
-      doc.text(droneInfo, 14, 60);
-      doc.text(`Ocorrência: ${op.occurrence_number}`, 14, 66);
-      doc.text(`Piloto: ${op.pilot?.full_name || 'N/A'}`, 14, 72);
+      doc.text(droneInfo, 14, 65);
+      doc.text(`Ocorrência: ${op.occurrence_number}`, 14, 71);
+      doc.text(`Piloto: ${op.pilot?.full_name || 'N/A'}`, 14, 77);
 
-      // Table
+      // Table - ARO COMPLETO - Início ajustado
       autoTable(doc, {
-        startY: 80,
+        startY: 85,
         head: [['Situação', 'Prob.', 'Sev.', 'Risco', 'Aut. Nível', 'Mitigação']],
         body: op.aro.items.map(item => [
           item.description,
@@ -445,24 +501,24 @@ export default function Reports() {
   // Memoize markers to prevent excessive re-rendering and freezing
   const mapMarkers = useMemo(() => {
     // Performance optimization: Limit displayed markers on heatmap to 1000 most recent
-    // to prevent browser crash if database grows large.
     const displayOps = filteredOps.slice(0, 1000);
 
     return displayOps.map(op => {
-      // Check for valid lat/lng before rendering
-      if (typeof op.latitude !== 'number' || typeof op.longitude !== 'number') return null;
+      const lat = Number(op.latitude);
+      const lng = Number(op.longitude);
+      if (isNaN(lat) || isNaN(lng)) return null;
       
       return (
         <CircleMarker 
           key={op.id}
-          center={[op.latitude, op.longitude]}
+          center={[lat, lng]}
           pathOptions={{ 
               color: MISSION_COLORS[op.mission_type] || 'gray',
               fillColor: MISSION_COLORS[op.mission_type] || 'gray',
               fillOpacity: 0.6,
               weight: 1
           }}
-          radius={12} // Larger radius for "heat" feel
+          radius={12}
         >
           <Popup>
               <div className="text-xs">
@@ -507,29 +563,31 @@ export default function Reports() {
            </div>
 
            {/* CHARTS */}
-           <Card className="p-4 h-64">
-              <h3 className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-2">
+           <Card className="p-4 h-64 flex flex-col"> 
+              <h3 className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-2 shrink-0"> 
                  <PieIcon className="w-4 h-4" /> Distribuição por Missão
               </h3>
-              <ResponsiveContainer width="100%" height="100%">
-                 <PieChart>
-                    <Pie
-                       data={getMissionStats()}
-                       cx="50%"
-                       cy="50%"
-                       innerRadius={40}
-                       outerRadius={60}
-                       paddingAngle={5}
-                       dataKey="value"
-                    >
-                       {getMissionStats().map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                       ))}
-                    </Pie>
-                    <RechartsTooltip />
-                    <Legend iconSize={8} wrapperStyle={{ fontSize: '10px' }} />
-                 </PieChart>
-              </ResponsiveContainer>
+              <div className="flex-1 min-h-0"> 
+                <ResponsiveContainer width="100%" height="100%">
+                   <PieChart>
+                      <Pie
+                         data={getMissionStats()}
+                         cx="50%"
+                         cy="50%"
+                         innerRadius={40}
+                         outerRadius={60}
+                         paddingAngle={5}
+                         dataKey="value"
+                      >
+                         {getMissionStats().map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                         ))}
+                      </Pie>
+                      <RechartsTooltip />
+                      <Legend iconSize={8} wrapperStyle={{ fontSize: '10px' }} />
+                   </PieChart>
+                </ResponsiveContainer>
+              </div>
            </Card>
 
            {/* FILTERS - RESPONSIVE MATRIX GRID */}
@@ -537,26 +595,15 @@ export default function Reports() {
               <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
                  <Filter className="w-4 h-4" /> Filtros Avançados
               </h3>
-              
-              {/* 
-                 GRID LOGIC: 
-                 - Mobile (sm): 1 column
-                 - Tablet/Wide Mobile (md): 3 columns (Matrix 3x3)
-                 - Desktop (lg): 1 column (Sidebar style)
-              */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-1 gap-3">
-                 
-                 {/* Dates Group */}
                  <div className="col-span-1 sm:col-span-2 md:col-span-1 lg:col-span-1 grid grid-cols-2 gap-2">
                     <Input label="De" type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} className="text-xs" />
                     <Input label="Até" type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} className="text-xs" />
                  </div>
-
                  <Select label="CRBM (Regional)" value={selectedCRBM} onChange={e => setSelectedCRBM(e.target.value)} className="text-xs">
                     <option value="all">Todos os Comandos</option>
                     {ORGANIZATION_CHART_KEYS.map(crbm => <option key={crbm} value={crbm}>{crbm.split(' - ')[0]}</option>)}
                  </Select>
-
                  <Input 
                     label="Unidade / BBM" 
                     placeholder="Ex: 2º GB ou Umuarama" 
@@ -564,18 +611,14 @@ export default function Reports() {
                     onChange={e => setSelectedBBM(e.target.value)} 
                     className="text-xs"
                  />
-
                  <Select label="Tipo de Missão" value={missionType} onChange={e => setMissionType(e.target.value)} className="text-xs">
                     <option value="all">Todas</option>
                     {Object.entries(MISSION_HIERARCHY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                  </Select>
-
                  <Select label="Aeronave" value={selectedDroneId} onChange={e => setSelectedDroneId(e.target.value)} className="text-xs">
                     <option value="all">Todas as Aeronaves</option>
                     {drones.map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
                  </Select>
-
-                 {/* Search Button - Full Width on small/med, bottom on desktop */}
                  <div className="col-span-1 sm:col-span-2 md:col-span-3 lg:col-span-1 pt-2">
                     <Button onClick={handleSearch} className="w-full bg-slate-900 hover:bg-black h-9 text-xs">
                         <Search className="w-3.5 h-3.5 mr-2" /> Pesquisar
@@ -664,7 +707,7 @@ export default function Reports() {
                                           <Button 
                                             variant="outline" 
                                             className="h-6 w-6 p-0 border-slate-200" 
-                                            title="Baixar A.R.O."
+                                            title="Baixar A.R.O. (Documento Completo)"
                                             onClick={(e) => handleDownloadAro(op, e)}
                                           >
                                             <FileText className="w-3 h-3 text-green-600" />
@@ -674,7 +717,7 @@ export default function Reports() {
                                           <Button 
                                             variant="outline" 
                                             className="h-6 w-6 p-0 border-slate-200" 
-                                            title="Baixar Plano de Voo"
+                                            title="Baixar Plano de Voo (Documento Completo)"
                                             onClick={(e) => handleDownloadFlightPlan(op, e)}
                                           >
                                             <Navigation className="w-3 h-3 text-blue-600" />

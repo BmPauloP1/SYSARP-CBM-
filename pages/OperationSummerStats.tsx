@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { operationSummerService } from '../services/operationSummerService';
 import { base44 } from '../services/base44Client';
@@ -34,7 +35,10 @@ const CITY_COORDS: Record<string, [number, number]> = {
 const MapController = () => {
   const map = useMap();
   useEffect(() => {
-    setTimeout(() => map.invalidateSize(), 200);
+    const timer = setTimeout(() => {
+      if (map && map.getContainer()) map.invalidateSize();
+    }, 200);
+    return () => clearTimeout(timer);
   }, [map]);
   return null;
 };
@@ -140,6 +144,9 @@ export default function OperationSummerStats() {
       
       if (cityKey) {
         const [baseLat, baseLng] = CITY_COORDS[cityKey];
+        // Safety Check for coordinates
+        if (isNaN(baseLat) || isNaN(baseLng)) return null;
+
         return {
           id: f.id,
           lat: jitter(baseLat),
@@ -318,44 +325,48 @@ export default function OperationSummerStats() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Charts Column */}
         <div className="lg:col-span-1 space-y-6">
-          <Card className="p-4 h-80 shadow-md">
-            <h3 className="font-bold text-slate-700 mb-4 text-sm uppercase">Distribuição por Missão</h3>
-            <ResponsiveContainer width="100%" height="85%">
-              <PieChart>
-                <Pie
-                  data={missionData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {missionData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: '10px' }}/>
-              </PieChart>
-            </ResponsiveContainer>
+          <Card className="p-4 h-80 shadow-md flex flex-col"> {/* Added flex flex-col */}
+            <h3 className="font-bold text-slate-700 mb-4 text-sm uppercase shrink-0">Distribuição por Missão</h3>
+            <div className="flex-1 min-h-0"> {/* Wrapper for ResponsiveContainer */}
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={missionData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {missionData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend verticalAlign="bottom" height={36} wrapperStyle={{ fontSize: '10px' }}/>
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
           </Card>
 
-          <Card className="p-4 h-80 shadow-md">
-            <h3 className="font-bold text-slate-700 mb-4 text-sm uppercase">Top 5 Localidades</h3>
-            <ResponsiveContainer width="100%" height="85%">
-              <BarChart data={locationData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                <XAxis type="number" hide />
-                <YAxis dataKey="name" type="category" width={80} tick={{fontSize: 10}} />
-                <Tooltip cursor={{fill: 'transparent'}} />
-                <Bar dataKey="value" fill="#f97316" radius={[0, 4, 4, 0]} barSize={20}>
-                   {locationData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                   ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          <Card className="p-4 h-80 shadow-md flex flex-col"> {/* Added flex flex-col */}
+            <h3 className="font-bold text-slate-700 mb-4 text-sm uppercase shrink-0">Top 5 Localidades</h3>
+            <div className="flex-1 min-h-0"> {/* Wrapper for ResponsiveContainer */}
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={locationData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" hide />
+                  <YAxis dataKey="name" type="category" width={80} tick={{fontSize: 10}} />
+                  <Tooltip cursor={{fill: 'transparent'}} />
+                  <Bar dataKey="value" fill="#f97316" radius={[0, 4, 4, 0]} barSize={20}>
+                    {locationData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </Card>
         </div>
 

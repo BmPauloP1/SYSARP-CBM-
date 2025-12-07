@@ -1,21 +1,48 @@
 
-
-
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
-import { Pilot, ORGANIZATION_CHART } from "../types";
+import { Pilot, ORGANIZATION_CHART, SYSARP_LOGO } from "../types";
 import { Card, Button, Badge, Input, Select } from "../components/ui_components";
-import { Plus, User, X, Save, Phone, Lock, Shield, Trash2, Database, Copy, Pencil, Search, ChevronLeft, ChevronRight, Mail } from "lucide-react";
+import { Plus, User, X, Save, Phone, Lock, Shield, Trash2, Database, Copy, Pencil, Search, ChevronLeft, ChevronRight, Mail, Filter, FileText, RefreshCcw, Users } from "lucide-react";
+
+// Helper para carregar imagem para o PDF (Reutilizado para consistência)
+const getImageData = (url: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    if (url.startsWith('data:')) { resolve(url); return; }
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      } else {
+        reject(new Error("Canvas error"));
+      }
+    };
+    img.onerror = () => resolve("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
+    img.src = url;
+  });
+};
 
 export default function PilotManagement() {
   const [pilots, setPilots] = useState<Pilot[]>([]);
   const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   const [loading, setLoading] = useState(true);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
   
   // Search & Pagination State
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
+
+  // New Filters State
+  const [filterCrbm, setFilterCrbm] = useState("all");
+  const [filterUnit, setFilterUnit] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -66,14 +93,20 @@ export default function PilotManagement() {
   const filteredPilots = useMemo(() => {
     return pilots.filter(pilot => {
       const searchLower = searchTerm.toLowerCase();
-      return (
+      
+      const matchesSearch = (
         pilot.full_name?.toLowerCase().includes(searchLower) ||
         pilot.sarpas_code?.toLowerCase().includes(searchLower) ||
-        pilot.crbm?.toLowerCase().includes(searchLower) ||
-        pilot.unit?.toLowerCase().includes(searchLower)
+        pilot.email?.toLowerCase().includes(searchLower)
       );
+
+      const matchesCrbm = filterCrbm === "all" || pilot.crbm === filterCrbm;
+      const matchesUnit = filterUnit === "all" || pilot.unit === filterUnit;
+      const matchesStatus = filterStatus === "all" || pilot.status === filterStatus;
+
+      return matchesSearch && matchesCrbm && matchesUnit && matchesStatus;
     });
-  }, [pilots, searchTerm]);
+  }, [pilots, searchTerm, filterCrbm, filterUnit, filterStatus]);
 
   const totalPages = Math.ceil(filteredPilots.length / itemsPerPage);
   
@@ -83,9 +116,26 @@ export default function PilotManagement() {
     return filteredPilots.slice(indexOfFirstItem, indexOfLastItem);
   }, [filteredPilots, currentPage]);
 
+  const stats = useMemo(() => {
+    return {
+        total: pilots.length,
+        active: pilots.filter(p => p.status === 'active').length,
+        inactive: pilots.filter(p => p.status === 'inactive').length,
+        admins: pilots.filter(p => p.role === 'admin').length
+    };
+  }, [pilots]);
+
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
     setCurrentPage(1); // Reseta para a primeira página ao pesquisar
+  };
+
+  const handleResetFilters = () => {
+      setSearchTerm("");
+      setFilterCrbm("all");
+      setFilterUnit("all");
+      setFilterStatus("all");
+      setCurrentPage(1);
   };
 
   const nextPage = () => {
@@ -94,6 +144,66 @@ export default function PilotManagement() {
 
   const prevPage = () => {
     if (currentPage > 1) setCurrentPage(prev => prev - 1);
+  };
+
+  // --- GERAR RELATÓRIO PDF ---
+  const handleExportReport = async () => {
+    if (filteredPilots.length === 0) {
+        alert("Nenhum piloto na lista para exportar.");
+        return;
+    }
+    setGeneratingPdf(true);
+    try {
+        const jsPDFModule = await import('jspdf');
+        const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+        const autoTableModule = await import('jspdf-autotable');
+        const autoTable = autoTableModule.default;
+
+        const doc = new jsPDF();
+        const logoData = await getImageData(SYSARP_LOGO);
+
+        // Header
+        try { doc.addImage(logoData, "PNG", 14, 10, 20, 20); } catch(e) {}
+        doc.setFontSize(16);
+        doc.setFont("helvetica", "bold");
+        doc.text("RELATÓRIO DE EFETIVO - PILOTOS RPA", 105, 20, { align: "center" });
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text("CORPO DE BOMBEIROS MILITAR DO PARANÁ", 105, 26, { align: "center" });
+        
+        doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 35);
+        doc.text(`Filtros: ${filterCrbm !== 'all' ? filterCrbm : 'Todos CRBMs'} | Status: ${filterStatus !== 'all' ? (filterStatus === 'active' ? 'Ativos' : 'Inativos') : 'Todos'}`, 14, 40);
+
+        const tableBody = filteredPilots.map(p => [
+            p.full_name,
+            p.sarpas_code || '-',
+            p.unit || '-',
+            p.phone || '-',
+            p.status === 'active' ? 'ATIVO' : 'INATIVO',
+            p.role === 'admin' ? 'ADMIN' : 'OP'
+        ]);
+
+        autoTable(doc, {
+            startY: 45,
+            head: [['Nome Completo', 'SARPAS', 'Unidade', 'Telefone', 'Status', 'Perfil']],
+            body: tableBody,
+            theme: 'grid',
+            headStyles: { fillColor: [185, 28, 28], textColor: 255, fontSize: 8 },
+            styles: { fontSize: 7, cellPadding: 2 },
+            columnStyles: {
+                0: { cellWidth: 50 },
+                2: { cellWidth: 40 }
+            }
+        });
+
+        doc.save(`Relatorio_Pilotos_SYSARP_${new Date().toISOString().split('T')[0]}.pdf`);
+
+    } catch (e) {
+        console.error(e);
+        alert("Erro ao gerar relatório PDF.");
+    } finally {
+        setGeneratingPdf(false);
+    }
   };
 
   // --- AÇÕES ---
@@ -273,28 +383,98 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
 
       {/* HEADER SECTION (Fixed) */}
       <div className="flex-shrink-0 bg-white border-b border-slate-200 p-4 md:p-6 space-y-4 shadow-sm z-10">
+        
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <h1 className="text-2xl font-bold text-slate-900">Gestão de Pilotos</h1>
+          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+             <Users className="w-8 h-8 text-slate-700" />
+             Gestão de Pilotos
+          </h1>
           
           {currentUser?.role === 'admin' && (
-             <Button onClick={handleNew} className="w-full md:w-auto shadow-md bg-red-700 hover:bg-red-800 text-white h-12 md:h-10 text-lg md:text-sm font-bold">
-               <Plus className="w-5 h-5 md:w-4 md:h-4 mr-2" />
+             <Button onClick={handleNew} className="w-full md:w-auto shadow-md bg-red-700 hover:bg-red-800 text-white h-10 text-sm font-bold">
+               <Plus className="w-4 h-4 mr-2" />
                Novo Piloto
              </Button>
            )}
         </div>
 
-        {/* SEARCH BAR */}
-        <div className="relative w-full">
-            <input
-              type="text"
-              placeholder="Buscar por Nome, CRBM ou SARPAS..."
-              value={searchTerm}
-              onChange={handleSearchChange}
-              className="w-full pl-10 pr-4 py-3 md:py-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 outline-none shadow-sm"
-            />
-            <Search className="w-5 h-5 text-slate-400 absolute left-3 top-3.5 md:top-3" />
+        {/* STATS BAR */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg flex items-center justify-between">
+                <div className="text-xs font-bold text-slate-500 uppercase">Total</div>
+                <div className="text-xl font-bold text-slate-800">{stats.total}</div>
+            </div>
+            <div className="bg-green-50 border border-green-200 p-3 rounded-lg flex items-center justify-between">
+                <div className="text-xs font-bold text-green-700 uppercase">Ativos</div>
+                <div className="text-xl font-bold text-green-800">{stats.active}</div>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg flex items-center justify-between opacity-70">
+                <div className="text-xs font-bold text-slate-500 uppercase">Inativos</div>
+                <div className="text-xl font-bold text-slate-800">{stats.inactive}</div>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-center justify-between">
+                <div className="text-xs font-bold text-blue-700 uppercase">Admins</div>
+                <div className="text-xl font-bold text-blue-800">{stats.admins}</div>
+            </div>
         </div>
+
+        {/* FILTERS BAR */}
+        <Card className="p-4 bg-slate-50 border-slate-200">
+            <div className="flex items-center gap-2 mb-3 text-xs font-bold text-slate-500 uppercase">
+                <Filter className="w-3 h-3" /> Filtros de Consulta
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+                <div className="lg:col-span-1">
+                    <Input
+                      placeholder="Buscar por Nome ou SARPAS..."
+                      value={searchTerm}
+                      onChange={handleSearchChange}
+                      className="h-10 text-sm bg-white"
+                    />
+                </div>
+                <div className="lg:col-span-1">
+                    <Select 
+                       value={filterCrbm} 
+                       onChange={e => { setFilterCrbm(e.target.value); setFilterUnit("all"); }}
+                       className="h-10 text-sm bg-white"
+                    >
+                        <option value="all">Todos os CRBMs</option>
+                        {Object.keys(ORGANIZATION_CHART).map(crbm => <option key={crbm} value={crbm}>{crbm.split(' - ')[0]}</option>)}
+                    </Select>
+                </div>
+                <div className="lg:col-span-1">
+                    <Select 
+                       value={filterUnit} 
+                       onChange={e => setFilterUnit(e.target.value)}
+                       disabled={filterCrbm === "all"}
+                       className="h-10 text-sm bg-white disabled:bg-slate-100"
+                    >
+                        <option value="all">Todas as Unidades</option>
+                        {filterCrbm !== "all" && ORGANIZATION_CHART[filterCrbm]?.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                    </Select>
+                </div>
+                <div className="lg:col-span-1">
+                    <Select 
+                       value={filterStatus} 
+                       onChange={e => setFilterStatus(e.target.value)}
+                       className="h-10 text-sm bg-white"
+                    >
+                        <option value="all">Todos os Status</option>
+                        <option value="active">Ativo</option>
+                        <option value="inactive">Inativo</option>
+                    </Select>
+                </div>
+                <div className="lg:col-span-1 flex gap-2">
+                    <Button onClick={handleResetFilters} variant="outline" className="h-10 bg-white" title="Limpar Filtros">
+                        <RefreshCcw className="w-4 h-4" />
+                    </Button>
+                    <Button onClick={handleExportReport} disabled={generatingPdf} className="h-10 flex-1 bg-slate-800 text-white hover:bg-slate-900">
+                        <FileText className="w-4 h-4 mr-2" />
+                        {generatingPdf ? 'Gerando...' : 'Relatório'}
+                    </Button>
+                </div>
+            </div>
+        </Card>
       </div>
 
       {/* SCROLLABLE CONTENT */}
@@ -384,7 +564,7 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
                 ) : (
                   <tr>
                     <td colSpan={5} className="px-6 py-8 text-center text-slate-500 italic">
-                      Nenhum piloto encontrado.
+                      Nenhum piloto encontrado para os filtros selecionados.
                     </td>
                   </tr>
                 )}

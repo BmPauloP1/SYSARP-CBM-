@@ -4,8 +4,6 @@ import { operationSummerService } from '../services/operationSummerService';
 import { base44 } from '../services/base44Client';
 import { Card, Button } from '../components/ui_components';
 import { FileText, Download, Sun } from 'lucide-react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { SUMMER_MISSION_LABELS } from '../types_summer';
 
 export default function OperationSummerReport() {
@@ -19,6 +17,11 @@ export default function OperationSummerReport() {
         base44.entities.Pilot.list(),
         base44.entities.Drone.list()
       ]);
+
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+      const autoTableModule = await import('jspdf-autotable');
+      const autoTable = autoTableModule.default;
 
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.width;

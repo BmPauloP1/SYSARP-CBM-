@@ -1,10 +1,11 @@
-import React, { useEffect, useState, useCallback, memo } from "react";
+import React, { useEffect, useState, useCallback, memo, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
+import { supabase, isConfigured } from "../services/supabase";
 import { Operation, Drone, Pilot, Maintenance, MISSION_HIERARCHY, ConflictNotification } from "../types";
 import { Badge, Button } from "../components/ui_components";
-import { Radio, Video, AlertTriangle, Map as MapIcon, Wrench, List, Shield, Crosshair, Phone, Check, Info, Share2 } from "lucide-react";
+import { Radio, Video, AlertTriangle, Map as MapIcon, Wrench, List, Shield, Check, Info, Share2 } from "lucide-react";
 
 // Fix Leaflet icons
 const icon = L.icon({
@@ -90,7 +91,7 @@ export default function Dashboard() {
   const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   
   // Ref para controle de montagem e evitar updates em componente desmontado
-  const isMounted = React.useRef(true);
+  const isMounted = useRef(true);
 
   const loadData = useCallback(async (user?: Pilot) => {
     try {
@@ -155,9 +156,41 @@ export default function Dashboard() {
     };
   }, [currentUser, loadData]);
 
+  // Realtime Subscription for Dashboard Conflicts
+  useEffect(() => {
+    if (!currentUser || !isConfigured) return;
+
+    const channel = supabase
+      .channel('dashboard_conflicts_monitor')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // INSERT (new conflict) or UPDATE (ack status changed)
+          schema: 'public',
+          table: 'conflict_notifications',
+          filter: `target_pilot_id=eq.${currentUser.id}`
+        },
+        (payload) => {
+           console.log("Realtime Conflict Update in Dashboard:", payload);
+           // Otimização: Recarregar apenas os conflitos em vez de todos os dados do dashboard
+           base44.entities.ConflictNotification.filter({ target_pilot_id: currentUser.id, acknowledged: false })
+             .then(conflicts => {
+                if(isMounted.current) setConflictAlerts(conflicts);
+             })
+             .catch(console.error);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser]);
+
   const handleAckConflict = async (id: string) => {
      try {
          await base44.entities.ConflictNotification.update(id, { acknowledged: true });
+         // Realtime should handle the update, but optimistic update is faster
          setConflictAlerts(prev => prev.filter(c => c.id !== id));
      } catch (e) {
          console.error(e);

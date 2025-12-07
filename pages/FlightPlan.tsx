@@ -4,7 +4,6 @@ import { base44 } from "../services/base44Client";
 import { Drone, Pilot, Operation } from "../types";
 import { Card, Input, Select, Button } from "../components/ui_components";
 import { FileText, Plane, Clock, Map as MapIcon, Save, Download, User, Navigation, Radio, CheckCircle } from "lucide-react";
-import jsPDF from 'jspdf';
 
 export default function FlightPlan() {
   const [pilots, setPilots] = useState<Pilot[]>([]);
@@ -18,23 +17,22 @@ export default function FlightPlan() {
     pilot_id: "",
     drone_id: "",
     callsign: "",
-    flight_rules: "V", // VFR
-    type_of_flight: "M", // Military/Government
     aircraft_type: "RPA",
     departure_aerodrome: "ZZZZ",
     departure_time: "",
     cruising_speed: "N0050", // Knots
-    level: "VFR",
+    
+    // Novos Campos
+    max_altitude_agl: "120",
+    min_altitude_agl: "0",
+    operation_mode: "VLOS", // VLOS ou EVLOS
+    
     route: "DCT",
     destination_aerodrome: "ZZZZ",
     total_eet: "",
     altn_aerodrome: "",
-    endurance: "",
+    endurance: "", // Agora em minutos
     persons_on_board: "0",
-    emergency_radio: "UHF",
-    survival_equipment: "NIL",
-    jackets: "NIL",
-    dinghies: "NIL",
     remarks: "OP BOMBEIROS"
   });
 
@@ -56,16 +54,32 @@ export default function FlightPlan() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  const handleDroneChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedDroneId = e.target.value;
+    const selectedDrone = drones.find(d => d.id === selectedDroneId);
+    
+    setFormData(prev => ({
+      ...prev,
+      drone_id: selectedDroneId,
+      // Preenche automaticamente o callsign com o SISANT se o drone for encontrado
+      callsign: selectedDrone ? selectedDrone.sisant : prev.callsign
+    }));
+  };
+
   const handleOperationSelect = (opId: string) => {
     setSelectedOpId(opId);
     if (!opId) return;
 
     const op = activeOps.find(o => o.id === opId);
     if (op) {
+      // Tenta achar o drone para pegar o SISANT
+      const opDrone = drones.find(d => d.id === op.drone_id);
+      
       setFormData(prev => ({
         ...prev,
         pilot_id: op.pilot_id || prev.pilot_id,
         drone_id: op.drone_id || prev.drone_id,
+        callsign: opDrone ? opDrone.sisant : prev.callsign,
         remarks: `${op.name} (Ocorrência #${op.occurrence_number})`
       }));
     }
@@ -91,88 +105,99 @@ export default function FlightPlan() {
     }
   };
 
-  const handleGeneratePDF = () => {
+  const handleGeneratePDF = async () => {
     setLoading(true);
-    const doc = new jsPDF();
-    const pilot = pilots.find(p => p.id === formData.pilot_id);
-    const drone = drones.find(d => d.id === formData.drone_id);
+    try {
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+      const doc = new jsPDF();
+      const pilot = pilots.find(p => p.id === formData.pilot_id);
+      const drone = drones.find(d => d.id === formData.drone_id);
 
-    // Header
-    doc.setFillColor(200, 200, 200);
-    doc.rect(0, 0, 210, 20, 'F');
-    doc.setFontSize(16);
-    doc.setFont("helvetica", "bold");
-    doc.text("PLANO DE VOO / NOTIFICAÇÃO", 105, 12, { align: "center" });
-    
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    
-    let y = 30;
-    const lineHeight = 7;
+      // Header
+      doc.setFillColor(200, 200, 200);
+      doc.rect(0, 0, 210, 20, 'F');
+      doc.setFontSize(16);
+      doc.setFont("helvetica", "bold");
+      doc.text("PLANO DE VOO / NOTIFICAÇÃO", 105, 12, { align: "center" });
+      
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      
+      let y = 30;
+      const lineHeight = 7;
 
-    // Section 1: Identificação
-    doc.setFont("helvetica", "bold");
-    doc.text("1. IDENTIFICAÇÃO", 14, y);
-    y += lineHeight;
-    doc.setFont("helvetica", "normal");
-    doc.text(`Identificação da Aeronave: ${formData.callsign || (drone ? drone.prefix : "N/A")}`, 14, y);
-    doc.text(`Regras de Voo: ${formData.flight_rules}`, 110, y);
-    y += lineHeight;
-    doc.text(`Tipo de Voo: ${formData.type_of_flight}`, 14, y);
-    doc.text(`Número SISANT: ${drone?.sisant || "N/A"}`, 110, y);
-    
-    y += lineHeight * 2;
+      // Section 1: Identificação
+      doc.setFont("helvetica", "bold");
+      doc.text("1. IDENTIFICAÇÃO", 14, y);
+      y += lineHeight;
+      doc.setFont("helvetica", "normal");
+      doc.text(`Identificação (Callsign/SISANT): ${formData.callsign || (drone ? drone.sisant : "N/A")}`, 14, y);
+      doc.text(`Modo de Operação: ${formData.operation_mode}`, 110, y);
+      y += lineHeight;
+      doc.text(`Tipo de Aeronave: ${formData.aircraft_type}`, 14, y);
+      
+      y += lineHeight * 2;
 
-    // Section 2: Voo
-    doc.setFont("helvetica", "bold");
-    doc.text("2. DADOS DO VOO", 14, y);
-    y += lineHeight;
-    doc.setFont("helvetica", "normal");
-    doc.text(`Aeródromo de Partida: ${formData.departure_aerodrome}`, 14, y);
-    doc.text(`Hora (EOBT): ${formData.departure_time || "0000"}`, 110, y);
-    y += lineHeight;
-    doc.text(`Velocidade de Cruzeiro: ${formData.cruising_speed}`, 14, y);
-    doc.text(`Nível: ${formData.level}`, 110, y);
-    y += lineHeight;
-    doc.text(`Rota: ${formData.route}`, 14, y);
-    y += lineHeight;
-    doc.text(`Aeródromo de Destino: ${formData.destination_aerodrome}`, 14, y);
-    doc.text(`EET Total: ${formData.total_eet || "0030"}`, 110, y);
-    y += lineHeight;
-    doc.text(`Alt. Aeródromo: ${formData.altn_aerodrome || "NIL"}`, 14, y);
+      // Section 2: Voo
+      doc.setFont("helvetica", "bold");
+      doc.text("2. DADOS DO VOO", 14, y);
+      y += lineHeight;
+      doc.setFont("helvetica", "normal");
+      doc.text(`Aeródromo de Partida: ${formData.departure_aerodrome}`, 14, y);
+      doc.text(`Hora (EOBT): ${formData.departure_time || "0000"}`, 110, y);
+      y += lineHeight;
+      doc.text(`Velocidade de Cruzeiro: ${formData.cruising_speed}`, 14, y);
+      
+      // Altitudes AGL no lugar de Nível
+      doc.text(`Alt. Máxima AGL: ${formData.max_altitude_agl}m`, 110, y);
+      y += lineHeight;
+      doc.text(`Alt. Mínima AGL: ${formData.min_altitude_agl}m`, 110, y);
+      
+      doc.text(`Rota: ${formData.route}`, 14, y);
+      y += lineHeight;
+      doc.text(`Aeródromo de Destino: ${formData.destination_aerodrome}`, 14, y);
+      doc.text(`EET Total: ${formData.total_eet || "0030"}`, 110, y);
+      y += lineHeight;
+      doc.text(`Alt. Aeródromo: ${formData.altn_aerodrome || "NIL"}`, 14, y);
 
-    y += lineHeight * 2;
+      y += lineHeight * 2;
 
-    // Section 3: Outras Informações
-    doc.setFont("helvetica", "bold");
-    doc.text("3. OUTRAS INFORMAÇÕES (RMK)", 14, y);
-    y += lineHeight;
-    doc.setFont("helvetica", "normal");
-    doc.text(`${formData.remarks} / OPR: CBM-PR`, 14, y);
-    y += lineHeight;
-    doc.text(`Autonomia: ${formData.endurance || "0045"}`, 14, y);
-    doc.text(`Pessoas a Bordo: ${formData.persons_on_board}`, 110, y);
+      // Section 3: Outras Informações
+      doc.setFont("helvetica", "bold");
+      doc.text("3. OUTRAS INFORMAÇÕES (RMK)", 14, y);
+      y += lineHeight;
+      doc.setFont("helvetica", "normal");
+      doc.text(`${formData.remarks} / OPR: CBM-PR`, 14, y);
+      y += lineHeight;
+      doc.text(`Autonomia Útil: ${formData.endurance || "0"} minutos`, 14, y);
+      doc.text(`Pessoas a Bordo: ${formData.persons_on_board}`, 110, y);
 
-    y += lineHeight * 2;
+      y += lineHeight * 2;
 
-    // Section 4: Piloto em Comando
-    doc.setFont("helvetica", "bold");
-    doc.text("4. PILOTO EM COMANDO", 14, y);
-    y += lineHeight;
-    doc.setFont("helvetica", "normal");
-    doc.text(`Nome: ${pilot?.full_name || "N/A"}`, 14, y);
-    doc.text(`Código SARPAS: ${pilot?.sarpas_code || "N/A"}`, 110, y);
-    y += lineHeight;
-    doc.text(`Licença/Certificado: ${pilot?.license || "N/A"}`, 14, y);
-    doc.text(`Telefone: ${pilot?.phone || "N/A"}`, 110, y);
+      // Section 4: Piloto em Comando
+      doc.setFont("helvetica", "bold");
+      doc.text("4. PILOTO EM COMANDO", 14, y);
+      y += lineHeight;
+      doc.setFont("helvetica", "normal");
+      doc.text(`Nome: ${pilot?.full_name || "N/A"}`, 14, y);
+      doc.text(`Código SARPAS: ${pilot?.sarpas_code || "N/A"}`, 110, y);
+      y += lineHeight;
+      doc.text(`Licença/Certificado: ${pilot?.license || "N/A"}`, 14, y);
+      doc.text(`Telefone: ${pilot?.phone || "N/A"}`, 110, y);
 
-    // Footer
-    y = 280;
-    doc.setFontSize(8);
-    doc.text("Documento gerado pelo sistema SYSARP - Uso exclusivo para coordenação operacional.", 105, y, { align: "center" });
+      // Footer
+      y = 280;
+      doc.setFontSize(8);
+      doc.text("Documento gerado pelo sistema SYSARP - Uso exclusivo para coordenação operacional.", 105, y, { align: "center" });
 
-    doc.save("Plano_de_Voo.pdf");
-    setLoading(false);
+      doc.save("Plano_de_Voo.pdf");
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao gerar PDF.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -237,7 +262,7 @@ export default function FlightPlan() {
                   <Select 
                     label="Aeronave (RPA)" 
                     value={formData.drone_id} 
-                    onChange={(e) => handleChange('drone_id', e.target.value)}
+                    onChange={handleDroneChange}
                     className="bg-slate-50"
                   >
                     <option value="">Selecione...</option>
@@ -245,25 +270,22 @@ export default function FlightPlan() {
                   </Select>
                   
                   <Input 
-                    label="Identificação (Callsign)" 
-                    placeholder="Ex: PP-12345"
+                    label="Callsign (SISANT)" 
+                    placeholder="Auto-preenchido"
                     value={formData.callsign}
                     onChange={(e) => handleChange('callsign', e.target.value)}
+                    className="bg-slate-100 font-mono"
                   />
                   
-                  <div className="grid grid-cols-2 gap-3">
-                    <Input 
-                      label="Regras" 
-                      value={formData.flight_rules}
-                      onChange={(e) => handleChange('flight_rules', e.target.value)}
-                      placeholder="V"
-                    />
-                    <Input 
-                      label="Tipo" 
-                      value={formData.type_of_flight}
-                      onChange={(e) => handleChange('type_of_flight', e.target.value)}
-                      placeholder="M"
-                    />
+                  <div className="md:col-span-2 grid grid-cols-2 gap-3">
+                    <Select 
+                        label="Modo da Operação" 
+                        value={formData.operation_mode} 
+                        onChange={(e) => handleChange('operation_mode', e.target.value)}
+                    >
+                        <option value="VLOS">VLOS (Linha de Visada)</option>
+                        <option value="EVLOS">EVLOS (Visada Estendida)</option>
+                    </Select>
                   </div>
                 </div>
               </Card>
@@ -286,7 +308,7 @@ export default function FlightPlan() {
                     value={formData.departure_time}
                     onChange={(e) => handleChange('departure_time', e.target.value)}
                   />
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-3 md:col-span-2">
                     <Input 
                       label="Vel. Cruzeiro" 
                       value={formData.cruising_speed}
@@ -294,10 +316,18 @@ export default function FlightPlan() {
                       placeholder="N0050"
                     />
                     <Input 
-                      label="Nível" 
-                      value={formData.level}
-                      onChange={(e) => handleChange('level', e.target.value)}
-                      placeholder="VFR"
+                      label="Alt. Máx AGL (m)" 
+                      value={formData.max_altitude_agl}
+                      onChange={(e) => handleChange('max_altitude_agl', e.target.value)}
+                      placeholder="120"
+                      type="number"
+                    />
+                    <Input 
+                      label="Alt. Mín AGL (m)" 
+                      value={formData.min_altitude_agl}
+                      onChange={(e) => handleChange('min_altitude_agl', e.target.value)}
+                      placeholder="0"
+                      type="number"
                     />
                   </div>
                   
@@ -352,10 +382,11 @@ export default function FlightPlan() {
                 </h3>
                 <div className="space-y-4">
                   <Input 
-                    label="Autonomia (Endurance)" 
+                    label="Autonomia útil de voo (min)" 
                     value={formData.endurance}
                     onChange={(e) => handleChange('endurance', e.target.value)}
-                    placeholder="HHMM"
+                    placeholder="Ex: 45"
+                    type="number"
                   />
                   <Input 
                     label="Pessoas a Bordo" 
