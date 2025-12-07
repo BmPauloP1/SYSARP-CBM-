@@ -12,15 +12,19 @@ export default defineConfig({
       }
     }
   },
+  optimizeDeps: {
+    include: ["@geoman-io/leaflet-geoman-free"]
+  },
   build: {
     outDir: 'dist',
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
+      external: [], // Ensure nothing is excluded implicitly
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
           utils: ['@supabase/supabase-js', 'lucide-react'],
-          maps: ['leaflet', 'react-leaflet'],
+          maps: ['leaflet', 'react-leaflet', '@geoman-io/leaflet-geoman-free'],
           charts: ['recharts'],
           pdf: ['jspdf', 'jspdf-autotable']
         }
