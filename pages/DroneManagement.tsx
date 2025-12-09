@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from "react";
 import { base44 } from "../services/base44Client";
-import { Drone, Pilot, DroneChecklist, ChecklistItemState, DRONE_CHECKLIST_TEMPLATE, SYSARP_LOGO, Maintenance } from "../types";
+import { Drone, Pilot, DroneChecklist, ChecklistItemState, DRONE_CHECKLIST_TEMPLATE, SYSARP_LOGO, Maintenance, ORGANIZATION_CHART } from "../types";
 import { Card, Button, Badge, DroneIcon, Input, Select } from "../components/ui_components";
-import { Plus, AlertTriangle, X, Save, Activity, Pencil, RotateCcw, ClipboardCheck, CheckCircle, Printer, FileText, Trash2, Box } from "lucide-react";
-import DroneInventoryModal from './DroneInventoryModal'; // NOVO IMPORT
+import { Plus, AlertTriangle, X, Save, Activity, Pencil, RotateCcw, ClipboardCheck, CheckCircle, Printer, FileText, Trash2, Box, MapPin, Zap } from "lucide-react";
+import DroneInventoryModal from './DroneInventoryModal';
 
 // Generate HARPIA 01 to 100
 const PREFIX_OPTIONS = Array.from({ length: 100 }, (_, i) => 
@@ -52,7 +52,9 @@ export default function DroneManagement() {
     model: "",
     status: "available",
     payloads: [],
-    total_flight_hours: 0
+    total_flight_hours: 0,
+    crbm: "",
+    unit: ""
   });
   
   // Custom Input States
@@ -79,6 +81,9 @@ export default function DroneManagement() {
 
   // Delete State
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  
+  // SQL Fix Modal State
+  const [sqlError, setSqlError] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -114,7 +119,9 @@ export default function DroneManagement() {
   const handleEditDrone = (drone: Drone) => {
     setNewDroneData({
       ...drone,
-      payloads: Array.isArray(drone.payloads) ? drone.payloads : []
+      payloads: Array.isArray(drone.payloads) ? drone.payloads : [],
+      crbm: drone.crbm || "",
+      unit: drone.unit || ""
     });
     setEditingId(drone.id);
     setIsCreateModalOpen(true);
@@ -223,16 +230,28 @@ export default function DroneManagement() {
       loadData();
     } catch (error: any) {
       console.error(error);
-      alert(error.message || "Erro ao salvar aeronave");
+      const msg = error.message || '';
+      if (msg.includes("Falta a coluna") || msg.includes("crbm")) {
+          setSqlError("ALTER TABLE public.drones ADD COLUMN IF NOT EXISTS crbm text;\nALTER TABLE public.drones ADD COLUMN IF NOT EXISTS unit text;");
+      } else {
+          alert(msg || "Erro ao salvar aeronave");
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const copySqlToClipboard = () => {
+    if (sqlError) {
+      navigator.clipboard.writeText(sqlError);
+      alert("Código SQL copiado!");
     }
   };
 
   const closeModal = () => {
     setIsCreateModalOpen(false);
     setEditingId(null);
-    setNewDroneData({ prefix: "HARPIA 01", brand: "", model: "", status: "available", payloads: [], total_flight_hours: 0 });
+    setNewDroneData({ prefix: "HARPIA 01", brand: "", model: "", status: "available", payloads: [], total_flight_hours: 0, crbm: "", unit: "" });
     setIsNewBrand(false);
     setIsNewModel(false);
     setCustomBrand("");
@@ -381,6 +400,12 @@ export default function DroneManagement() {
       y += 7;
       doc.text(`Serial: ${drone.serial_number}`, 14, y);
       doc.text(`Horas Totais: ${drone.total_flight_hours.toFixed(1)}h`, 80, y);
+      
+      if (drone.unit) {
+          y += 7;
+          doc.text(`Lotação: ${drone.unit}`, 14, y);
+          doc.text(`Regional: ${drone.crbm || ''}`, 80, y);
+      }
       
       const tbo = getTBOStatus(drone.total_flight_hours);
       doc.text(`TBO (50h): ${tbo.remaining.toFixed(1)}h restantes`, 150, y);
@@ -533,8 +558,40 @@ export default function DroneManagement() {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6 h-full overflow-y-auto">
+    <div className="p-4 md:p-6 max-w-screen-2xl mx-auto space-y-6 h-full overflow-y-auto">
       
+      {/* SQL FIX MODAL */}
+      {sqlError && (
+        <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
+           <Card className="w-full max-w-3xl flex flex-col bg-white border-4 border-red-600 shadow-2xl">
+              <div className="p-4 bg-red-600 text-white flex justify-between items-center">
+                 <h3 className="font-bold text-lg flex items-center gap-2">
+                   <Box className="w-6 h-6" />
+                   Atualização de Banco de Dados Necessária
+                 </h3>
+                 <button onClick={() => setSqlError(null)} className="hover:bg-red-700 p-1 rounded"><X className="w-5 h-5" /></button>
+              </div>
+              <div className="p-6 space-y-4">
+                 <p className="text-slate-700 font-medium">
+                    Para atribuir localização às aeronaves, é necessário adicionar colunas novas na tabela 'drones'.
+                    <br/><br/>
+                    <strong>Solução:</strong> Copie o código abaixo e execute no SQL Editor do Supabase.
+                 </p>
+                 <div className="relative">
+                    <pre className="bg-slate-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto font-mono border border-slate-700 max-h-64">
+                       {sqlError}
+                    </pre>
+                    <button onClick={copySqlToClipboard} className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded transition-colors"><FileText className="w-4 h-4" /></button>
+                 </div>
+              </div>
+              <div className="p-4 bg-slate-50 border-t flex justify-end gap-3">
+                 <Button variant="outline" onClick={() => setSqlError(null)}>Fechar</Button>
+                 <Button onClick={copySqlToClipboard} className="bg-blue-600 text-white hover:bg-blue-700"><FileText className="w-4 h-4 mr-2" /> Copiar SQL</Button>
+              </div>
+           </Card>
+        </div>
+      )}
+
       {/* NOVO MODAL DE ALMOXARIFADO */}
       {inventoryDrone && (
         <DroneInventoryModal 
@@ -543,14 +600,14 @@ export default function DroneManagement() {
         />
       )}
 
-      {/* Header */}
+      {/* Header Responsive */}
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
-        <div className="flex items-center gap-4">
-           <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center border-4 border-white shadow-md">
+        <div className="flex items-center gap-4 w-full md:w-auto">
+           <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center border-4 border-white shadow-md flex-shrink-0">
               <DroneIcon className="w-7 h-7 text-red-700" />
            </div>
-           <div className="text-center md:text-left">
-              <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Frota de Aeronaves</h1>
+           <div className="text-center md:text-left flex-1 md:flex-none">
+              <h1 className="text-xl md:text-2xl font-bold text-slate-800 tracking-tight">Frota de Aeronaves</h1>
               <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mt-0.5">CBM-PR • Gestão de Ativos</p>
            </div>
         </div>
@@ -558,7 +615,7 @@ export default function DroneManagement() {
         {currentUser?.role === 'admin' && (
           <Button 
             onClick={() => { setIsCreateModalOpen(true); setEditingId(null); }}
-            className="shadow-lg shadow-red-200 hover:scale-105 transition-transform font-bold"
+            className="w-full md:w-auto shadow-lg shadow-red-200 hover:scale-105 transition-transform font-bold"
           >
             <Plus className="w-5 h-5 mr-2" />
             Nova Aeronave
@@ -566,22 +623,30 @@ export default function DroneManagement() {
         )}
       </div>
 
-      {/* Drone Grid */}
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Drone Grid - Optimized for all screen sizes */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-6">
         {drones.map((drone) => {
           const tbo = getTBOStatus(drone.total_flight_hours || 0);
           const checklist = getChecklistStatus(drone.last_30day_check);
+          // Highlight "Força Tarefa"
+          const isFT = drone.unit?.includes("FORÇA TAREFA") || drone.unit?.includes("FT");
 
           return (
-            <Card key={drone.id} className="flex flex-col h-full overflow-hidden hover:shadow-lg transition-shadow relative">
-              <div className="bg-slate-900 p-4 flex justify-between items-start">
+            <Card key={drone.id} className={`flex flex-col h-full overflow-hidden hover:shadow-lg transition-shadow relative ${isFT ? 'ring-2 ring-orange-500' : ''}`}>
+              {isFT && (
+                  <div className="absolute top-0 right-0 bg-orange-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg z-10 flex items-center gap-1 shadow-md">
+                      <Zap className="w-3 h-3" /> FORÇA TAREFA
+                  </div>
+              )}
+              
+              <div className="bg-slate-900 p-4 flex justify-between items-start pt-6"> {/* increased padding-top to avoid overlay */}
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <div className="w-12 h-12 bg-slate-800 rounded-lg flex-shrink-0 flex items-center justify-center">
                     <DroneIcon className="w-8 h-8 text-white" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h3 className="font-bold text-white text-lg break-words leading-tight">{drone.prefix}</h3>
-                    <p className="text-xs text-slate-400 font-medium break-words whitespace-normal">{drone.brand} {drone.model}</p>
+                    <h3 className="font-bold text-white text-base md:text-lg break-words leading-tight">{drone.prefix}</h3>
+                    <p className="text-xs text-slate-400 font-medium break-words whitespace-normal leading-tight mt-0.5">{drone.brand} {drone.model}</p>
                   </div>
                 </div>
                 <div className="ml-2 flex-shrink-0 flex flex-col items-end gap-2">
@@ -599,30 +664,28 @@ export default function DroneManagement() {
                         title="Excluir Aeronave"
                      >
                         <Trash2 className="w-3 h-3" /> 
-                        {deletingId === drone.id ? 'Excluindo...' : 'Excluir'}
+                        {deletingId === drone.id ? '...' : 'Excluir'}
                      </button>
                   )}
                 </div>
               </div>
               
               <div className="p-4 space-y-4 flex-1 flex flex-col">
-                {/* ... Stats Grid ... */}
-                <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
                   <div>
                     <p className="text-slate-500 text-[10px] uppercase font-bold">SISANT</p>
-                    <p className="font-medium text-slate-900 break-all">{drone.sisant}</p>
+                    <p className="font-medium text-slate-900 break-all text-xs md:text-sm">{drone.sisant}</p>
                   </div>
                   <div>
                     <p className="text-slate-500 text-[10px] uppercase font-bold">Validade</p>
-                    <p className="font-medium text-amber-700">{new Date(drone.sisant_expiry_date).toLocaleDateString()}</p>
+                    <p className="font-medium text-amber-700 text-xs md:text-sm">{new Date(drone.sisant_expiry_date).toLocaleDateString()}</p>
                   </div>
-                  <div>
-                    <p className="text-slate-500 text-[10px] uppercase font-bold">Autonomia</p>
-                    <p className="font-medium text-slate-900">{drone.max_flight_time} min</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-500 text-[10px] uppercase font-bold">Peso</p>
-                    <p className="font-medium text-slate-900">{drone.weight > 1000 ? `${(drone.weight/1000).toFixed(1)} kg` : `${drone.weight} g`}</p>
+                  <div className="col-span-2">
+                    <p className="text-slate-500 text-[10px] uppercase font-bold flex items-center gap-1"><MapPin className="w-3 h-3"/> Localização / Emprego</p>
+                    <p className="font-medium text-blue-900 text-xs md:text-sm truncate" title={drone.unit || drone.crbm || 'Não Atribuído'}>
+                      {drone.unit || (drone.crbm ? `${drone.crbm}` : 'Não Atribuído')}
+                    </p>
                   </div>
                 </div>
 
@@ -667,7 +730,7 @@ export default function DroneManagement() {
                      <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
                         <Activity className="w-3 h-3" /> Manutenção (TBO)
                      </span>
-                     <span className="text-[10px] font-bold text-slate-700">{tbo.remaining.toFixed(1)}h restantes</span>
+                     <span className="text-[10px] font-bold text-slate-700">{tbo.remaining.toFixed(1)}h rest.</span>
                   </div>
                   <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                     <div className={`h-full ${tbo.color} transition-all duration-500`} style={{ width: `${tbo.percentage}%` }}></div>
@@ -677,29 +740,30 @@ export default function DroneManagement() {
                   </div>
                 </div>
 
-                {/* --- BOTÃO ALMOXARIFADO (NOVO) --- */}
-                <Button 
-                  onClick={() => setInventoryDrone(drone)}
-                  variant="outline" 
-                  className="w-full h-8 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200"
-                >
-                  <Box className="w-3 h-3 mr-1.5" /> Almoxarifado
-                </Button>
+                {/* --- STACKED BUTTONS FOR MOBILE/TABLET --- */}
+                <div className="space-y-2">
+                    <Button 
+                      onClick={() => setInventoryDrone(drone)}
+                      variant="outline" 
+                      className="w-full h-8 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200"
+                    >
+                      <Box className="w-3 h-3 mr-1.5" /> Almoxarifado
+                    </Button>
 
-                {/* Tech Report Button */}
-                <Button 
-                  onClick={() => handleDownloadDroneReport(drone)}
-                  variant="outline" 
-                  className="w-full h-8 text-xs bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
-                >
-                  <FileText className="w-3 h-3 mr-1.5" /> Relatório
-                </Button>
+                    <Button 
+                      onClick={() => handleDownloadDroneReport(drone)}
+                      variant="outline" 
+                      className="w-full h-8 text-xs bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
+                    >
+                      <FileText className="w-3 h-3 mr-1.5" /> Relatório
+                    </Button>
+                </div>
 
                 <div className="pt-2 flex gap-2 mt-auto border-t border-slate-100">
                   {currentUser?.role === 'admin' && (
                     <Button 
                       variant="outline" 
-                      className="px-3 h-9 border-slate-300 text-slate-600 hover:bg-slate-100"
+                      className="px-2 h-9 border-slate-300 text-slate-600 hover:bg-slate-100 min-w-[36px]"
                       onClick={() => handleEditDrone(drone)}
                       title="Editar Informações"
                     >
@@ -735,136 +799,112 @@ export default function DroneManagement() {
         })}
       </div>
 
-      {/* ... Existing Modals (Checklist, Maintenance, Create) ... */}
-      
-      {/* --- CHECKLIST MODAL --- */}
-      {isChecklistModalOpen && currentChecklistDrone && (
-        <div className="fixed inset-0 bg-black/80 z-[2000] flex items-center justify-center p-4">
-           <Card className="w-full max-w-3xl h-[90vh] flex flex-col shadow-2xl animate-fade-in bg-white overflow-hidden">
-             <div className="bg-slate-900 p-4 flex justify-between items-center shrink-0">
-               <div>
-                 <h2 className="text-white font-bold text-lg flex items-center gap-2">
-                   <ClipboardCheck className="w-5 h-5 text-blue-400" />
-                   Conditions Flight Checklist
-                 </h2>
-                 <p className="text-xs text-slate-400">Aeronave: {currentChecklistDrone.prefix}</p>
-               </div>
-               <button onClick={() => setIsChecklistModalOpen(false)} className="text-slate-400 hover:text-white">
-                 <X className="w-6 h-6" />
-               </button>
-             </div>
+      {/* --- MODAL DE MANUTENÇÃO (Corrigido: Adicionado) --- */}
+      {selectedDrone && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <Card className="w-full max-w-md p-6 bg-white shadow-xl animate-fade-in">
+            <h2 className="text-xl font-bold text-red-700 mb-4 flex items-center gap-2">
+              <AlertTriangle className="w-6 h-6" />
+              Enviar para Manutenção
+            </h2>
+            <p className="text-sm text-slate-600 mb-4">
+              A aeronave <strong>{selectedDrone.prefix}</strong> ficará indisponível para operações até que a manutenção seja concluída.
+            </p>
+            
+            <form onSubmit={handleSendToMaintenance} className="space-y-4">
+              <div>
+                <label className="text-sm font-medium text-slate-700 block mb-1">Motivo / Problema Identificado</label>
+                <textarea 
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm h-24 focus:ring-2 focus:ring-red-500 outline-none resize-none"
+                  placeholder="Descreva o defeito ou motivo..."
+                  required
+                  value={maintReason}
+                  onChange={e => setMaintReason(e.target.value)}
+                />
+              </div>
+              
+              <Select 
+                label="Piloto Responsável (Relator)" 
+                value={maintPilot} 
+                onChange={e => setMaintPilot(e.target.value)}
+              >
+                <option value="">Selecione...</option>
+                {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+              </Select>
 
-             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-               {/* Pilot Selector */}
-               <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                 <label className="text-sm font-bold text-blue-900 block mb-2">Responsável pelo Checklist</label>
-                 <Select 
-                   value={checklistPilotId} 
-                   onChange={e => setChecklistPilotId(e.target.value)}
-                   className="bg-white"
-                 >
-                    {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-                 </Select>
-               </div>
-
-               {/* Checklist Items Grouped by Category */}
-               {Object.keys(DRONE_CHECKLIST_TEMPLATE).map((category) => {
-                  // Filter items belonging to this category
-                  const categoryItems = checklistItems.map((item, idx) => ({ item, idx })).filter(x => x.item.category === category);
-                  
-                  return (
-                    <div key={category} className="border border-slate-200 rounded-lg overflow-hidden">
-                       <div className="bg-slate-100 px-4 py-2 font-bold text-slate-700 text-sm uppercase border-b border-slate-200">
-                          {category}
-                       </div>
-                       <div className="divide-y divide-slate-100">
-                          {categoryItems.map(({ item, idx }) => (
-                             <label key={idx} className={`flex items-center gap-3 p-3 hover:bg-slate-50 cursor-pointer ${item.checked ? 'bg-green-50/50' : ''}`}>
-                                <input 
-                                  type="checkbox" 
-                                  className="w-5 h-5 accent-green-600 rounded border-gray-300 focus:ring-green-500"
-                                  checked={item.checked}
-                                  onChange={() => toggleChecklistItem(idx)}
-                                />
-                                <span className={`text-sm ${item.checked ? 'text-slate-900 font-medium' : 'text-slate-600'}`}>
-                                  {item.name}
-                                </span>
-                                {item.checked && <CheckCircle className="w-4 h-4 text-green-600 ml-auto" />}
-                             </label>
-                          ))}
-                       </div>
-                    </div>
-                  );
-               })}
-
-               {/* Notes */}
-               <div>
-                 <label className="text-sm font-bold text-slate-700 block mb-2">Observações / Itens Reprovados</label>
-                 <textarea 
-                   className="w-full p-3 border border-slate-300 rounded-lg text-sm h-24 focus:ring-2 focus:ring-blue-500 outline-none"
-                   placeholder="Descreva qualquer anomalia encontrada..."
-                   value={checklistNotes}
-                   onChange={e => setChecklistNotes(e.target.value)}
-                 />
-               </div>
-             </div>
-
-             <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3 shrink-0">
-               <Button variant="outline" onClick={() => setIsChecklistModalOpen(false)}>Cancelar</Button>
-               <Button onClick={handleSaveChecklist} className="bg-blue-600 hover:bg-blue-700 text-white">
-                 <Save className="w-4 h-4 mr-2" /> Registrar Checklist
-               </Button>
-             </div>
-           </Card>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => setSelectedDrone(null)}>Cancelar</Button>
+                <Button type="submit" disabled={loading} className="bg-red-600 hover:bg-red-700 text-white">
+                  {loading ? 'Processando...' : 'Confirmar Envio'}
+                </Button>
+              </div>
+            </form>
+          </Card>
         </div>
       )}
 
-      {/* Maintenance Quick Modal */}
-      {selectedDrone && (
+      {/* --- MODAL DE CHECKLIST 7 DIAS (Corrigido: Adicionado) --- */}
+      {isChecklistModalOpen && currentChecklistDrone && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <Card className="w-full max-w-md p-6 shadow-2xl animate-fade-in">
-             <div className="flex justify-between items-center mb-4 border-b pb-2">
-               <h3 className="text-lg font-bold text-red-700 flex items-center gap-2">
-                 <AlertTriangle className="w-5 h-5" />
-                 Reportar Problema
-               </h3>
-               <button onClick={() => setSelectedDrone(null)} className="text-slate-400 hover:text-slate-600">
-                 <X className="w-5 h-5" />
-               </button>
-             </div>
-             
-             <form onSubmit={handleSendToMaintenance} className="space-y-4">
-               <div className="bg-slate-50 p-3 rounded-lg mb-4">
-                 <p className="text-xs text-slate-500 font-bold uppercase">Aeronave Selecionada</p>
-                 <p className="font-bold text-slate-800">{selectedDrone.prefix} - {selectedDrone.model}</p>
-               </div>
+          <Card className="w-full max-w-2xl p-0 shadow-xl animate-fade-in flex flex-col max-h-[90vh] bg-white">
+            <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50 rounded-t-xl">
+              <div>
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <ClipboardCheck className="w-5 h-5 text-blue-600" />
+                  Checklist Semanal (7 Dias)
+                </h2>
+                <p className="text-xs text-slate-500">{currentChecklistDrone.prefix} - {currentChecklistDrone.model}</p>
+              </div>
+              <button onClick={() => setIsChecklistModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-               <Input 
-                 label="Descrição do Problema" 
-                 placeholder="Ex: Hélice danificada, Motor aquecendo..."
-                 required
-                 value={maintReason}
-                 onChange={e => setMaintReason(e.target.value)}
-               />
+            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+              {/* Checklist Items */}
+              {Object.keys(DRONE_CHECKLIST_TEMPLATE).map((category) => {
+                 // Filtra itens para esta categoria com base no estado atual
+                 const catItems = checklistItems.map((item, idx) => ({ ...item, originalIdx: idx })).filter(i => i.category === category);
+                 if (catItems.length === 0) return null;
 
-               <Select 
-                  label="Piloto (Quem reportou?)" 
-                  value={maintPilot} 
-                  onChange={e => setMaintPilot(e.target.value)}
-               >
-                  <option value="">Selecione...</option>
-                  {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-               </Select>
+                 return (
+                   <div key={category} className="space-y-2">
+                      <h3 className="text-sm font-bold text-slate-700 uppercase bg-slate-100 px-2 py-1 rounded">{category}</h3>
+                      <div className="space-y-1 pl-2">
+                        {catItems.map((item) => (
+                          <label key={item.originalIdx} className="flex items-start gap-3 p-2 hover:bg-slate-50 rounded cursor-pointer border border-transparent hover:border-slate-100 transition-all">
+                             <input 
+                               type="checkbox" 
+                               className="mt-1 w-4 h-4 accent-blue-600 rounded"
+                               checked={item.checked}
+                               onChange={() => toggleChecklistItem(item.originalIdx)}
+                             />
+                             <span className={`text-sm ${item.checked ? 'text-slate-700' : 'text-slate-500'}`}>{item.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                   </div>
+                 )
+              })}
 
-               <div className="pt-2 flex gap-3">
-                 <Button type="button" variant="outline" className="flex-1" onClick={() => setSelectedDrone(null)}>
-                   Cancelar
-                 </Button>
-                 <Button type="submit" disabled={loading} className="flex-1 bg-red-600 hover:bg-red-700 text-white">
-                   {loading ? "Enviando..." : "Confirmar Manutenção"}
-                 </Button>
-               </div>
-             </form>
+              <div className="space-y-2 pt-4 border-t border-slate-100">
+                 <label className="text-sm font-medium text-slate-700">Observações / Pendências</label>
+                 <textarea 
+                    className="w-full p-3 border border-slate-300 rounded-lg text-sm h-20 focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                    placeholder="Alguma anomalia encontrada? Descreva aqui."
+                    value={checklistNotes}
+                    onChange={e => setChecklistNotes(e.target.value)}
+                 />
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-200 bg-slate-50 rounded-b-xl flex justify-end gap-3">
+               <Button variant="outline" onClick={() => setIsChecklistModalOpen(false)}>Cancelar</Button>
+               <Button onClick={handleSaveChecklist} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white">
+                  <Save className="w-4 h-4 mr-2" />
+                  {loading ? 'Salvando...' : 'Finalizar Checklist'}
+               </Button>
+            </div>
           </Card>
         </div>
       )}
@@ -908,6 +948,37 @@ export default function DroneManagement() {
                   value={newDroneData.serial_number || ''} 
                   onChange={e => setNewDroneData({...newDroneData, serial_number: e.target.value})}
                 />
+              </div>
+
+              {/* LOCATION ASSIGNMENT SECTION */}
+              <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+                <h3 className="text-sm font-bold text-blue-800 mb-3 uppercase flex items-center gap-2">
+                   <MapPin className="w-4 h-4" /> Localização / Emprego
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                   <Select 
+                      label="Comando Regional (CRBM)" 
+                      value={newDroneData.crbm || ''} 
+                      onChange={e => setNewDroneData({...newDroneData, crbm: e.target.value, unit: ''})}
+                   >
+                      <option value="">Selecione...</option>
+                      {Object.keys(ORGANIZATION_CHART).map(crbm => (
+                         <option key={crbm} value={crbm}>{crbm}</option>
+                      ))}
+                   </Select>
+                   
+                   <Select 
+                      label="Unidade (BBM/CIBM/FT/GOST)" 
+                      value={newDroneData.unit || ''} 
+                      onChange={e => setNewDroneData({...newDroneData, unit: e.target.value})}
+                      disabled={!newDroneData.crbm}
+                   >
+                      <option value="">Selecione...</option>
+                      {newDroneData.crbm && ORGANIZATION_CHART[newDroneData.crbm]?.map(unit => (
+                         <option key={unit} value={unit}>{unit}</option>
+                      ))}
+                   </Select>
+                </div>
               </div>
 
               <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">

@@ -23,7 +23,6 @@ export type MaintenanceType = 'preventive' | 'corrective' | 'inspection' | 'cali
 export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed';
 
 // Logo Oficial do CBMPR (Local)
-// O Vite serve o conteúdo da pasta 'public' na raiz. Portanto, public/img/logosoarp.png vira /img/logosoarp.png
 export const SYSARP_LOGO = "/img/logosoarp.png";
 
 export interface Pilot {
@@ -41,10 +40,8 @@ export interface Pilot {
   role: PilotRole;
   status: PilotStatus;
   email: string;
-  password?: string; // Added for auth
-  change_password_required?: boolean; // Force password change on first login
-  
-  // LGPD Compliance
+  password?: string;
+  change_password_required?: boolean;
   terms_accepted?: boolean;
   terms_accepted_at?: string;
 }
@@ -63,23 +60,22 @@ export interface Drone {
   max_altitude: number;
   weight: number;
   status: DroneStatus;
-  total_flight_hours: number; // Novo campo para controle de manutenção (TBO)
-  last_30day_check?: string; // Data do último checklist (Relógio 7 dias)
+  total_flight_hours: number;
+  last_30day_check?: string;
+  crbm?: string;
+  unit?: string;
 }
 
-// --- System Audit Log ---
 export interface SystemAuditLog {
   id: string;
   user_id: string;
   action: 'LOGIN' | 'LOGOUT' | 'CREATE' | 'UPDATE' | 'DELETE' | 'VIEW' | 'EXPORT';
-  entity: string; // ex: 'Pilot', 'Operation', 'Drone'
+  entity: string;
   entity_id?: string;
   details: string;
   timestamp: string;
   ip_address?: string;
 }
-
-// --- Checklist 7 Dias Definitions ---
 
 export interface ChecklistItemState {
   category: string;
@@ -90,11 +86,11 @@ export interface ChecklistItemState {
 export interface DroneChecklist {
   id: string;
   drone_id: string;
-  pilot_id: string; // Quem realizou
+  pilot_id: string;
   date: string;
   items: ChecklistItemState[];
   status: 'approved' | 'rejected';
-  notes?: string; // Observações gerais ou sobre itens reprovados
+  notes?: string;
 }
 
 export const DRONE_CHECKLIST_TEMPLATE = {
@@ -150,10 +146,8 @@ export const DRONE_CHECKLIST_TEMPLATE = {
   ]
 };
 
-// --- A.R.O. (Avaliação de Risco Operacional) Definitions ---
-
-export type RiskProbability = 1 | 2 | 3 | 4 | 5; // 1: Muito Improvável -> 5: Frequente
-export type RiskSeverity = 'A' | 'B' | 'C' | 'D' | 'E'; // A: Catastrófico -> E: Insignificante
+export type RiskProbability = 1 | 2 | 3 | 4 | 5;
+export type RiskSeverity = 'A' | 'B' | 'C' | 'D' | 'E';
 export type RiskLevel = 'EXTREME' | 'HIGH' | 'MEDIUM' | 'LOW';
 
 export interface AroItem {
@@ -161,14 +155,14 @@ export interface AroItem {
   description: string;
   probability: RiskProbability;
   severity: RiskSeverity;
-  risk_code: string; // Ex: "5A"
+  risk_code: string;
   mitigation: string;
-  authorization_level?: string; // Nível hierárquico de autorização
+  authorization_level?: string;
 }
 
 export interface AroAssessment {
   items: AroItem[];
-  declaration_accepted: boolean; // "Declaro para os devidos fins..."
+  declaration_accepted: boolean;
   rubric: string;
   created_at: string;
 }
@@ -184,8 +178,6 @@ export const ARO_SCENARIOS = [
   "Situação 8: Voo acima de 120m AGL (exceto ENTORNO DE ESTRUTURA)"
 ];
 
-// --- End A.R.O. ---
-
 export interface Operation {
   id: string;
   name: string;
@@ -193,19 +185,16 @@ export interface Operation {
   latitude: number;
   longitude: number;
   drone_id: string;
-  
-  // Equipe
-  pilot_id: string; // Piloto em Comando (PIC)
-  pilot_name?: string; // Denormalized name
-  second_pilot_id?: string; // Segundo Piloto (Opcional)
-  second_pilot_name?: string; // Denormalized name
-  observer_id?: string; // Observador (Opcional)
-  observer_name?: string; // Denormalized name
-
+  pilot_id: string;
+  pilot_name?: string;
+  second_pilot_id?: string;
+  second_pilot_name?: string;
+  observer_id?: string;
+  observer_name?: string;
   radius: number;
-  flight_altitude?: number; // Added flight altitude
+  flight_altitude?: number;
   mission_type: MissionType;
-  sub_mission_type?: string; // Nova Sub-natureza
+  sub_mission_type?: string;
   status: OperationStatus;
   start_time: string;
   end_time?: string;
@@ -218,58 +207,41 @@ export interface Operation {
   kmz_file?: string;
   description?: string;
   actions_taken?: string;
-  
-  // Integração Externa
-  sarpas_protocol?: string; // Protocolo retornado pela API do SARPAS
-  
-  // Integração Operação Verão
+  sarpas_protocol?: string;
   is_summer_op?: boolean; 
-  
-  // Avaliação de Risco
   aro?: AroAssessment;
-
-  // Plano de Voo (ARO/Notificação)
-  flight_plan_data?: string; // Stores the JSON string of the flight plan form
-
-  // Shapes Geoman (GeoJSON)
-  shapes?: any; // Stores GeoJSON FeatureCollection of drawn shapes
-
-  // Pause Logic
+  flight_plan_data?: string;
+  shapes?: any;
   is_paused?: boolean;
-  last_pause_start?: string | null; // ISO string
-  total_pause_duration?: number; // in minutes
+  last_pause_start?: string | null;
+  total_pause_duration?: number;
   pause_logs?: { start: string; end?: string; reason: string; duration?: number }[];
 }
 
 export interface Maintenance {
   id: string;
   drone_id: string;
-  pilot_id?: string; // Piloto responsável no momento (opcional se for manutenção de rotina)
+  pilot_id?: string;
   maintenance_type: MaintenanceType;
   description: string;
   technician: string;
   maintenance_date: string;
-  maintenance_time: string; // Hora do ocorrido/manutenção
+  maintenance_time: string;
   next_maintenance_date: string;
   cost: number;
   status: MaintenanceStatus;
-  
-  // Novos campos solicitados
-  in_flight_incident: boolean; // Aconteceu em voo?
-  log_file_url?: string; // Arquivo KMZ/KML do Airdata
+  in_flight_incident: boolean;
+  log_file_url?: string;
 }
 
 export interface ConflictNotification {
   id: string;
-  target_pilot_id: string; // O piloto que recebe o alerta (dono da op antiga)
-  
-  // Dados da NOVA operação conflitante
+  target_pilot_id: string;
   new_op_name: string;
   new_pilot_name: string;
-  new_pilot_phone?: string; // Telefone para contato WhatsApp
+  new_pilot_phone?: string;
   new_op_altitude: number;
   new_op_radius: number;
-  
   created_at: string;
   acknowledged: boolean;
 }
@@ -284,7 +256,6 @@ export interface FlightLog {
   mission_type: string;
 }
 
-// Hierarquia de Missões (Natureza -> Sub-natureza)
 export const MISSION_HIERARCHY: Record<MissionType, { label: string; subtypes: string[] }> = {
   fire: {
     label: "1. Incêndios",
@@ -447,7 +418,6 @@ export const MISSION_HIERARCHY: Record<MissionType, { label: string; subtypes: s
   }
 };
 
-// Mapeamento simples para compatibilidade
 export const MISSION_LABELS: Record<MissionType, string> = {
   fire: MISSION_HIERARCHY.fire.label,
   sar: MISSION_HIERARCHY.sar.label,
@@ -466,9 +436,14 @@ export const MISSION_LABELS: Record<MissionType, string> = {
 };
 
 // Estrutura Organizacional do CBM-PR (Mapeamento CRBM -> Unidades)
-// Atualizado: GB -> BBM, GOA -> BOA
 export const ORGANIZATION_CHART: Record<string, string[]> = {
+  "Comando Geral e Especializadas (Curitiba)": [
+    "CCB (QCGBM) - Quartel do Comando Geral",
+    "GOST - Grupo de Operações de Socorro Tático",
+    "FORÇA TAREFA (FT) - Resposta a Desastres"
+  ],
   "1º CRBM - Curitiba (Leste/Litoral)": [
+    "Sede Administrativa - 1º CRBM",
     "1º BBM - Curitiba",
     "6º BBM - São José dos Pinhais",
     "7º BBM - Colombo",
@@ -476,24 +451,28 @@ export const ORGANIZATION_CHART: Record<string, string[]> = {
     "BOA - Batalhão de Operações Aéreas"
   ],
   "2º CRBM - Londrina (Norte)": [
+    "Sede Administrativa - 2º CRBM",
     "3º BBM - Londrina",
     "11º BBM - Apucarana",
     "1ª CIBM - Ivaiporã",
     "3ª CIBM - Santo Antônio da Platina"
   ],
   "3º CRBM - Cascavel (Oeste)": [
+    "Sede Administrativa - 3º CRBM",
     "4º BBM - Cascavel",
     "9º BBM - Foz do Iguaçu",
     "10º BBM - Francisco Beltrão",
     "13º BBM - Pato Branco"
   ],
   "4º CRBM - Maringá (Noroeste)": [
+    "Sede Administrativa - 4º CRBM",
     "5º BBM - Maringá",
     "2ª CIBM - Umuarama",
     "4ª CIBM - Cianorte",
     "5ª CIBM - Paranavaí"
   ],
   "5º CRBM - Ponta Grossa (Campos Gerais)": [
+    "Sede Administrativa - 5º CRBM",
     "2º BBM - Ponta Grossa",
     "12º BBM - Guarapuava",
     "6ª CIBM - Irati"

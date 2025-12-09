@@ -439,7 +439,7 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
                        className="h-10 text-sm bg-white"
                     >
                         <option value="all">Todos os CRBMs</option>
-                        {Object.keys(ORGANIZATION_CHART).map(crbm => <option key={crbm} value={crbm}>{crbm.split(' - ')[0]}</option>)}
+                        {Object.keys(ORGANIZATION_CHART).map(crbm => <option key={crbm} value={crbm}>{crbm}</option>)}
                     </Select>
                 </div>
                 <div className="lg:col-span-1">

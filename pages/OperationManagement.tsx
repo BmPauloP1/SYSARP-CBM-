@@ -1,14 +1,15 @@
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
+import { supabase, isConfigured } from "../services/supabase"; // Importar supabase e isConfigured
 import { sarpasApi } from "../services/sarpasApi";
 import { operationSummerService } from "../services/operationSummerService";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, AroAssessment, MissionType, ConflictNotification } from "../types";
 import { SUMMER_LOCATIONS } from "../types_summer";
 import { Button, Input, Select, Badge, Card } from "../components/ui_components";
-import { Plus, Map as MapIcon, Clock, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, Users, Eye, History, Activity, Pause, Play, Edit3, Database, Copy, ChevronsRight, ChevronsLeft, ChevronsDown, ChevronsUp, Maximize2 } from "lucide-react";
+import { Plus, Map as MapIcon, Clock, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, Users, Eye, History, Activity, Pause, Play, Edit3, Database, Copy, ChevronsRight, ChevronsLeft, ChevronsDown, ChevronsUp, Maximize2, Building2, Landmark, MapPin, Phone } from "lucide-react";
 
 // Imports Geoman
 import "@geoman-io/leaflet-geoman-free";
@@ -34,6 +35,178 @@ const tempIcon = L.icon({
   shadowSize: [41, 41]
 });
 
+// --- ÍCONES PERSONALIZADOS PARA UNIDADES E PILOTOS ---
+const createUnitIcon = (type: 'CRBM' | 'BBM' | 'BOA' | 'PILOT' | 'CIBM' | 'DRONE', count?: number) => {
+  let color = '#3b82f6'; // Default Blue
+  let label: string | number = 'U';
+  let shape = 'border-radius: 50%;'; // Circle default
+  
+  if (type === 'CRBM') {
+    color = '#7f1d1d'; // Dark Red
+    label = 'C';
+  } else if (type === 'BBM') {
+    color = '#ea580c'; // Orange
+    label = 'B';
+  } else if (type === 'CIBM') {
+    color = '#d97706'; // Amber
+    label = 'Ci';
+  } else if (type === 'BOA') {
+    color = '#0f172a'; // Slate 900
+    label = '✈';
+  } else if (type === 'PILOT') {
+    color = '#7c3aed'; // Violet 600
+    // Se tiver contagem, mostra o número, senão o ícone padrão
+    label = count && count > 1 ? count : '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+  } else if (type === 'DRONE') {
+    color = '#059669'; // Emerald 600
+    // Se tiver contagem, mostra o número, senão o ícone de drone simplificado
+    label = count && count > 1 ? count : '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" /><path d="M4.5 9m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" /><path d="M19.5 9m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" /></svg>';
+  }
+
+  return L.divIcon({
+    className: 'custom-unit-icon',
+    html: `
+      <div style="
+        background-color: ${color};
+        width: 28px;
+        height: 28px;
+        ${shape}
+        border: 2px solid white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        font-size: 10px;
+        font-family: sans-serif;
+      ">${label}</div>
+      <div style="
+        position: absolute;
+        bottom: -6px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 0; 
+        height: 0; 
+        border-left: 6px solid transparent;
+        border-right: 6px solid transparent;
+        border-top: 6px solid ${color};
+      "></div>
+    `,
+    iconSize: [28, 34],
+    iconAnchor: [14, 34],
+    popupAnchor: [0, -36]
+  });
+};
+
+// Memoized Icons to prevent Leaflet thrashing
+const UNIT_ICONS = {
+  CRBM: createUnitIcon('CRBM'),
+  BBM: createUnitIcon('BBM'),
+  CIBM: createUnitIcon('CIBM'),
+  BOA: createUnitIcon('BOA'),
+  PILOT: createUnitIcon('PILOT'),
+  DRONE: createUnitIcon('DRONE')
+};
+
+// --- DADOS GEOGRÁFICOS DAS UNIDADES (Mapeamento Completo) ---
+// NOTA: Para batalhões em cidades que também possuem sede de CRBM (Curitiba, Londrina, etc.),
+// os matchers foram refinados para NÃO incluir apenas o nome da cidade, evitando conflitos.
+const FIXED_UNITS = [
+  // --- COMANDO GERAL E ESPECIALIZADAS ---
+  { 
+    name: "CCB (QCGBM) - Comando Geral", 
+    type: "CRBM", 
+    lat: -25.435860, 
+    lng: -49.273140, 
+    details: "R. Nunes Machado, 100 - Centro, Curitiba",
+    matcher: ["QCGBM", "Comando Geral", "CCB", "Nunes Machado"] 
+  },
+  { 
+    name: "GOST - Socorro Tático", 
+    type: "BBM", 
+    lat: -25.452630, 
+    lng: -49.230720, 
+    details: "Rua Fortaleza, 1000 - Cajuru, Curitiba",
+    matcher: ["GOST", "Socorro Tático", "Força Tarefa", "FT", "G.O.S.T"] 
+  },
+  { name: "BOA - Base Curitiba", type: "BOA", lat: -25.4056, lng: -49.2324, details: "Batalhão de Operações Aéreas", matcher: ["BOA", "GOA", "Operações Aéreas"] },
+
+  // --- UNIDADES DE DUPLO DÍGITO ---
+  { name: "13º BBM - Pato Branco", type: "BBM", lat: -26.2292, lng: -52.6706, details: "Pato Branco", matcher: ["13º BBM", "13 BBM", "Pato Branco"] },
+  { name: "12º BBM - Guarapuava", type: "BBM", lat: -25.3953, lng: -51.4628, details: "Guarapuava", matcher: ["12º BBM", "12 BBM", "Guarapuava"] },
+  { name: "11º BBM - Apucarana", type: "BBM", lat: -23.5505, lng: -51.4619, details: "Apucarana", matcher: ["11º BBM", "11 BBM", "Apucarana"] },
+  { name: "10º BBM - Francisco Beltrão", type: "BBM", lat: -26.0802, lng: -53.0551, details: "Sudoeste", matcher: ["10º BBM", "10 BBM", "Francisco Beltrão", "Beltrão"] },
+
+  // --- UNIDADES DE DÍGITO ÚNICO ---
+  // Curitiba e RMC
+  { name: "1º BBM - Curitiba", type: "BBM", lat: -25.4390, lng: -49.2680, details: "Curitiba Central", matcher: ["1º BBM", "1 BBM"] },
+  { name: "6º BBM - São José dos Pinhais", type: "BBM", lat: -25.5347, lng: -49.2064, details: "SJP", matcher: ["6º BBM", "6 BBM", "São José", "SJP"] },
+  { name: "7º BBM - Colombo", type: "BBM", lat: -25.2917, lng: -49.2242, details: "Colombo", matcher: ["7º BBM", "7 BBM", "Colombo"] },
+  { name: "8º BBM - Paranaguá (Litoral)", type: "BBM", lat: -25.5205, lng: -48.5095, details: "Litoral", matcher: ["8º BBM", "8 BBM", "Paranaguá", "Litoral", "Matinhos", "Guaratuba", "Pontal"] },
+
+  // Campos Gerais
+  { name: "2º BBM - Ponta Grossa", type: "BBM", lat: -25.0950, lng: -50.1650, details: "Ponta Grossa", matcher: ["2º BBM", "2 BBM"] },
+  { name: "6ª CIBM - Irati", type: "CIBM", lat: -25.4678, lng: -50.6517, details: "Irati", matcher: ["6ª CIBM", "6 CIBM", "Irati"] },
+
+  // Norte
+  { name: "3º BBM - Londrina", type: "BBM", lat: -23.3100, lng: -51.1600, details: "Londrina", matcher: ["3º BBM", "3 BBM"] },
+  { name: "1ª CIBM - Ivaiporã", type: "CIBM", lat: -24.2464, lng: -51.6833, details: "Ivaiporã", matcher: ["1ª CIBM", "1 CIBM", "Ivaiporã"] },
+  { name: "3ª CIBM - Sto. Antônio da Platina", type: "CIBM", lat: -23.2950, lng: -50.0789, details: "Norte Pioneiro", matcher: ["3ª CIBM", "3 CIBM", "Santo Antônio", "Platina"] },
+
+  // Oeste
+  { name: "4º BBM - Cascavel", type: "BBM", lat: -24.9573, lng: -53.4600, details: "Cascavel", matcher: ["4º BBM", "4 BBM"] },
+  { name: "9º BBM - Foz do Iguaçu", type: "BBM", lat: -25.5469, lng: -54.5882, details: "Foz do Iguaçu", matcher: ["9º BBM", "9 BBM", "Foz"] },
+
+  // Noroeste
+  { name: "5º BBM - Maringá", type: "BBM", lat: -23.4250, lng: -51.9400, details: "Maringá", matcher: ["5º BBM", "5 BBM"] },
+  { name: "2ª CIBM - Umuarama", type: "CIBM", lat: -23.7667, lng: -53.3219, details: "Umuarama", matcher: ["2ª CIBM", "2 CIBM", "Umuarama"] },
+  { name: "4ª CIBM - Cianorte", type: "CIBM", lat: -23.6631, lng: -52.6033, details: "Cianorte", matcher: ["4ª CIBM", "4 CIBM", "Cianorte"] },
+  { name: "5ª CIBM - Paranavaí", type: "CIBM", lat: -23.0803, lng: -52.4633, details: "Paranavaí", matcher: ["5ª CIBM", "5 CIBM", "Paranavaí"] },
+
+  // --- COMANDOS REGIONAIS (SEDES) ---
+  { 
+    name: "1º CRBM - Curitiba (Sede)", 
+    type: "CRBM", 
+    lat: -25.4168, 
+    lng: -49.2782, 
+    details: "Rua Nilo Peçanha, 557 – Bom Retiro",
+    matcher: ["1º CRBM", "Sede Administrativa - 1º CRBM"] 
+  },
+  { 
+    name: "2º CRBM - Londrina (Sede)", 
+    type: "CRBM", 
+    lat: -23.3082, 
+    lng: -51.1837, 
+    details: "Rua Silvio Bussadori, 150 – Jd. Tóquio",
+    matcher: ["2º CRBM", "Sede Administrativa - 2º CRBM"] 
+  },
+  { 
+    name: "3º CRBM - Cascavel (Sede)", 
+    type: "CRBM", 
+    lat: -24.9623, 
+    lng: -53.4651, 
+    details: "Rua Jorge Lacerda, 2202 – Claudete",
+    matcher: ["3º CRBM", "Sede Administrativa - 3º CRBM"]
+  },
+  { 
+    name: "4º CRBM - Maringá (Sede)", 
+    type: "CRBM", 
+    lat: -23.4286, 
+    lng: -51.9449, 
+    details: "Av. Centenário, 290 – Vila Christino",
+    matcher: ["4º CRBM", "Sede Administrativa - 4º CRBM"]
+  },
+  { 
+    name: "5º CRBM - Ponta Grossa (Sede)", 
+    type: "CRBM", 
+    lat: -25.0916, 
+    lng: -50.1618, 
+    details: "Praça Roosevelt, 43 – Centro",
+    matcher: ["5º CRBM", "Sede Administrativa - 5º CRBM"]
+  }
+];
+
 // Helper validation to prevent Leaflet errors
 const isValidCoord = (lat: any, lng: any) => {
   const nLat = Number(lat);
@@ -43,30 +216,45 @@ const isValidCoord = (lat: any, lng: any) => {
 
 // --- COMPONENTES AUXILIARES MAPA ---
 
-// Controlador do Leaflet-Geoman (Versão Segura)
+// Controlador do Leaflet-Geoman (Versão Segura contra Loop de Renderização)
 const GeomanController = ({
   initialShapes,
   onUpdate,
-  editable
+  editable,
+  controllerKey,
+  drawRequest
 }: {
   initialShapes: any,
   onUpdate: (geojson: any) => void,
-  editable: boolean
+  editable: boolean,
+  controllerKey: string,
+  drawRequest: string | null
 }) => {
   const map = useMap();
-  const isMounted = useRef(false);
 
+  // Handle programmatic draw requests from the Floating Button
   useEffect(() => {
-    // 1. Validar se o mapa e o plugin PM existem
+    if (!map || !(map as any).pm || !drawRequest) return;
+    
+    // Enable drawing marker specifically when requested
+    if (drawRequest === 'Marker') {
+        (map as any).pm.enableDraw('Marker', {
+            snappable: true,
+            snapDistance: 20
+        });
+    }
+  }, [drawRequest, map]);
+
+  // Configuração dos controles (Executa quando `editable` muda)
+  useEffect(() => {
     if (!map || !(map as any).pm) return;
 
     const pm = (map as any).pm;
 
-    // Configuração dos controles
     if (typeof pm.setGlobalOptions === 'function') {
         pm.setGlobalOptions({
             limitMarkersToCount: 20,
-            pinning: true, // Snap to other layers
+            pinning: true,
             snappable: true
         });
     }
@@ -91,50 +279,34 @@ const GeomanController = ({
         pm.removeControls();
     }
 
-    // Função de Sincronização
     const handleUpdate = () => {
         if (!map || !(map as any).pm) return;
-        // Pega todos os layers desenhados pelo Geoman
         const layers = (map as any).pm.getGeomanLayers();
         const geojson = {
             type: 'FeatureCollection',
-            features: layers.map((l: any) => {
-                // @ts-ignore
-                const gj = l.toGeoJSON();
-                return gj;
-            })
+            features: layers.map((l: any) => (l as any).toGeoJSON())
         };
         onUpdate(geojson);
     };
 
-    // Função para isolar o clique nos shapes (evita mover o pino principal)
     const isolateLayer = (layer: any) => {
         if (!layer) return;
-        
-        // Impede que o clique na forma propague para o mapa
         layer.on('click', L.DomEvent.stopPropagation);
         layer.on('mousedown', L.DomEvent.stopPropagation);
-        
-        // Adiciona listeners de edição
         layer.on('pm:edit', handleUpdate);
         layer.on('pm:dragend', handleUpdate);
-        // Também atualiza ao cortar/rotacionar se disponível
         layer.on('pm:rotateend', handleUpdate);
         layer.on('pm:cut', handleUpdate);
     };
 
-    // Event Listeners Globais
     map.on('pm:create', (e) => {
         isolateLayer(e.layer);
         handleUpdate();
     });
     map.on('pm:remove', handleUpdate);
     
-    // Cleanup
     return () => {
-        if (map && (map as any).pm) {
-            (map as any).pm.removeControls();
-        }
+        if (map && (map as any).pm) (map as any).pm.removeControls();
         if (map) {
             map.off('pm:create');
             map.off('pm:remove');
@@ -142,31 +314,26 @@ const GeomanController = ({
     };
   }, [map, editable]);
 
-  // Carregamento Inicial de Shapes (Ex: Edição)
+  // Carregamento de Shapes (Executa APENAS quando `controllerKey` muda)
+  // Isso previne o loop onde editar um shape atualiza o state, que recarrega os shapes, que reseta a edição.
   useEffect(() => {
-      // 2. Prevenir carregamento se mapa não existe ou já montado
-      if(!map || isMounted.current) return;
+      if(!map) return;
       
-      // 3. Validar GeoJSON antes de carregar
-      if (!initialShapes || initialShapes.type !== 'FeatureCollection' || !Array.isArray(initialShapes.features)) {
-          isMounted.current = true;
-          return;
-      }
-      
-      // Limpa layers anteriores desenhados (mas não os marcadores de operação do sistema)
+      // Limpa layers anteriores desenhados (Geoman only)
       map.eachLayer((layer) => {
           if((layer as any).options && (layer as any).options.isGeoman) {
               map.removeLayer(layer);
           }
       });
 
+      if (!initialShapes || initialShapes.type !== 'FeatureCollection' || !Array.isArray(initialShapes.features)) {
+          return;
+      }
+
       try {
           const layerGroup = L.geoJSON(initialShapes, {
               onEachFeature: (feature, layer) => {
-                  (layer as any).options.isGeoman = true; // Tag para identificar layers do usuário
-                  
-                  // Helper function duplicated here to ensure closure access if needed, or rely on effect re-run (not ideal for load).
-                  // For simplicity in this protected block, we add basic propagation stop.
+                  (layer as any).options.isGeoman = true;
                   layer.on('click', L.DomEvent.stopPropagation);
                   layer.on('mousedown', L.DomEvent.stopPropagation);
 
@@ -184,28 +351,14 @@ const GeomanController = ({
                       layer.on('pm:dragend', handleUpdate);
                   }
               },
-              // Estilização Básica
-              style: {
-                  color: "#ff7800",
-                  weight: 3,
-                  opacity: 0.65
-              }
+              style: { color: "#ff7800", weight: 3, opacity: 0.65 }
           });
           
-          layerGroup.getLayers().forEach(layer => {
-              layer.addTo(map);
-          });
+          layerGroup.getLayers().forEach(layer => layer.addTo(map));
       } catch(e) {
           console.error("Erro ao carregar GeoJSON inicial:", e);
       }
-
-      isMounted.current = true;
-  }, [map, initialShapes]);
-
-  // Reset flag quando muda o modo
-  useEffect(() => {
-      isMounted.current = false;
-  }, [editable]);
+  }, [map, controllerKey]); // Critical: depend on key, not object reference
 
   return null;
 }
@@ -220,8 +373,6 @@ const LocationSelector = ({ onLocationSelect, isSelecting }: { onLocationSelect:
       const clickHandler = (e: L.LeafletMouseEvent) => {
           const pm = (map as any).pm;
           
-          // GUARD 1: Modos Globais do Geoman
-          // Se qualquer ferramenta de desenho ou edição estiver ativa, IGNORA o clique no mapa.
           if (pm) {
               if (
                   pm.globalDrawModeEnabled() || 
@@ -265,14 +416,9 @@ const MapController = ({ isPanelCollapsed }: { isPanelCollapsed: boolean }) => {
         }
     };
 
-    // 1. Invalida imediatamente
     invalidate();
-    
-    // 2. Invalida quando o mapa estiver "pronto" (evento load)
     map.whenReady(invalidate);
-
-    // 3. Invalida após a transição CSS do painel
-    const timer = setTimeout(invalidate, 305); // slightly longer than CSS transition (300ms)
+    const timer = setTimeout(invalidate, 305); 
     
     return () => clearTimeout(timer);
   }, [map, isPanelCollapsed]);
@@ -432,11 +578,22 @@ export default function OperationManagement() {
   const [summerCity, setSummerCity] = useState("");
   const [summerPost, setSummerPost] = useState("");
 
+  // Map Overlay States
+  const [showUnits, setShowUnits] = useState(false);
+  const [showPilots, setShowPilots] = useState(false);
+  const [showDrones, setShowDrones] = useState(false); // Nova camada para drones
+
+  // Draw Request State (para botão flutuante)
+  const [drawRequest, setDrawRequest] = useState<string | null>(null);
+
   // SQL Fix Modal State
   const [sqlError, setSqlError] = useState<string | null>(null);
 
   // UI State: Panel Collapse
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
+
+  // Geoman Refresh Key
+  const [geoKey, setGeoKey] = useState(0);
 
   const initialFormState = {
     name: '',
@@ -496,6 +653,35 @@ export default function OperationManagement() {
     return () => clearInterval(interval);
   }, []);
 
+  // --- REALTIME SUBSCRIPTION PARA PILOTOS E DRONES ---
+  useEffect(() => {
+    if (!isConfigured) return;
+
+    // Monitora alterações na tabela 'profiles' (pilotos) para atualizar o mapa em tempo real
+    const channel = supabase.channel('realtime_map_data')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'profiles' },
+        (payload) => {
+          console.log('[Realtime] Alteração em Pilotos detectada:', payload);
+          base44.entities.Pilot.filter({ status: 'active' }).then(setPilots);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'drones' },
+        (payload) => {
+          console.log('[Realtime] Alteração em Drones detectada:', payload);
+          base44.entities.Drone.list().then(setDrones);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   const handleLocationSelect = (lat: number, lng: number) => {
     setTempMarker({ lat, lng });
     setFormData(prev => ({ ...prev, latitude: lat, longitude: lng }));
@@ -504,6 +690,17 @@ export default function OperationManagement() {
   const handleShapesUpdate = (geojson: any) => {
       // Atualiza o estado local do formulário com os novos shapes desenhados
       setFormData(prev => ({ ...prev, shapes: geojson }));
+      // Limpa o pedido de desenho após completar
+      setDrawRequest(null);
+  };
+
+  const handleCustomMarkerClick = () => {
+      if (!isCreating) {
+          alert("Para adicionar marcadores personalizados, inicie uma 'Nova Operação' ou 'Edite' uma existente.");
+          return;
+      }
+      // Trigger Geoman marker draw
+      setDrawRequest('Marker');
   };
 
   const checkConflicts = (newOp: typeof formData): Operation[] => {
@@ -515,6 +712,13 @@ export default function OperationManagement() {
       if (distance < ((newOp.radius) + existingOp.radius + 100)) conflicts.push(existingOp);
     });
     return conflicts;
+  };
+
+  // Helper para abrir WhatsApp do piloto
+  const handlePilotWhatsApp = (phone: string) => {
+    if (!phone) return;
+    const cleanPhone = phone.replace(/\D/g, '');
+    window.open(`https://wa.me/55${cleanPhone}`, '_blank');
   };
 
   // Função para iniciar edição populando o formulário
@@ -556,6 +760,7 @@ export default function OperationManagement() {
     setIsEditing(op.id);
     setIsCreating(true); // Força a exibição do formulário
     setIsPanelCollapsed(false); // Garante que o painel abra ao editar
+    setGeoKey(prev => prev + 1); // Força recarga dos shapes no mapa
   };
 
   const handleCancelForm = () => {
@@ -568,6 +773,7 @@ export default function OperationManagement() {
     // Reset conflict modals
     setConflictData(null);
     setShowConflictModal(false);
+    setGeoKey(prev => prev + 1); // Força limpeza dos shapes do editor
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -600,6 +806,7 @@ export default function OperationManagement() {
   const handleConflictAck = () => {
     setShowConflictModal(false); 
     // Após aceitar conflito, vai direto para Checklist
+    // Mantém setConflictData populado para exibição visual
     setShowChecklist(true);
   };
 
@@ -1015,6 +1222,221 @@ export default function OperationManagement() {
     }
   };
 
+  // MEMOIZED MARKERS
+  const mapMarkers = useMemo(() => {
+    return activeOps.map(op => {
+      const lat = Number(op.latitude);
+      const lng = Number(op.longitude);
+      // Validation to avoid passing NaN to Marker (Leaflet fix)
+      if (!isValidCoord(lat, lng)) return null;
+      
+      const radius = Number(op.radius);
+      
+      // Check if this specific operation is a conflict
+      const isConflict = conflictData?.some(c => c.id === op.id);
+      const circleColor = isConflict ? '#dc2626' : '#cbd5e1'; // Red-600 vs Slate-300
+      const fillColor = isConflict ? '#ef4444' : '#94a3b8'; // Red-500 vs Slate-400
+      const opacity = isConflict ? 0.3 : 0.1;
+      const dashArray = isConflict ? undefined : '5, 5'; // Solid for conflict, dashed for normal
+      const weight = isConflict ? 2 : 1;
+
+      return (
+        <React.Fragment key={op.id}>
+          <Marker position={[lat, lng]} icon={icon}>
+              <Popup>
+                <b>{op.name}</b><br/>
+                {op.is_summer_op && <span className="text-orange-600 font-bold text-xs">☀️ Op. Verão</span>}
+                {(op.second_pilot_name || op.observer_name) && (
+                    <div className="flex gap-1 mt-1 text-xs text-blue-600 font-bold">
+                        Equipe Estendida
+                    </div>
+                )}
+                {op.is_paused && <span className="block mt-1 text-amber-600 font-bold bg-amber-50 px-1 rounded border border-amber-200 text-xs text-center">PAUSADA</span>}
+                {isConflict && <span className="block mt-1 text-red-600 font-bold bg-red-50 px-1 rounded border border-red-200 text-xs text-center">CONFLITO</span>}
+              </Popup>
+          </Marker>
+          {!isNaN(radius) && radius > 0 && (
+              <Circle 
+                  center={[lat, lng]} 
+                  radius={radius} 
+                  pathOptions={{ color: circleColor, dashArray: dashArray, fillColor: fillColor, fillOpacity: opacity, weight: weight }}
+                  interactive={false} // Disable interaction to prevent blocking drawing clicks
+              />
+          )}
+        </React.Fragment>
+      );
+    });
+  }, [activeOps, conflictData]);
+
+  // MEMOIZED PILOT MARKERS - GROUPED BY LOCATION (CLUSTERED)
+  const pilotMarkers = useMemo(() => {
+      if (!showPilots) return null;
+      
+      // 1. Agrupar Pilotos por Unidade/CRBM
+      const groupedPilots: Record<string, { lat: number, lng: number, unitName: string, pilots: Pilot[] }> = {};
+
+      pilots.forEach(pilot => {
+          if (!pilot.crbm && !pilot.unit) return;
+
+          // ESTRATÉGIA DE MATCHING CORRIGIDA - STRICT HIERARCHY
+          
+          // 1. Tenta encontrar correspondência exata no campo UNIT
+          // Prioriza unidade específica, incluindo "Sede Administrativa" se especificada
+          const unitMatch = FIXED_UNITS.find(u => pilot.unit && u.matcher?.some(m => pilot.unit.includes(m)));
+          
+          // 2. Se não achou unidade específica, tenta fallback pelo campo CRBM (Sede Regional)
+          const crbmMatch = !unitMatch ? FIXED_UNITS.find(u => u.type === 'CRBM' && pilot.crbm && u.matcher?.some(m => pilot.crbm.includes(m))) : null;
+
+          const target = unitMatch || crbmMatch;
+
+          if (target) {
+              const key = target.name; // Agrupa pelo nome da unidade do FIXED_UNITS
+              
+              if (!groupedPilots[key]) {
+                  groupedPilots[key] = {
+                      lat: target.lat,
+                      lng: target.lng,
+                      unitName: target.name,
+                      pilots: []
+                  };
+              }
+              groupedPilots[key].pilots.push(pilot);
+          }
+      });
+
+      // 2. Renderizar Marcadores Agrupados
+      return Object.values(groupedPilots).map((group, index) => (
+          <Marker 
+            key={`pilot-group-${index}`} 
+            position={[group.lat, group.lng]} 
+            icon={createUnitIcon('PILOT', group.pilots.length)} // Usa a contagem no ícone
+          >
+              <Popup>
+                  <div className="p-1 min-w-[200px]">
+                      <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-200">
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white bg-violet-600">
+                              {group.pilots.length} PILOTOS
+                          </span>
+                          <span className="text-xs font-bold text-slate-700 truncate" title={group.unitName}>
+                              {group.unitName}
+                          </span>
+                      </div>
+                      
+                      <div className="max-h-48 overflow-y-auto space-y-2 custom-scrollbar pr-1">
+                          {group.pilots.map(pilot => (
+                              <div key={pilot.id} className="bg-slate-50 p-2 rounded border border-slate-100 flex justify-between items-center">
+                                  <div className="min-w-0 pr-2">
+                                      <p className="text-xs font-bold text-slate-800 truncate" title={pilot.full_name}>
+                                          {pilot.full_name}
+                                      </p>
+                                      <p className="text-[10px] text-slate-500 truncate">{pilot.unit}</p>
+                                  </div>
+                                  {pilot.phone && (
+                                      <button 
+                                          onClick={() => handlePilotWhatsApp(pilot.phone)}
+                                          className="p-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200 transition-colors flex-shrink-0"
+                                          title="WhatsApp"
+                                      >
+                                          <Phone className="w-3.5 h-3.5" />
+                                      </button>
+                                  )}
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+              </Popup>
+          </Marker>
+      ));
+  }, [showPilots, pilots]);
+
+  // MEMOIZED DRONE MARKERS - GROUPED BY LOCATION (CLUSTERED)
+  const droneMarkers = useMemo(() => {
+      if (!showDrones) return null;
+      
+      const groupedDrones: Record<string, { lat: number, lng: number, unitName: string, drones: Drone[] }> = {};
+
+      drones.forEach(drone => {
+          if (!drone.crbm && !drone.unit) return;
+
+          let target = null;
+
+          // 1. Tenta encontrar correspondência exata no campo UNIT (se houver)
+          if (drone.unit) {
+              target = FIXED_UNITS.find(u => 
+                  u.type !== 'CRBM' && 
+                  u.matcher?.some(m => drone.unit!.includes(m))
+              );
+          }
+          
+          // 2. Se não achou unidade específica, tenta fallback pelo campo CRBM
+          // Isso cobre aeronaves que só têm CRBM definido (pertencem à Sede/Comando)
+          if (!target && drone.crbm) {
+              target = FIXED_UNITS.find(u => 
+                  u.type === 'CRBM' && 
+                  u.matcher?.some(m => drone.crbm!.includes(m))
+              );
+          }
+
+          if (target) {
+              const key = target.name;
+              
+              if (!groupedDrones[key]) {
+                  groupedDrones[key] = {
+                      lat: target.lat, 
+                      lng: target.lng, 
+                      unitName: target.name,
+                      drones: []
+                  };
+              }
+              groupedDrones[key].drones.push(drone);
+          }
+      });
+
+      return Object.values(groupedDrones).map((group, index) => {
+          return (
+            <Marker 
+              key={`drone-group-${index}`} 
+              position={[group.lat + 0.0002, group.lng + 0.0002]} // Slight offset to peek out
+              icon={createUnitIcon('DRONE', group.drones.length)}
+            >
+                <Popup>
+                    <div className="p-1 min-w-[200px]">
+                        <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-200">
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white bg-emerald-600">
+                                {group.drones.length} AERONAVES
+                            </span>
+                            <span className="text-xs font-bold text-slate-700 truncate" title={group.unitName}>
+                                {group.unitName}
+                            </span>
+                        </div>
+                        
+                        <div className="max-h-48 overflow-y-auto space-y-2 custom-scrollbar pr-1">
+                            {group.drones.map(drone => (
+                                <div key={drone.id} className="bg-slate-50 p-2 rounded border border-slate-100">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <p className="text-xs font-bold text-slate-800 truncate" title={drone.prefix}>
+                                            {drone.prefix}
+                                        </p>
+                                        <span className={`text-[9px] px-1.5 rounded ${
+                                            drone.status === 'available' ? 'bg-green-100 text-green-700' :
+                                            drone.status === 'in_operation' ? 'bg-red-100 text-red-700' :
+                                            'bg-amber-100 text-amber-700'
+                                        }`}>
+                                            {drone.status === 'available' ? 'Disp.' : 
+                                             drone.status === 'in_operation' ? 'Em Op.' : 'Mnt.'}
+                                        </span>
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 truncate">{drone.brand} {drone.model}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </Popup>
+            </Marker>
+          );
+      });
+  }, [showDrones, drones]);
+
   return (
     <div className="flex flex-col lg:flex-row h-full w-full relative bg-slate-100 overflow-hidden">
       {/* Conditionally Render Conflict Modal based on Visibility State */}
@@ -1104,43 +1526,41 @@ export default function OperationManagement() {
              initialShapes={formData.shapes} 
              onUpdate={handleShapesUpdate} 
              editable={isCreating} 
+             controllerKey={`geo-${isEditing || 'new'}-${geoKey}`}
+             drawRequest={drawRequest}
           />
           
           <LocationSelector onLocationSelect={handleLocationSelect} isSelecting={isCreating} />
           
-          {activeOps.map(op => {
-            const lat = Number(op.latitude);
-            const lng = Number(op.longitude);
-            // Validation to avoid passing NaN to Marker (Leaflet fix)
-            if (!isValidCoord(lat, lng)) return null;
-            
-            const radius = Number(op.radius);
+          {/* CAMADA DE UNIDADES FIXAS (CRBMs/BBMs) */}
+          {showUnits && FIXED_UNITS.map((unit, idx) => (
+             <Marker 
+               key={`unit-${idx}`} 
+               position={[unit.lat, unit.lng]} 
+               icon={UNIT_ICONS[unit.type as keyof typeof UNIT_ICONS]}
+             >
+                <Popup>
+                   <div className="p-1">
+                      <div className="flex items-center gap-2 mb-1">
+                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded text-white ${unit.type === 'CRBM' ? 'bg-red-800' : (unit.type === 'BOA' ? 'bg-slate-800' : (unit.type === 'CIBM' ? 'bg-amber-600' : 'bg-orange-600'))}`}>
+                            {unit.type}
+                         </span>
+                         <span className="text-xs text-slate-500 font-mono">{unit.lat.toFixed(4)}, {unit.lng.toFixed(4)}</span>
+                      </div>
+                      <strong className="text-sm block text-slate-800 leading-tight">{unit.name}</strong>
+                      <p className="text-xs text-slate-500 mt-1 italic">{unit.details}</p>
+                   </div>
+                </Popup>
+             </Marker>
+          ))}
 
-            return (
-              <React.Fragment key={op.id}>
-                <Marker position={[lat, lng]} icon={icon}>
-                    <Popup>
-                      <b>{op.name}</b><br/>
-                      {op.is_summer_op && <span className="text-orange-600 font-bold text-xs">☀️ Op. Verão</span>}
-                      {(op.second_pilot_name || op.observer_name) && (
-                          <div className="flex gap-1 mt-1 text-xs text-blue-600 font-bold">
-                              Equipe Estendida
-                          </div>
-                      )}
-                      {op.is_paused && <span className="block mt-1 text-amber-600 font-bold bg-amber-50 px-1 rounded border border-amber-200 text-xs text-center">PAUSADA</span>}
-                    </Popup>
-                </Marker>
-                {!isNaN(radius) && radius > 0 && (
-                    <Circle 
-                        center={[lat, lng]} 
-                        radius={radius} 
-                        pathOptions={{ color: 'red', dashArray: '5, 5', fillColor: 'red', fillOpacity: 0.1 }}
-                        interactive={false} // Disable interaction to prevent blocking drawing clicks
-                    />
-                )}
-              </React.Fragment>
-            );
-          })}
+          {/* CAMADA DE PILOTOS (AGRUPADOS) */}
+          {pilotMarkers}
+
+          {/* CAMADA DE DRONES (AGRUPADOS) */}
+          {droneMarkers}
+
+          {mapMarkers}
           
           {/* Validate Temp Marker coords explicitly */}
           {tempMarker && !isNaN(Number(formData.radius)) && formData.radius > 0 && isValidCoord(tempMarker.lat, tempMarker.lng) && (
@@ -1156,13 +1576,56 @@ export default function OperationManagement() {
           )}
         </MapContainer>
         
+        {/* Toggle Layer Buttons (Left Top) */}
+        <div className="absolute top-4 left-14 z-[400] flex flex-col gap-2">
+           <Button 
+              onClick={() => setShowUnits(!showUnits)} 
+              className={`h-9 px-3 shadow-md border ${showUnits ? 'bg-slate-800 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+              title="Exibir/Ocultar Unidades Fixas (CRBMs/BBMs)"
+           >
+              {showUnits ? <Landmark className="w-4 h-4 mr-2" /> : <Building2 className="w-4 h-4 mr-2" />}
+              <span className="text-xs font-bold">{showUnits ? 'Ocultar Unidades' : 'Exibir Unidades'}</span>
+           </Button>
+
+           <Button 
+              onClick={() => setShowPilots(!showPilots)} 
+              className={`h-9 px-3 shadow-md border ${showPilots ? 'bg-violet-700 text-white border-violet-800' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+              title="Exibir/Ocultar Posição dos Pilotos"
+           >
+              <Users className="w-4 h-4 mr-2" />
+              <span className="text-xs font-bold">{showPilots ? 'Ocultar Pilotos' : 'Exibir Pilotos'}</span>
+           </Button>
+
+           <Button 
+              onClick={() => setShowDrones(!showDrones)} 
+              className={`h-9 px-3 shadow-md border ${showDrones ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
+              title="Exibir/Ocultar Aeronaves nas Bases"
+           >
+              <Plane className="w-4 h-4 mr-2" />
+              <span className="text-xs font-bold">{showDrones ? 'Ocultar Aeronaves' : 'Exibir Aeronaves'}</span>
+           </Button>
+        </div>
+
+        {/* Floating Custom Marker Button (Right Bottom) */}
+        {isCreating && (
+            <div className="absolute bottom-8 right-8 z-[1000]">
+                <button
+                    onClick={handleCustomMarkerClick}
+                    className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-all border border-slate-200"
+                    title="Adicionar Marcador Personalizado"
+                >
+                    <MapPin className="w-6 h-6" />
+                </button>
+            </div>
+        )}
+
         {/* Helper Badge for Drawing Tools */}
         {isCreating && (
-            <div className="absolute top-4 left-14 z-[400] bg-white/90 backdrop-blur px-3 py-2 rounded shadow-md border border-slate-200 text-xs flex flex-col gap-1 max-w-[200px]">
+            <div className="absolute top-16 left-14 z-[400] bg-white/90 backdrop-blur px-3 py-2 rounded shadow-md border border-slate-200 text-xs flex flex-col gap-1 max-w-[200px]">
                 <div className="font-bold text-slate-700 flex items-center gap-2">
                     <Edit3 className="w-3 h-3" /> Ferramentas de Desenho
                 </div>
-                <p className="text-slate-500 leading-tight">Use os controles à esquerda para desenhar polígonos, rotas ou marcadores adicionais.</p>
+                <p className="text-slate-500 leading-tight">Use os controles à esquerda para desenhar polígonos, rotas ou o botão flutuante para marcadores.</p>
             </div>
         )}
       </div>
@@ -1207,6 +1670,30 @@ export default function OperationManagement() {
                     <Button variant="outline" onClick={handleCancelForm} size="sm"><X className="w-4 h-4"/></Button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-5 space-y-6">
+                    
+                    {/* PERSISTENT CONFLICT ALERT IN SIDEBAR */}
+                    {conflictData && conflictData.length > 0 && (
+                        <div className="p-3 bg-red-50 border border-red-200 rounded-lg animate-fade-in shadow-sm">
+                            <h4 className="text-red-800 font-bold text-xs flex items-center gap-2 mb-2 uppercase tracking-wider">
+                                <AlertTriangle className="w-4 h-4"/> Tráfego em Conflito
+                            </h4>
+                            <ul className="text-xs space-y-1.5">
+                                {conflictData.map(c => (
+                                    <li key={c.id} className="flex flex-col border-l-2 border-red-300 pl-2">
+                                        <div className="flex justify-between items-center">
+                                            <span className="font-bold text-red-700">{c.name}</span>
+                                            <span className="bg-red-100 text-red-800 px-1 rounded font-mono">{c.radius}m</span>
+                                        </div>
+                                        <span className="text-slate-600 italic">Piloto: {c.pilot_name || 'Desconhecido'}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                            <div className="mt-2 text-[10px] text-red-600 font-medium">
+                                * Mantenha coordenação via rádio durante todo o voo.
+                            </div>
+                        </div>
+                    )}
+
                     <form id="opForm" onSubmit={handleSubmit} className="space-y-6">
                         <div className="space-y-4">
                             <div className="space-y-3">

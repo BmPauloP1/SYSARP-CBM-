@@ -37,6 +37,12 @@ export const SUMMER_LOCATIONS: Record<string, string[]> = {
   ],
   "Paranaguá / Morretes / Antonina": [
     "PGV Encantadas", "PGV Praia de Fora", "PGV - Tático Móvel de Porto de Cima"
+  ],
+  "Balneário de Porto Camargo (Icaraíma)": [
+    "Prainha I", 
+    "Prainha II", 
+    "Prainha III", 
+    "Prainha IV"
   ]
 };
 

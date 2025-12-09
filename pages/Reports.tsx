@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
-import { Operation, Pilot, Drone, MISSION_LABELS, MISSION_HIERARCHY, SYSARP_LOGO, AroAssessment } from "../types";
+import { Operation, Pilot, Drone, MISSION_LABELS, MISSION_HIERARCHY, SYSARP_LOGO, AroAssessment, ORGANIZATION_CHART } from "../types";
 import { Card, Input, Select, Button, Badge } from "../components/ui_components";
-import { Filter, FileText, Download, CheckSquare, Search, Map as MapIcon, PieChart as PieIcon, Navigation } from "lucide-react";
+import { Filter, FileText, Download, CheckSquare, Search, Map as MapIcon, PieChart as PieIcon, Navigation, Trash2, AlertTriangle } from "lucide-react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from 'recharts';
 import L from "leaflet";
@@ -32,13 +31,8 @@ const MISSION_COLORS: Record<string, string> = {
   diverse: "#71717a"           // Zinc (Diversos)
 };
 
-const ORGANIZATION_CHART_KEYS = [
-  "1º CRBM - Curitiba (Leste/Litoral)",
-  "2º CRBM - Londrina (Norte)",
-  "3º CRBM - Cascavel (Oeste)",
-  "4º CRBM - Maringá (Noroeste)",
-  "5º CRBM - Ponta Grossa (Campos Gerais)"
-];
+// Gera chaves dinamicamente a partir do organograma atualizado
+const ORGANIZATION_CHART_KEYS = Object.keys(ORGANIZATION_CHART);
 
 // Helper para carregar imagem para o PDF
 const getImageData = (url: string): Promise<string> => {
@@ -89,6 +83,7 @@ export default function Reports() {
   const [operations, setOperations] = useState<ExtendedOperation[]>([]);
   const [filteredOps, setFilteredOps] = useState<ExtendedOperation[]>([]);
   const [drones, setDrones] = useState<Drone[]>([]);
+  const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   const [loading, setLoading] = useState(true);
   
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -107,22 +102,29 @@ export default function Reports() {
 
   const loadData = async () => {
     setLoading(true);
-    const [opsData, pilotsData, dronesData] = await Promise.all([
-      base44.entities.Operation.list('-start_time'),
-      base44.entities.Pilot.list(),
-      base44.entities.Drone.list()
-    ]);
+    try {
+      const [opsData, pilotsData, dronesData, me] = await Promise.all([
+        base44.entities.Operation.list('-start_time'),
+        base44.entities.Pilot.list(),
+        base44.entities.Drone.list(),
+        base44.auth.me()
+      ]);
 
-    const extended: ExtendedOperation[] = opsData.map(op => ({
-      ...op,
-      pilot: pilotsData.find(p => p.id === op.pilot_id),
-      drone: dronesData.find(d => d.id === op.drone_id)
-    }));
+      const extended: ExtendedOperation[] = opsData.map(op => ({
+        ...op,
+        pilot: pilotsData.find(p => p.id === op.pilot_id),
+        drone: dronesData.find(d => d.id === op.drone_id)
+      }));
 
-    setOperations(extended);
-    setFilteredOps(extended);
-    setDrones(dronesData);
-    setLoading(false);
+      setOperations(extended);
+      setFilteredOps(extended);
+      setDrones(dronesData);
+      setCurrentUser(me);
+    } catch(e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSearch = () => {
@@ -168,6 +170,35 @@ export default function Reports() {
   const toggleAll = () => {
     if (selectedIds.size === filteredOps.length) setSelectedIds(new Set());
     else setSelectedIds(new Set(filteredOps.map(op => op.id)));
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    
+    if (currentUser?.role !== 'admin') {
+        alert("Apenas administradores podem excluir registros.");
+        return;
+    }
+
+    if (!window.confirm(`ATENÇÃO: Tem certeza que deseja excluir ${selectedIds.size} operação(ões)?\n\nIsso apagará o histórico do Dashboard e dos Relatórios. Esta ação não pode ser desfeita.`)) {
+        return;
+    }
+
+    setLoading(true);
+    try {
+        const idsArray = Array.from(selectedIds) as string[];
+        // Deleta sequencialmente ou em paralelo
+        await Promise.all(idsArray.map((id: string) => base44.entities.Operation.delete(id)));
+        
+        alert("Operações excluídas com sucesso.");
+        setSelectedIds(new Set());
+        loadData(); // Recarrega para limpar a lista local
+    } catch (e: any) {
+        console.error("Delete error:", e);
+        alert(`Erro ao excluir: ${e.message}. Se houver registros vinculados (logs de voo), é necessário limpá-los via Banco de Dados.`);
+    } finally {
+        setLoading(false);
+    }
   };
 
   const getMissionStats = () => {
@@ -606,10 +637,20 @@ export default function Reports() {
                     <span className="text-sm font-bold text-slate-700">Ocorrências Listadas</span>
                  </div>
                  <div className="flex gap-2">
+                    {currentUser?.role === 'admin' && selectedIds.size > 0 && (
+                        <Button 
+                            onClick={handleDeleteSelected} 
+                            disabled={loading}
+                            className="h-8 text-xs bg-red-600 text-white hover:bg-red-700 border-red-700"
+                        >
+                            <Trash2 className="w-3 h-3 mr-2" />
+                            Excluir ({selectedIds.size})
+                        </Button>
+                    )}
                     <Button variant="outline" className="h-8 text-xs bg-white" onClick={toggleAll}>
                        {selectedIds.size === filteredOps.length && filteredOps.length > 0 ? 'Desmarcar Todos' : 'Selecionar Todos'}
                     </Button>
-                    <Button onClick={handleExport} disabled={generating || selectedIds.size === 0} className="h-8 text-xs bg-red-700 text-white hover:bg-red-800">
+                    <Button onClick={handleExport} disabled={generating || selectedIds.size === 0} className="h-8 text-xs bg-slate-800 text-white hover:bg-slate-900">
                        <Download className="w-3 h-3 mr-2" />
                        {generating ? 'Gerando...' : 'Exportar PDF'}
                     </Button>

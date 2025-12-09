@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback, memo, useRef } from "react";
+
+import React, { useEffect, useState, useCallback, memo, useRef, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
@@ -18,6 +19,11 @@ const icon = L.icon({
   shadowSize: [41, 41]
 });
 
+// Helper for valid coordinates
+const isValidCoord = (lat: number, lng: number) => {
+  return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+};
+
 // Componente para controlar o mapa (Otimizado)
 const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
   const map = useMap();
@@ -27,7 +33,9 @@ const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
     // 1. Correção de Renderização (Bug do Leaflet em Flexbox)
     let frameId: number;
     const resizeMap = () => {
-       if (map) map.invalidateSize();
+       if (map && map.getContainer()) {
+          try { map.invalidateSize(); } catch(e) {}
+       }
     };
     
     const timer = setTimeout(() => {
@@ -39,7 +47,7 @@ const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
       const validOps = activeOps.filter(op => {
          const lat = Number(op.latitude);
          const lng = Number(op.longitude);
-         return !isNaN(lat) && !isNaN(lng);
+         return isValidCoord(lat, lng);
       });
       
       if (validOps.length > 0) {
@@ -240,6 +248,37 @@ export default function Dashboard() {
       window.open(`https://wa.me/?text=${encodedText}`, '_blank');
   };
 
+  // MEMOIZED MARKERS: Prevents re-rendering markers when map/other state changes if ops are same
+  const mapMarkers = useMemo(() => {
+    return activeOps.map(op => {
+      // Safety check for valid coordinates to prevent _leaflet_pos error
+      const lat = Number(op.latitude);
+      const lng = Number(op.longitude);
+      if (!isValidCoord(lat, lng)) return null;
+
+      return (
+          <Marker 
+            key={op.id} 
+            position={[lat, lng]} 
+            icon={icon}
+          >
+            <Popup>
+              <div className="p-1">
+                <strong className="text-sm block">{op.name}</strong>
+                <span className="text-xs text-slate-500 block mb-1">#{op.occurrence_number}</span>
+                <Badge variant="danger">{MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}</Badge>
+                {op.stream_url && (
+                  <div className="mt-2 text-xs text-blue-600 font-bold flex items-center gap-1">
+                    <Video className="w-3 h-3" /> Transmissão Disponível
+                  </div>
+                )}
+              </div>
+            </Popup>
+          </Marker>
+        );
+    });
+  }, [activeOps]);
+
   return (
     <div className="flex flex-col h-full bg-slate-100 overflow-hidden">
       {/* HEADER / TOP BAR */}
@@ -277,33 +316,7 @@ export default function Dashboard() {
                 attribution='&copy; OpenStreetMap'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
-              {activeOps.map(op => {
-                // Safety check for valid coordinates to prevent _leaflet_pos error
-                const lat = Number(op.latitude);
-                const lng = Number(op.longitude);
-                if (isNaN(lat) || isNaN(lng)) return null;
-
-                return (
-                    <Marker 
-                      key={op.id} 
-                      position={[lat, lng]} 
-                      icon={icon}
-                    >
-                      <Popup>
-                        <div className="p-1">
-                          <strong className="text-sm block">{op.name}</strong>
-                          <span className="text-xs text-slate-500 block mb-1">#{op.occurrence_number}</span>
-                          <Badge variant="danger">{MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}</Badge>
-                          {op.stream_url && (
-                            <div className="mt-2 text-xs text-blue-600 font-bold flex items-center gap-1">
-                              <Video className="w-3 h-3" /> Transmissão Disponível
-                            </div>
-                          )}
-                        </div>
-                      </Popup>
-                    </Marker>
-                  );
-              })}
+              {mapMarkers}
            </MapContainer>
            
            <div className="absolute bottom-6 left-6 bg-white/90 backdrop-blur p-3 rounded-lg shadow-lg border border-slate-200 text-xs z-[400]">
