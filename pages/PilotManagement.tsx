@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
 import { Pilot, ORGANIZATION_CHART, SYSARP_LOGO } from "../types";
@@ -261,8 +260,9 @@ export default function PilotManagement() {
           crbm: formData.crbm,
           unit: formData.unit,
           license: formData.license,
-          role: formData.role,   // Atualiza Admin/Piloto
-          status: formData.status // Atualiza Ativo/Inativo
+          // Apenas atualiza role/status se for admin, para segurança no frontend
+          // O backend deve ter policies RLS para garantir isso também
+          ...(currentUser?.role === 'admin' ? { role: formData.role, status: formData.status } : {})
         });
         alert("Dados do piloto atualizados com sucesso!");
 
@@ -538,8 +538,8 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
                           </Button>
                       </td>
                       <td className="px-6 py-4 align-top">
-                        {currentUser?.role === 'admin' && (
-                          <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2">
+                           {(currentUser?.role === 'admin' || currentUser?.id === pilot.id) && (
                              <Button 
                                variant="outline" 
                                onClick={() => handleEdit(pilot)}
@@ -548,6 +548,8 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
                              >
                                <Pencil className="w-4 h-4 mr-1" /> Editar
                              </Button>
+                           )}
+                           {currentUser?.role === 'admin' && (
                              <Button 
                                variant="outline"
                                onClick={(e) => handleDelete(e, pilot.id)}
@@ -556,8 +558,8 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
                              >
                                 <Trash2 className="w-4 h-4 mr-1" /> Excluir
                              </Button>
-                          </div>
-                        )}
+                           )}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -580,7 +582,7 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
                   <div 
                     key={pilot.id} 
                     className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-start gap-4 hover:shadow-md transition-shadow cursor-pointer relative overflow-hidden"
-                    onClick={() => currentUser?.role === 'admin' ? handleEdit(pilot) : null}
+                    onClick={() => (currentUser?.role === 'admin' || currentUser?.id === pilot.id) ? handleEdit(pilot) : null}
                   >
                       {/* Status Indicator Bar */}
                       <div className={`absolute left-0 top-0 bottom-0 w-1 ${pilot.status === 'active' ? 'bg-green-500' : 'bg-slate-300'}`}></div>
@@ -629,8 +631,8 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
                                   >
                                      <Phone className="w-4 h-4" />
                                   </button>
-                                  {currentUser?.role === 'admin' && (
-                                    <>
+                                  
+                                  {(currentUser?.role === 'admin' || currentUser?.id === pilot.id) && (
                                       <button 
                                         onClick={(e) => { e.stopPropagation(); handleEdit(pilot); }}
                                         className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
@@ -638,6 +640,9 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
                                       >
                                          <Pencil className="w-4 h-4" />
                                       </button>
+                                  )}
+                                  
+                                  {currentUser?.role === 'admin' && (
                                       <button 
                                         onClick={(e) => handleDelete(e, pilot.id)}
                                         className="p-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
@@ -645,7 +650,6 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
                                       >
                                          <Trash2 className="w-4 h-4" />
                                       </button>
-                                    </>
                                   )}
                               </div>
                           </div>
@@ -807,6 +811,7 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
                    <Select 
                       label="Perfil de Acesso" 
                       value={formData.role} 
+                      disabled={currentUser?.role !== 'admin'}
                       onChange={e => setFormData({...formData, role: e.target.value as any})}
                     >
                       <option value="operator">Piloto</option>
@@ -817,6 +822,7 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
                    <Select 
                       label="Status" 
                       value={formData.status} 
+                      disabled={currentUser?.role !== 'admin'}
                       onChange={e => setFormData({...formData, status: e.target.value as any})}
                     >
                       <option value="active">Ativo</option>

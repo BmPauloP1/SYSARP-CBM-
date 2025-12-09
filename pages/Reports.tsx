@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
 import { Operation, Pilot, Drone, MISSION_LABELS, MISSION_HIERARCHY, SYSARP_LOGO, AroAssessment, ORGANIZATION_CHART } from "../types";
@@ -186,16 +187,15 @@ export default function Reports() {
 
     setLoading(true);
     try {
-        const idsArray = Array.from(selectedIds) as string[];
-        // Deleta sequencialmente ou em paralelo
-        await Promise.all(idsArray.map((id: string) => base44.entities.Operation.delete(id)));
+        const idsArray = Array.from(selectedIds);
+        await Promise.all(idsArray.map(id => base44.entities.Operation.delete(id)));
         
         alert("Operações excluídas com sucesso.");
         setSelectedIds(new Set());
-        loadData(); // Recarrega para limpar a lista local
+        loadData();
     } catch (e: any) {
         console.error("Delete error:", e);
-        alert(`Erro ao excluir: ${e.message}. Se houver registros vinculados (logs de voo), é necessário limpá-los via Banco de Dados.`);
+        alert(`Erro ao excluir: ${e.message}`);
     } finally {
         setLoading(false);
     }
