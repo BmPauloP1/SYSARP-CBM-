@@ -204,24 +204,47 @@ const ResourceLayer = ({
     return Object.entries(UNIT_GEO).map(([unitName, coords]) => {
          const [lat, lng] = coords;
          
-         // Helper: Matching inteligente e seguro
+         // Helper: Matching que prioriza a CIDADE
          const normalizeMatch = (resourceUnit: string | undefined, geoKey: string) => {
              if (!resourceUnit) return false;
              
              const rUnit = resourceUnit.toLowerCase().trim();
              const gKey = geoKey.toLowerCase().trim();
              
-             // Match exato
+             // 1. Match exato (para garantir casos simples)
              if (rUnit === gKey) return true;
              
-             // Match pelo designador principal (Ex: "1º BBM")
-             const geoDesignator = gKey.split(' - ')[0].trim();
-             if (rUnit.includes(geoDesignator)) return true;
+             // 2. Extração inteligente por CIDADE
+             // A chave do mapa (UNIT_GEO) geralmente é: "UNIDADE - CIDADE (DETALHE)"
+             // Ex: "10º BBM - Francisco Beltrão"
+             const parts = gKey.split(' - ');
              
-             return false;
+             if (parts.length >= 2) {
+                 const mapDesignator = parts[0].trim(); // ex: "10º bbm"
+                 // Pega a parte da cidade, removendo detalhes entre parênteses ex: "curitiba (portão)" -> "curitiba"
+                 const mapCity = parts[1].split('(')[0].trim(); 
+                 
+                 // REGRA DE OURO: Se a unidade do piloto contém o NOME DA CIDADE da chave do mapa, é match.
+                 // Isso resolve o problema de "10º BBM - Francisco Beltrão" vs "12º BBM - Guarapuava".
+                 if (rUnit.includes(mapCity)) {
+                     return true;
+                 }
+                 
+                 // Fallback: Se for unidade de SEDE (sem cidade no nome do piloto), vincula pelo designador
+                 // Ex: "Sede Administrativa - 2º CRBM" -> Match em "2º CRBM - Londrina" (Se não achar Londrina no nome)
+                 if (rUnit.includes(mapDesignator) && (rUnit.includes('sede') || rUnit.includes('comando') || rUnit.includes('ccb'))) {
+                     return true;
+                 }
+                 
+                 // Se não tiver a cidade e não for sede, não dá match (evita duplicidade em Regionais)
+                 return false;
+             }
+             
+             // Fallback genérico se a chave do mapa não tiver hífen
+             return rUnit.includes(gKey);
          };
 
-         // Filtra pilotos e drones desta unidade específica
+         // Filtra pilotos e drones desta unidade específica usando a lógica estrita de cidade
          const unitPilots = pilots.filter(p => normalizeMatch(p.unit, unitName));
          const unitDrones = drones.filter(d => normalizeMatch(d.unit, unitName) && d.status !== 'in_operation');
          
@@ -231,8 +254,6 @@ const ResourceLayer = ({
          if (!showUnits && !hasResources) return null;
 
          // LÓGICA DE POSICIONAMENTO EXATO (STACKING)
-         // Se houver unidade, piloto e drone, empilhamos visualmente com um offset minúsculo
-         // para que fiquem "encima" do local exato, mas clicáveis.
          const pilotPos: [number, number] = [lat + 0.0002, lng]; // Ligeiramente acima
          const dronePos: [number, number] = [lat - 0.0002, lng]; // Ligeiramente abaixo
 
