@@ -4,7 +4,7 @@ import { inventoryService } from '../services/inventoryService';
 import { Material, MaterialType, BatteryStats, PropellerStats } from '../types_inventory';
 import { Drone } from '../types';
 import { Card, Button, Input, Select, Badge } from '../components/ui_components';
-import { X, Battery, Fan, Box, Plus, Trash2, History, AlertTriangle, CheckCircle, Activity, Save, Camera, Plug, Minus } from 'lucide-react';
+import { X, Battery, Fan, Box, Plus, Trash2, History, AlertTriangle, CheckCircle, Activity, Save, Camera, Plug, Minus, Gamepad2 } from 'lucide-react';
 
 interface DroneInventoryModalProps {
   drone: Drone;
@@ -95,6 +95,7 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
       switch(type) {
           case 'battery': return 'Baterias';
           case 'propeller': return 'Hélices';
+          case 'controller': return 'Controles / RCs';
           case 'payload': return 'Cargas Pagas';
           case 'accessory': return 'Acessórios';
           default: return 'Componentes';
@@ -130,6 +131,9 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
              <button onClick={() => { setActiveTab('propeller'); setShowAddForm(false); }} className={`flex-shrink-0 flex items-center gap-2 p-3 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'propeller' ? 'bg-white text-blue-600 shadow-sm border border-blue-100' : 'text-slate-600 hover:bg-slate-100'}`}>
                 <Fan className="w-4 h-4"/> Hélices
              </button>
+             <button onClick={() => { setActiveTab('controller'); setShowAddForm(false); }} className={`flex-shrink-0 flex items-center gap-2 p-3 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'controller' ? 'bg-white text-blue-600 shadow-sm border border-blue-100' : 'text-slate-600 hover:bg-slate-100'}`}>
+                <Gamepad2 className="w-4 h-4"/> Controles
+             </button>
              <button onClick={() => { setActiveTab('payload'); setShowAddForm(false); }} className={`flex-shrink-0 flex items-center gap-2 p-3 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${activeTab === 'payload' ? 'bg-white text-blue-600 shadow-sm border border-blue-100' : 'text-slate-600 hover:bg-slate-100'}`}>
                 <Camera className="w-4 h-4"/> Payloads
              </button>
@@ -149,6 +153,7 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
                 <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                    {activeTab === 'battery' && 'Gestão de Baterias (TB30/Lipo)'}
                    {activeTab === 'propeller' && 'Gestão de Hélices'}
+                   {activeTab === 'controller' && 'Controles Remotos (RCs)'}
                    {activeTab === 'payload' && 'Câmeras e Sensores'}
                    {activeTab === 'accessory' && 'Cabos, Cases e Acessórios'}
                    {activeTab === 'component' && 'Peças de Reposição'}
@@ -166,7 +171,7 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
                    </h4>
                    <form onSubmit={handleAddSubmit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                       <div className="sm:col-span-2">
-                         <Input label="Nome / Modelo" required placeholder="Ex: Bateria TB30 ou Câmera H20T" value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
+                         <Input label="Nome / Modelo" required placeholder="Ex: RC Plus, Bateria TB30..." value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} />
                       </div>
                       
                       <div className="sm:col-span-1">
@@ -230,6 +235,7 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
                          <div className={`p-3 rounded-full shrink-0 ${mat.status === 'active' ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-500'}`}>
                             {activeTab === 'battery' ? <Battery className="w-6 h-6"/> : 
                              activeTab === 'propeller' ? <Fan className="w-6 h-6"/> : 
+                             activeTab === 'controller' ? <Gamepad2 className="w-6 h-6"/> : 
                              activeTab === 'payload' ? <Camera className="w-6 h-6"/> :
                              activeTab === 'accessory' ? <Plug className="w-6 h-6"/> :
                              <Box className="w-6 h-6"/>}
@@ -247,11 +253,11 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
                          <div className="flex flex-col items-center justify-center bg-slate-50 rounded p-1 border border-slate-100">
                             <span className="text-[9px] text-slate-400 uppercase font-bold">Qtd.</span>
                             <div className="flex items-center gap-2">
-                               {['propeller', 'accessory', 'component'].includes(mat.type) && (
+                               {['propeller', 'accessory', 'component', 'controller'].includes(mat.type) && (
                                   <button onClick={() => handleQuantityChange(mat, -1)} className="text-slate-400 hover:text-red-500"><Minus className="w-3 h-3"/></button>
                                )}
                                <span className="font-bold text-slate-700 text-sm">{mat.quantity}</span>
-                               {['propeller', 'accessory', 'component'].includes(mat.type) && (
+                               {['propeller', 'accessory', 'component', 'controller'].includes(mat.type) && (
                                   <button onClick={() => handleQuantityChange(mat, 1)} className="text-slate-400 hover:text-green-500"><Plus className="w-3 h-3"/></button>
                                )}
                             </div>

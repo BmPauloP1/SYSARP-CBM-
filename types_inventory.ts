@@ -1,5 +1,5 @@
 
-export type MaterialType = 'battery' | 'propeller' | 'component' | 'payload' | 'accessory';
+export type MaterialType = 'battery' | 'propeller' | 'component' | 'payload' | 'accessory' | 'controller';
 export type MaterialStatus = 'new' | 'active' | 'maintenance' | 'retired';
 export type HealthStatus = 'OK' | 'WARNING' | 'CRITICAL';
 
