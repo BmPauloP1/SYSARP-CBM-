@@ -97,7 +97,13 @@ export default function DroneManagement() {
         base44.system.getCatalog(),
         base44.auth.me()
       ]);
-      setDrones(d);
+
+      // Ordenar por Prefixo (HARPIA 01, 02...) de forma sequencial
+      const sortedDrones = d.sort((a, b) => 
+        a.prefix.localeCompare(b.prefix, undefined, { numeric: true, sensitivity: 'base' })
+      );
+
+      setDrones(sortedDrones);
       setPilots(p);
       setCatalog(cat);
       setCurrentUser(me);

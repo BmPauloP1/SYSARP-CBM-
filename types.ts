@@ -208,7 +208,8 @@ export interface Operation {
   description?: string;
   actions_taken?: string;
   sarpas_protocol?: string;
-  is_summer_op?: boolean; 
+  is_summer_op?: boolean;
+  is_multi_day?: boolean; // Novo campo
   aro?: AroAssessment;
   flight_plan_data?: string;
   shapes?: any;
@@ -217,6 +218,42 @@ export interface Operation {
   total_pause_duration?: number;
   pause_logs?: { start: string; end?: string; reason: string; duration?: number }[];
 }
+
+// --- NEW MULTI-DAY OPERATION TYPES ---
+
+export interface OperationDay {
+  id: string;
+  operation_id: string;
+  date: string; // YYYY-MM-DD
+  responsible_pilot_id: string;
+  weather_summary: string;
+  progress_notes: string;
+  status: 'open' | 'closed';
+  created_at: string;
+  
+  // Joins
+  assets?: OperationDayAsset[];
+  pilots?: OperationDayPilot[];
+  flights?: FlightLog[];
+}
+
+export interface OperationDayAsset {
+  id: string;
+  operation_day_id: string;
+  drone_id: string;
+  status: 'active' | 'standby' | 'grounded';
+  created_at: string;
+}
+
+export interface OperationDayPilot {
+  id: string;
+  operation_day_id: string;
+  pilot_id: string;
+  role: 'pic' | 'observer' | 'support';
+  created_at: string;
+}
+
+// -------------------------------------
 
 export interface Maintenance {
   id: string;
@@ -249,11 +286,13 @@ export interface ConflictNotification {
 export interface FlightLog {
   id: string;
   operation_id: string;
+  operation_day_id?: string; // Link opcional ao dia
   pilot_id: string;
   drone_id: string;
   flight_date: string;
   flight_hours: number;
   mission_type: string;
+  description?: string; // Novo
 }
 
 export const MISSION_HIERARCHY: Record<MissionType, { label: string; subtypes: string[] }> = {

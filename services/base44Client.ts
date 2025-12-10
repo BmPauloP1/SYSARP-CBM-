@@ -1,5 +1,6 @@
+
 import { supabase, isConfigured } from './supabase';
-import { Drone, Operation, Pilot, Maintenance, FlightLog, ConflictNotification, DroneChecklist, SystemAuditLog } from '../types';
+import { Drone, Operation, Pilot, Maintenance, FlightLog, ConflictNotification, DroneChecklist, SystemAuditLog, OperationDay, OperationDayAsset, OperationDayPilot } from '../types';
 
 // Mapeamento de nomes de tabelas
 const TABLE_MAP = {
@@ -10,7 +11,10 @@ const TABLE_MAP = {
   FlightLog: 'flight_logs',
   ConflictNotification: 'conflict_notifications',
   DroneChecklist: 'drone_checklists',
-  SystemAudit: 'system_audit' // Tabela de auditoria
+  SystemAudit: 'system_audit',
+  OperationDay: 'operation_days',
+  OperationDayAsset: 'operation_day_assets',
+  OperationDayPilot: 'operation_day_pilots'
 };
 
 // Chaves do LocalStorage para Fallback Offline
@@ -22,7 +26,10 @@ const STORAGE_KEYS = {
   FlightLog: 'sysarp_flight_logs',
   ConflictNotification: 'sysarp_notifications',
   DroneChecklist: 'sysarp_drone_checklists',
-  SystemAudit: 'sysarp_system_audit'
+  SystemAudit: 'sysarp_system_audit',
+  OperationDay: 'sysarp_op_days',
+  OperationDayAsset: 'sysarp_op_day_assets',
+  OperationDayPilot: 'sysarp_op_day_pilots'
 };
 
 // Default Catalog Data
@@ -294,7 +301,15 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
            if (entityName === 'SystemAudit') {
              return createOffline();
            }
+           // Fallback para novas tabelas de Operações Multidias
+           if (['OperationDay', 'OperationDayAsset', 'OperationDayPilot'].includes(entityName)) {
+             throw new Error("DB_TABLE_MISSING");
+           }
            throw new Error(`Banco de Dados desatualizado: Falta a coluna '${missingCol}' na tabela '${tableName}'.`);
+        }
+        
+        if (msg.includes("relation") && msg.includes("does not exist")) {
+             throw new Error("DB_TABLE_MISSING");
         }
         
         // Fallback for SystemAudit on any error to prevent blocking main flow
@@ -701,7 +716,10 @@ export const base44 = {
     FlightLog: createEntityHandler<FlightLog>('FlightLog'),
     ConflictNotification: createEntityHandler<ConflictNotification>('ConflictNotification'),
     DroneChecklist: createEntityHandler<DroneChecklist>('DroneChecklist'),
-    SystemAudit: createEntityHandler<SystemAuditLog>('SystemAudit'), // Nova entidade
+    SystemAudit: createEntityHandler<SystemAuditLog>('SystemAudit'),
+    OperationDay: createEntityHandler<OperationDay>('OperationDay'),
+    OperationDayAsset: createEntityHandler<OperationDayAsset>('OperationDayAsset'),
+    OperationDayPilot: createEntityHandler<OperationDayPilot>('OperationDayPilot'),
   },
   auth: authHandler,
   system: authHandler.system,

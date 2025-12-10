@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
 import { Pilot, ORGANIZATION_CHART, SYSARP_LOGO } from "../types";
@@ -69,7 +70,11 @@ export default function PilotManagement() {
         base44.entities.Pilot.list(),
         base44.auth.me()
       ]);
-      setPilots(data);
+      
+      // Sort alphabetically by full_name
+      const sortedData = data.sort((a, b) => a.full_name.localeCompare(b.full_name));
+      
+      setPilots(sortedData);
       setCurrentUser(me);
     } catch (e: any) {
       if (e.message !== "Não autenticado" && !e.message?.includes("Failed to fetch")) {
