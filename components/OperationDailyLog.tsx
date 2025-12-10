@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { base44 } from "../services/base44Client";
 import { Operation, OperationDay, Pilot, Drone, FlightLog, OperationDayAsset, OperationDayPilot } from "../types";
 import { Card, Button, Input, Select, Badge } from "../components/ui_components";
-import { Calendar, Plus, CloudRain, Users, Plane, Clock, Trash2, ChevronDown, ChevronUp, FileText, CheckSquare, Save, Edit3, X, Activity, Database, Copy } from "lucide-react";
+import { Calendar, Plus, CloudRain, Users, Plane, Clock, Trash2, ChevronDown, ChevronUp, FileText, CheckSquare, Save, Edit3, X, Activity, Database, Copy, AlertTriangle } from "lucide-react";
 
 interface OperationDailyLogProps {
   operationId: string;
@@ -201,9 +201,8 @@ WITH CHECK (true);
   const handleUpdateDayNotes = async (dayId: string) => {
       try {
           await base44.entities.OperationDay.update(dayId, { progress_notes: dayNotes });
-          alert("Dia atualizado com sucesso!");
-          setExpandedDayId(null); // Fecha a janela (accordion) após atualizar
-          loadDays(); // Recarrega a lista
+          // MENSAGEM CLARA: NÃO LIBERA DRONE
+          alert("Informações atualizadas com sucesso.\n\nNOTA: O dia permanece ABERTO e as aeronaves 'EM OPERAÇÃO'. Para liberar os drones, utilize o botão 'Encerrar Dia'.");
       } catch(e) {
           console.error(e);
           alert("Erro ao atualizar descrição.");
@@ -211,16 +210,73 @@ WITH CHECK (true);
   };
 
   const handleCloseDay = async (dayId: string) => {
-      if(!confirm("Encerrar as atividades deste dia? O status mudará para Fechado.")) return;
+      // CONFIRMAÇÃO EXPLÍCITA SOBRE LIBERAÇÃO DE DRONES
+      if(!confirm("CONFIRMAÇÃO DE ENCERRAMENTO:\n\nAo encerrar o dia, o sistema tentará liberar todas as aeronaves para 'DISPONÍVEL'.\n\nDeseja continuar?")) return;
+      
+      setLoading(true);
       try {
+          // 1. Buscar aeronaves vinculadas a este dia para liberá-las
+          console.log(`Buscando ativos para liberar no dia ${dayId}...`);
+          const assetsToRelease = await base44.entities.OperationDayAsset.filter({ operation_day_id: dayId });
+          
+          let releasedCount = 0;
+          let errorsCount = 0;
+          
+          // Usar loop sequencial para garantir tratamento de erro individual e capturar erro de permissão
+          for (const asset of assetsToRelease) {
+              try {
+                  await base44.entities.Drone.update(asset.drone_id, { status: 'available' });
+                  releasedCount++;
+                  console.log(`Drone ${asset.drone_id} liberado.`);
+              } catch (droneErr: any) {
+                  console.error(`Falha ao liberar drone ${asset.drone_id}`, droneErr);
+                  errorsCount++;
+                  
+                  // Se for erro de permissão, INTERROMPE TUDO e mostra o fix
+                  if (droneErr.message && (droneErr.message.includes("policy") || droneErr.message.includes("permission"))) {
+                      if (currentUser?.role === 'admin') {
+                          setSqlError(`
+-- CORREÇÃO DE PERMISSÃO (RLS) PARA ATUALIZAR STATUS DO DRONE
+DROP POLICY IF EXISTS "Enable update for users based on email" ON "public"."drones";
+CREATE POLICY "Enable update for users based on email"
+ON "public"."drones"
+FOR UPDATE
+TO authenticated
+USING (true)
+WITH CHECK (true);
+                          `);
+                          alert("ERRO DE PERMISSÃO: O sistema foi bloqueado pelo banco de dados ao tentar liberar a aeronave. Execute o código SQL exibido (Admin) e tente novamente.");
+                          setLoading(false);
+                          return; // Sai da função sem fechar o dia
+                      } else {
+                          alert("ERRO DE PERMISSÃO: Você não tem permissão para alterar o status da aeronave. Contate o administrador.");
+                          setLoading(false);
+                          return;
+                      }
+                  }
+              }
+          }
+
+          if (errorsCount > 0) {
+              if(!confirm(`ATENÇÃO: ${errorsCount} aeronave(s) NÃO puderam ser liberadas automaticamente devido a erros de conexão ou permissão.\n\nDeseja forçar o encerramento do dia mesmo assim? (As aeronaves continuarão 'Em Operação' até ajuste manual).`)) {
+                  setLoading(false);
+                  return;
+              }
+          }
+
+          // 2. Encerrar o dia SOMENTE se passou pelos erros ou confirmou força bruta
           await base44.entities.OperationDay.update(dayId, { status: 'closed' });
           
-          alert("Dia encerrado com sucesso!");
-          setExpandedDayId(null); // Fecha a janela (accordion) após encerrar
-          loadDays(); // Recarrega
+          alert(`Dia encerrado com sucesso!\n${releasedCount} aeronave(s) liberada(s) para novas missões.`);
+          setExpandedDayId(null); 
+          
+          // Forçar recarregamento completo para garantir UI atualizada
+          await loadDays(); 
       } catch(e) {
           console.error(e);
-          alert("Erro ao encerrar dia.");
+          alert("Erro crítico ao encerrar dia. Verifique sua conexão e tente novamente.");
+      } finally {
+          setLoading(false);
       }
   };
 
@@ -243,9 +299,10 @@ WITH CHECK (true);
                  <button onClick={() => setSqlError(null)} className="hover:bg-red-700 p-1 rounded"><X className="w-5 h-5" /></button>
               </div>
               <div className="p-6 space-y-4">
-                 <p className="text-slate-700 font-medium">O sistema não conseguiu atualizar o status da aeronave para "Em Operação" devido a restrições do Banco de Dados.</p>
+                 <p className="text-slate-700 font-medium">O sistema não conseguiu atualizar o status da aeronave. Isso geralmente ocorre devido a restrições de segurança do Banco de Dados (RLS).</p>
                  <div className="relative"><pre className="bg-slate-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto font-mono border border-slate-700 max-h-64">{sqlError}</pre>
                  <button onClick={copySqlToClipboard} className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded"><Copy className="w-4 h-4" /></button></div>
+                 <p className="text-xs text-red-600 font-bold">Instrução: Copie o código acima e execute no "SQL Editor" do painel Supabase.</p>
               </div>
               <div className="p-4 bg-slate-50 border-t flex justify-end gap-3">
                  <Button variant="outline" onClick={() => setSqlError(null)}>Fechar</Button>
@@ -437,17 +494,24 @@ WITH CHECK (true);
                                 onClick={() => handleUpdateDayNotes(day.id)} 
                                 className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-9"
                             >
-                                <Save className="w-3 h-3 mr-2" /> Atualizar Dia
+                                <Save className="w-3 h-3 mr-2" /> Atualizar Informações
                             </Button>
                             {day.status !== 'closed' && (
                                 <Button 
                                     onClick={() => handleCloseDay(day.id)} 
+                                    disabled={loading}
                                     className="bg-slate-800 hover:bg-black text-white text-xs h-9"
                                 >
-                                    <CheckSquare className="w-3 h-3 mr-2" /> Encerrar Dia
+                                    <CheckSquare className={`w-3 h-3 mr-2 ${loading ? 'animate-spin' : ''}`} /> 
+                                    {loading ? 'Processando...' : 'Encerrar Dia e Liberar Drones'}
                                 </Button>
                             )}
                         </div>
+                        {day.status !== 'closed' && (
+                            <div className="text-[10px] text-right text-slate-400 italic">
+                                * O botão "Atualizar" apenas salva o texto. Use "Encerrar" para liberar os drones.
+                            </div>
+                        )}
                      </div>
 
                   </div>

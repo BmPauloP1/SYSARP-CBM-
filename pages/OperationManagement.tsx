@@ -9,13 +9,93 @@ import { operationSummerService } from "../services/operationSummerService";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, AroAssessment, MissionType, ConflictNotification } from "../types";
 import { SUMMER_LOCATIONS } from "../types_summer";
 import { Button, Input, Select, Badge, Card } from "../components/ui_components";
-import { Plus, Map as MapIcon, Clock, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, Users, Eye, History, Activity, Pause, Play, Edit3, Database, Copy, ChevronsRight, ChevronsLeft, ChevronsDown, ChevronsUp, Maximize2, Building2, Landmark, MapPin, Phone, Calendar, Hammer } from "lucide-react";
+import { Plus, Map as MapIcon, Clock, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, Users, Eye, History, Activity, Pause, Play, Edit3, Database, Copy, ChevronsRight, ChevronsLeft, ChevronsDown, ChevronsUp, Maximize2, Building2, Landmark, MapPin, Phone, Calendar, Hammer, Layers, MessageCircle } from "lucide-react";
 import OperationDailyLog from "../components/OperationDailyLog";
 
 // Imports Geoman
 import "@geoman-io/leaflet-geoman-free";
 
-// Fix Leaflet icons
+// --- COORDENADAS DAS UNIDADES DO CBMPR (BASE DE DADOS GEOGRÁFICA) ---
+// Mapeamento preciso baseado na lista fornecida (Endereços exatos e Cidades Sedes)
+const UNIT_GEO: Record<string, [number, number]> = {
+  // --- 1º CRBM (CURITIBA E RMC) ---
+  "1º CRBM - Curitiba (Sede Regional)": [-25.417336, -49.278911], // R. Nilo Peçanha, 557
+  "1º BBM - Curitiba (Portão)": [-25.474580, -49.294240], // Av. Pres. Wenceslau Braz, 3968B
+  "6º BBM - São José dos Pinhais": [-25.5347, -49.2063],
+  "7º BBM - Colombo": [-25.2917, -49.2242],
+  "8º BBM - Paranaguá": [-25.5205, -48.5095],
+  
+  // Unidades Especializadas (Curitiba)
+  "BOA - Batalhão de Operações Aéreas": [-25.5161, -49.1702], // Bacacheri/Afonso Pena
+  "GOST - Grupo de Operações de Socorro Tático": [-25.42, -49.28],
+  "CCB (QCGBM) - Quartel do Comando Geral": [-25.4146, -49.2720],
+
+  // --- 2º CRBM (LONDRINA / NORTE) ---
+  "2º CRBM - Londrina (Sede Regional)": [-23.311580, -51.171220], // R. Silvio Bussadori, 150
+  "3º BBM - Londrina": [-23.311580, -51.171220], // Sede junto ao CRBM
+  "11º BBM - Apucarana": [-23.5510, -51.4614],
+  "1ª CIBM - Ivaiporã": [-24.2464, -51.3181],
+  "3ª CIBM - Santo Antônio da Platina": [-23.2974, -50.0759],
+  
+  // --- 3º CRBM (CASCAVEL / OESTE) ---
+  "3º CRBM - Cascavel (Sede Regional)": [-24.956700, -53.457800], // R. Jorge Lacerda, 2202
+  "4º BBM - Cascavel": [-24.956700, -53.457800], // Sede junto ao CRBM
+  "9º BBM - Foz do Iguaçu": [-25.5469, -54.5882],
+  "10º BBM - Francisco Beltrão": [-26.0810, -53.0548],
+  "13º BBM - Pato Branco": [-26.2295, -52.6713],
+
+  // --- 4º CRBM (MARINGÁ / NOROESTE) ---
+  "4º CRBM - Maringá (Sede Regional)": [-23.418900, -51.938700], // Av. Centenário, 290
+  "5º BBM - Maringá": [-23.418900, -51.938700], // Sede junto ao CRBM
+  "2ª CIBM - Umuarama": [-23.7661, -53.3206],
+  "4ª CIBM - Cianorte": [-23.6528, -52.6073],
+  "5ª CIBM - Paranavaí": [-23.0792, -52.4607],
+
+  // --- 5º CRBM (PONTA GROSSA / CAMPOS GERAIS) ---
+  "5º CRBM - Ponta Grossa (Sede Regional)": [-25.091600, -50.160800], // Praça Roosevelt, 43
+  "2º BBM - Ponta Grossa": [-25.091600, -50.160800], // Sede junto ao CRBM
+  "12º BBM - Guarapuava": [-25.3953, -51.4622],
+  "6ª CIBM - Irati": [-25.4682, -50.6511]
+};
+
+// --- ÍCONES PERSONALIZADOS ---
+const createCustomIcon = (type: 'pilot' | 'drone' | 'unit', count: number = 1) => {
+  let iconSvg = '';
+  let bgColor = '';
+  let size: [number, number] = [36, 36];
+  let badgeHtml = count > 1 ? `<div class="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border border-white shadow-sm">${count}</div>` : '';
+
+  if (type === 'unit') {
+    // Icone de Prédio (Quartel)
+    bgColor = 'bg-slate-800';
+    iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/></svg>`;
+  } else if (type === 'pilot') {
+    // Icone de Usuário
+    bgColor = 'bg-blue-600';
+    iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
+  } else {
+    // Icone de Drone (Quadricóptero)
+    bgColor = 'bg-orange-600';
+    iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" stroke-width="0" fill="none"/><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M4.5 9m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0"/><path d="M19.5 9m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0"/><path d="M4.5 15m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0"/><path d="M19.5 15m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0"/><path d="M12 12v-3.5"/><path d="M12 12v3.5"/><path d="M12 12h-3.5"/><path d="M12 12h3.5"/></svg>`;
+  }
+
+  const html = `
+    <div class="relative flex items-center justify-center w-full h-full shadow-lg rounded-lg border-2 border-white ${bgColor} text-white hover:scale-110 transition-transform">
+      ${iconSvg}
+      ${badgeHtml}
+    </div>
+  `;
+
+  return L.divIcon({
+    html: html,
+    className: 'bg-transparent',
+    iconSize: size,
+    iconAnchor: [size[0]/2, size[1]/2],
+    popupAnchor: [0, -size[1]/2]
+  });
+};
+
+// Fix Leaflet icons for Ops
 const icon = L.icon({
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
   iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -99,6 +179,161 @@ const MapController = ({ isPanelCollapsed }: { isPanelCollapsed: boolean }) => {
   return null;
 };
 
+// CAMADA DE RECURSOS (UNIDADES, PILOTOS, DRONES)
+const ResourceLayer = ({ 
+  pilots, 
+  drones, 
+  showUnits,
+  showPilots,
+  showDrones
+}: { 
+  pilots: Pilot[], 
+  drones: Drone[], 
+  showUnits: boolean,
+  showPilots: boolean,
+  showDrones: boolean
+}) => {
+  
+  const handleWhatsApp = (phone: string) => {
+    const cleanPhone = phone.replace(/\D/g, '');
+    window.open(`https://wa.me/55${cleanPhone}`, '_blank');
+  };
+
+  // Memoize para recalcular apenas quando os dados mudam (Adição/Exclusão)
+  const layerContent = useMemo(() => {
+    return Object.entries(UNIT_GEO).map(([unitName, coords]) => {
+         const [lat, lng] = coords;
+         
+         // Helper: Matching inteligente e seguro
+         const normalizeMatch = (resourceUnit: string | undefined, geoKey: string) => {
+             if (!resourceUnit) return false;
+             
+             const rUnit = resourceUnit.toLowerCase().trim();
+             const gKey = geoKey.toLowerCase().trim();
+             
+             // Match exato
+             if (rUnit === gKey) return true;
+             
+             // Match pelo designador principal (Ex: "1º BBM")
+             const geoDesignator = gKey.split(' - ')[0].trim();
+             if (rUnit.includes(geoDesignator)) return true;
+             
+             return false;
+         };
+
+         // Filtra pilotos e drones desta unidade específica
+         const unitPilots = pilots.filter(p => normalizeMatch(p.unit, unitName));
+         const unitDrones = drones.filter(d => normalizeMatch(d.unit, unitName) && d.status !== 'in_operation');
+         
+         const hasResources = unitPilots.length > 0 || unitDrones.length > 0;
+         
+         // Se não deve mostrar unidades e não tem recursos, não renderiza nada
+         if (!showUnits && !hasResources) return null;
+
+         // LÓGICA DE POSICIONAMENTO EXATO (STACKING)
+         // Se houver unidade, piloto e drone, empilhamos visualmente com um offset minúsculo
+         // para que fiquem "encima" do local exato, mas clicáveis.
+         const pilotPos: [number, number] = [lat + 0.0002, lng]; // Ligeiramente acima
+         const dronePos: [number, number] = [lat - 0.0002, lng]; // Ligeiramente abaixo
+
+         return (
+           <React.Fragment key={unitName}>
+             
+             {/* 1. MARCADOR DA UNIDADE (QUARTEL) - BASE */}
+             {showUnits && (
+               <Marker position={coords} icon={createCustomIcon('unit', 1)} zIndexOffset={50}>
+                  <Popup>
+                     <div className="min-w-[200px]">
+                        <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b pb-1 mb-2">
+                           <Building2 className="w-4 h-4 text-slate-600" />
+                           {unitName}
+                        </h3>
+                        <div className="text-xs text-slate-500">
+                           <p>Base Operacional / Administrativa</p>
+                           <p className="mt-1">Efetivo: {unitPilots.length} Pilotos</p>
+                           <p>Frota: {unitDrones.length} RPAs</p>
+                        </div>
+                     </div>
+                  </Popup>
+               </Marker>
+             )}
+
+             {/* 2. MARCADOR DE PILOTOS (AGRUPADO) - CAMADA SUPERIOR */}
+             {showPilots && unitPilots.length > 0 && (
+               <Marker 
+                  position={pilotPos} 
+                  icon={createCustomIcon('pilot', unitPilots.length)} 
+                  zIndexOffset={1000} // Z-index alto para ficar "encima"
+               >
+                  <Popup>
+                     <div className="min-w-[220px]">
+                        <h3 className="font-bold text-blue-800 flex items-center gap-2 border-b border-blue-100 pb-1 mb-2">
+                           <Users className="w-4 h-4" />
+                           Pilotos - {unitName.split(' - ')[0]}
+                        </h3>
+                        <div className="max-h-40 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                           {unitPilots.map(p => (
+                              <div key={p.id} className="flex justify-between items-center text-xs bg-slate-50 p-1.5 rounded border border-slate-100">
+                                 <div>
+                                    <strong className="block text-slate-700">{p.full_name.split(' ')[0]} {p.full_name.split(' ').pop()}</strong>
+                                    <span className="text-[10px] text-slate-400">{p.role === 'admin' ? 'Admin' : 'Piloto'}</span>
+                                 </div>
+                                 {p.phone && (
+                                    <button 
+                                      onClick={() => handleWhatsApp(p.phone)}
+                                      className="bg-green-50 text-green-600 p-1.5 rounded hover:bg-green-100 border border-green-200"
+                                      title="Abrir WhatsApp"
+                                    >
+                                       <MessageCircle className="w-4 h-4" />
+                                    </button>
+                                 )}
+                              </div>
+                           ))}
+                        </div>
+                     </div>
+                  </Popup>
+               </Marker>
+             )}
+
+             {/* 3. MARCADOR DE DRONES (AGRUPADO) - CAMADA INTERMEDIÁRIA */}
+             {showDrones && unitDrones.length > 0 && (
+               <Marker 
+                  position={dronePos} 
+                  icon={createCustomIcon('drone', unitDrones.length)} 
+                  zIndexOffset={900} 
+               >
+                  <Popup>
+                     <div className="min-w-[200px]">
+                        <h3 className="font-bold text-orange-800 flex items-center gap-2 border-b border-orange-100 pb-1 mb-2">
+                           <Plane className="w-4 h-4" />
+                           Frota - {unitName.split(' - ')[0]}
+                        </h3>
+                        <div className="max-h-40 overflow-y-auto space-y-1 custom-scrollbar">
+                           {unitDrones.map(d => (
+                              <div key={d.id} className="text-xs bg-slate-50 p-1.5 rounded border border-slate-100">
+                                 <strong className="block text-slate-700">{d.prefix}</strong>
+                                 <span className="text-[10px] text-slate-500">{d.model}</span>
+                                 <div className="mt-1">
+                                    <Badge variant={d.status === 'available' ? 'success' : 'warning'} className="text-[9px] px-1 py-0">
+                                       {d.status === 'available' ? 'Disp.' : 'Manut.'}
+                                    </Badge>
+                                 </div>
+                              </div>
+                           ))}
+                        </div>
+                     </div>
+                  </Popup>
+               </Marker>
+             )}
+
+           </React.Fragment>
+         );
+      });
+  }, [pilots, drones, showUnits, showPilots, showDrones]);
+
+  return <>{layerContent}</>;
+};
+
 const ChecklistModal = ({ onConfirm, onCancel }: any) => (
     <div className="fixed inset-0 bg-black/70 z-[2000] flex items-center justify-center p-4">
         <div className="bg-white p-6 rounded-lg max-w-md w-full">
@@ -119,6 +354,11 @@ export default function OperationManagement() {
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [isFinishing, setIsFinishing] = useState<Operation | null>(null);
   
+  // MAP LAYER CONTROLS (INDEPENDENT)
+  const [showUnits, setShowUnits] = useState(true);
+  const [showPilots, setShowPilots] = useState(true);
+  const [showDrones, setShowDrones] = useState(true);
+
   // TABS FOR EDIT MODE
   const [editTab, setEditTab] = useState<'details' | 'daily_log'>('details');
 
@@ -213,8 +453,21 @@ export default function OperationManagement() {
         try {
           // Busca todos os logs de voo vinculados a essa operação
           const logs = await base44.entities.FlightLog.filter({ operation_id: isFinishing.id });
-          const totalFromLogs = logs.reduce((acc, log) => acc + (log.flight_hours || 0), 0);
+          let totalFromLogs = logs.reduce((acc, log) => acc + (log.flight_hours || 0), 0);
           
+          // Se não houver logs (operação simples), tenta calcular por tempo decorrido
+          if (totalFromLogs === 0) {
+             const start = new Date(isFinishing.start_time).getTime();
+             const end = new Date().getTime();
+             
+             // Subtrair tempo de pausa se houver
+             const pauseDurationMs = (isFinishing.total_pause_duration || 0) * 60 * 1000;
+             const diffMs = end - start - pauseDurationMs;
+             const hours = diffMs / (1000 * 60 * 60);
+             
+             if (hours > 0) totalFromLogs = parseFloat(hours.toFixed(1));
+          }
+
           setFinishData({
             description: '',
             flight_hours: totalFromLogs > 0 ? totalFromLogs : 0
@@ -365,6 +618,58 @@ export default function OperationManagement() {
         alert("Operação criada!");
       }
 
+      // --- AUTOMAÇÃO PARA OPERAÇÃO MULTIDIAS ---
+      if (savedOp.is_multi_day) {
+          // Extrai a data baseada na data real de início da operação salva no banco
+          const startDate = new Date(savedOp.start_time).toISOString().split('T')[0]; 
+          
+          try {
+              // 1. Verifica se já existe um dia criado para essa data nessa operação
+              const existingDays = await base44.entities.OperationDay.filter({
+                  operation_id: savedOp.id,
+                  date: startDate
+              });
+
+              if (existingDays.length === 0) {
+                  console.log(`Criando primeiro dia automático para ${startDate}...`);
+                  
+                  // 2. Cria o Dia
+                  const newDay = await base44.entities.OperationDay.create({
+                      operation_id: savedOp.id,
+                      date: startDate,
+                      responsible_pilot_id: savedOp.pilot_id,
+                      weather_summary: "Clima inicial",
+                      progress_notes: savedOp.description || "Início da operação",
+                      status: 'open'
+                  } as any);
+
+                  // 3. Vincula o Drone Principal
+                  if (savedOp.drone_id) {
+                      await base44.entities.OperationDayAsset.create({
+                          operation_day_id: newDay.id,
+                          drone_id: savedOp.drone_id,
+                          status: 'active'
+                      } as any);
+                  }
+
+                  // 4. Vincula o Piloto Principal
+                  if (savedOp.pilot_id) {
+                      await base44.entities.OperationDayPilot.create({
+                          operation_day_id: newDay.id,
+                          pilot_id: savedOp.pilot_id,
+                          role: 'pic'
+                      } as any);
+                  }
+                  
+                  console.log("Dia automático criado com sucesso.");
+              }
+          } catch (dayError) {
+              console.error("Erro ao criar dia automático:", dayError);
+              // Não bloqueia o fluxo principal, apenas loga
+          }
+      }
+      // ----------------------------------------
+
       // 3. Summer Op Logic
       if (isSummerOp && !isEditing) {
          try {
@@ -430,11 +735,29 @@ NOTIFY pgrst, 'reload schema';
     if (!isFinishing) return;
     setLoading(true);
     try {
+        // Se estiver pausada, finaliza a pausa antes de encerrar
+        if (isFinishing.is_paused && isFinishing.last_pause_start) {
+            const start = new Date(isFinishing.last_pause_start).getTime();
+            const end = new Date().getTime();
+            const durationMinutes = (end - start) / 60000;
+            const newLog = {
+                start: isFinishing.last_pause_start,
+                end: new Date().toISOString(),
+                reason: 'Encerramento com Pausa Ativa',
+                duration: durationMinutes
+            };
+            isFinishing.total_pause_duration = (isFinishing.total_pause_duration || 0) + durationMinutes;
+            isFinishing.pause_logs = [...(isFinishing.pause_logs || []), newLog];
+        }
+
         await base44.entities.Operation.update(isFinishing.id, {
             status: 'completed',
             flight_hours: Number(finishData.flight_hours),
             description: finishData.description ? (isFinishing.description + "\n\n[CONCLUSÃO]: " + finishData.description) : isFinishing.description,
-            end_time: new Date().toISOString()
+            end_time: new Date().toISOString(),
+            is_paused: false, // Ensure it's not paused when completed
+            total_pause_duration: isFinishing.total_pause_duration,
+            pause_logs: isFinishing.pause_logs
         });
         
         if (isFinishing.drone_id) {
@@ -446,12 +769,144 @@ NOTIFY pgrst, 'reload schema';
         alert("Operação encerrada com sucesso!");
         setIsFinishing(null);
         loadData();
-    } catch (error) {
+    } catch (error: any) {
         console.error(error);
-        alert("Erro ao encerrar operação.");
+        
+        if (error.message && error.message.includes("invalid input syntax for type integer")) {
+            if (currentUser?.role === 'admin') {
+                setSqlError(`
+-- CORREÇÃO DE TIPO DE COLUNA
+-- O erro indica que uma coluna numérica está configurada como INTEIRO mas recebendo DECIMAIS.
+-- Execute para corrigir:
+
+ALTER TABLE public.operations ALTER COLUMN total_pause_duration TYPE float USING total_pause_duration::float;
+ALTER TABLE public.operations ALTER COLUMN flight_hours TYPE float USING flight_hours::float;
+                `);
+            } else {
+                alert("Erro de banco de dados (tipo de coluna incorreto). Contate o administrador.");
+            }
+        } else {
+            alert("Erro ao encerrar operação.");
+        }
     } finally {
         setLoading(false);
     }
+  };
+
+  // --- COMPARTILHAR ---
+  const handleShareOp = (op: Operation) => {
+      const pilot = pilots.find(p => p.id === op.pilot_id);
+      const drone = drones.find(d => d.id === op.drone_id);
+
+      const mapLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
+      const streamText = op.stream_url ? `\n📡 *Transmissão:* ${op.stream_url}` : '';
+      const missionLabel = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
+      
+      const startTime = new Date(op.start_time);
+      const endTime = op.end_time 
+          ? new Date(op.end_time) 
+          : new Date(startTime.getTime() + 2 * 60 * 60 * 1000); 
+
+      const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n` +
+          `🚁 *Ocorrência:* ${op.name}\n` +
+          `🔢 *Protocolo:* ${op.occurrence_number}\n` +
+          `📋 *Natureza:* ${missionLabel}\n` +
+          `👤 *Piloto:* ${pilot ? pilot.full_name : 'N/A'}\n` +
+          `🛸 *Aeronave:* ${drone ? `${drone.model} (${drone.prefix})` : 'N/A'}\n` +
+          `📍 *Coord:* ${op.latitude}, ${op.longitude}\n` +
+          `🗺️ *Mapa:* ${mapLink}\n` +
+          `🕒 *Início:* ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
+          `🏁 *Término Previsto:* ${endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
+          `${streamText}\n\n` +
+          `_Enviado via Centro de Comando SYSARP_`;
+
+      const encodedText = encodeURIComponent(text);
+      window.open(`https://wa.me/?text=${encodedText}`, '_blank');
+  };
+
+  // --- PAUSAR / RETOMAR ---
+  const handleTogglePause = async (op: Operation) => {
+      if (!op) return;
+      
+      try {
+          const isPausing = !op.is_paused;
+          let updates: Partial<Operation> = {};
+
+          if (isPausing) {
+              // INICIAR PAUSA
+              updates = {
+                  is_paused: true,
+                  last_pause_start: new Date().toISOString()
+              };
+          } else {
+              // RETOMAR (FINALIZAR PAUSA) - SOLICITAR MOTIVO
+              const reason = window.prompt("Qual o motivo desta pausa?", "Pausa Operacional / Troca de Bateria");
+              if (reason === null) return; // Cancelou
+
+              if (op.last_pause_start) {
+                  const start = new Date(op.last_pause_start).getTime();
+                  const end = new Date().getTime();
+                  const durationMinutes = (end - start) / 60000;
+                  
+                  const newLog = {
+                      start: op.last_pause_start,
+                      end: new Date().toISOString(),
+                      reason: reason || 'Pausa Operacional',
+                      duration: durationMinutes
+                  };
+                  
+                  updates = {
+                      is_paused: false,
+                      last_pause_start: null, // Reset as it needs null to respect type
+                      total_pause_duration: (op.total_pause_duration || 0) + durationMinutes,
+                      pause_logs: [...(op.pause_logs || []), newLog]
+                  } as any;
+              } else {
+                  // Fallback se não tiver last_pause_start
+                  updates = { is_paused: false };
+              }
+          }
+
+          await base44.entities.Operation.update(op.id, updates);
+          loadData(); 
+      } catch (e: any) {
+          console.error(e);
+          
+          if (e.message && e.message.includes("invalid input syntax for type integer")) {
+              if (currentUser?.role === 'admin') {
+                  setSqlError(`
+-- CORREÇÃO DE TIPO DE COLUNA
+-- O erro indica que uma coluna numérica está configurada como INTEIRO mas recebendo DECIMAIS.
+-- Execute para corrigir:
+
+ALTER TABLE public.operations ALTER COLUMN total_pause_duration TYPE float USING total_pause_duration::float;
+ALTER TABLE public.operations ALTER COLUMN flight_hours TYPE float USING flight_hours::float;
+                  `);
+              } else {
+                  alert("Erro de banco de dados: Coluna numérica configurada incorretamente. Contate o admin.");
+              }
+              return;
+          }
+
+          // Check for missing column error
+          if (e.message && (e.message.includes("is_paused") || e.message.includes("pause_logs"))) {
+              if (currentUser?.role === 'admin') {
+                  setSqlError(`
+-- ATUALIZAÇÃO PARA FUNÇÃO DE PAUSA
+ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS is_paused boolean DEFAULT false;
+ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS last_pause_start timestamp with time zone;
+ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS total_pause_duration float DEFAULT 0;
+ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS pause_logs jsonb DEFAULT '[]';
+
+NOTIFY pgrst, 'reload schema';
+                  `);
+              } else {
+                  alert("Funcionalidade indisponível. Contate o administrador.");
+              }
+          } else {
+              alert("Erro ao alterar status de pausa.");
+          }
+      }
   };
 
   const activeOps = operations.filter(o => o.status === 'active');
@@ -504,7 +959,7 @@ NOTIFY pgrst, 'reload schema';
                 
                 <form onSubmit={handleFinishOperation} className="space-y-4">
                     <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-xs text-blue-800 mb-2">
-                       <p>ℹ️ As horas de voo foram somadas automaticamente a partir do <strong>Diário Operacional</strong>. Você pode ajustar se necessário.</p>
+                       <p>ℹ️ As horas de voo foram somadas automaticamente a partir do <strong>Diário Operacional</strong> ou tempo decorrido. Você pode ajustar se necessário.</p>
                     </div>
 
                     <Input
@@ -543,6 +998,14 @@ NOTIFY pgrst, 'reload schema';
           <GeomanController initialShapes={formData.shapes} onUpdate={(g:any) => setFormData(p => ({...p, shapes: g}))} editable={isCreating} controllerKey={`geo-${isEditing}-${geoKey}`} drawRequest={drawRequest} />
           <LocationSelector onLocationSelect={handleLocationSelect} isSelecting={isCreating} />
           
+          <ResourceLayer 
+             pilots={pilots} 
+             drones={drones} 
+             showUnits={showUnits}
+             showPilots={showPilots}
+             showDrones={showDrones}
+          />
+
           {isCreating && (
              <MapRecenter lat={formData.latitude} lng={formData.longitude} />
           )}
@@ -569,21 +1032,74 @@ NOTIFY pgrst, 'reload schema';
              if (!isValidCoord(op.latitude, op.longitude)) return null;
              if (isEditing === op.id) return null;
 
+             const pilot = pilots.find(p => p.id === op.pilot_id);
+             const drone = drones.find(d => d.id === op.drone_id);
+
              return (
                <React.Fragment key={op.id}>
                   <Marker position={[op.latitude, op.longitude]} icon={icon}>
-                     <Popup>{op.name}</Popup>
+                     <Popup>
+                        <div className="p-1 min-w-[200px]">
+                            <strong className="text-sm block text-slate-900 border-b pb-1 mb-1">{op.name}</strong>
+                            <span className="text-[10px] text-slate-500 block mb-1 font-mono">#{op.occurrence_number}</span>
+                            
+                            <div className="space-y-1 text-xs text-slate-700 bg-slate-50 p-2 rounded border border-slate-100">
+                                <div className="flex items-center gap-1">
+                                    <User className="w-3 h-3 text-slate-400" />
+                                    <span className="font-bold">Piloto:</span> {pilot?.full_name || op.pilot_name || 'N/A'}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <Plane className="w-3 h-3 text-slate-400" />
+                                    <span className="font-bold">RPA:</span> {drone ? `${drone.prefix} - ${drone.model}` : 'N/A'}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                    <Building2 className="w-3 h-3 text-slate-400" />
+                                    <span className="font-bold">Unidade:</span> {pilot?.unit || 'N/A'}
+                                </div>
+                                {pilot?.crbm && (
+                                    <div className="text-[10px] text-slate-500 pl-4">{pilot.crbm}</div>
+                                )}
+                            </div>
+                        </div>
+                     </Popup>
                   </Marker>
                   <Circle 
                      center={[op.latitude, op.longitude]} 
                      radius={op.radius || 500} 
-                     pathOptions={{ color: '#3388ff', fillColor: '#3388ff', fillOpacity: 0.1 }} 
+                     pathOptions={{ color: op.is_paused ? '#f59e0b' : '#3388ff', fillColor: op.is_paused ? '#f59e0b' : '#3388ff', fillOpacity: 0.1 }} 
                   />
                </React.Fragment>
              )
           })}
         </MapContainer>
         
+        {/* Layer Toggle Control (Updated) */}
+        <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-2">
+           <button 
+              onClick={() => setShowUnits(!showUnits)} 
+              className={`p-2 rounded-lg shadow-md border text-xs font-bold transition-all flex items-center justify-between w-32 ${showUnits ? 'bg-slate-800 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-200'}`}
+           >
+              <span className="flex items-center gap-2"><Building2 className="w-4 h-4" /> Unidades</span>
+              <div className={`w-2 h-2 rounded-full ${showUnits ? 'bg-green-400' : 'bg-slate-300'}`}></div>
+           </button>
+           
+           <button 
+              onClick={() => setShowPilots(!showPilots)} 
+              className={`p-2 rounded-lg shadow-md border text-xs font-bold transition-all flex items-center justify-between w-32 ${showPilots ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-slate-500 border-slate-200'}`}
+           >
+              <span className="flex items-center gap-2"><Users className="w-4 h-4" /> Pilotos</span>
+              <div className={`w-2 h-2 rounded-full ${showPilots ? 'bg-green-400' : 'bg-slate-300'}`}></div>
+           </button>
+
+           <button 
+              onClick={() => setShowDrones(!showDrones)} 
+              className={`p-2 rounded-lg shadow-md border text-xs font-bold transition-all flex items-center justify-between w-32 ${showDrones ? 'bg-orange-600 text-white border-orange-700' : 'bg-white text-slate-500 border-slate-200'}`}
+           >
+              <span className="flex items-center gap-2"><Plane className="w-4 h-4" /> Frota</span>
+              <div className={`w-2 h-2 rounded-full ${showDrones ? 'bg-green-400' : 'bg-slate-300'}`}></div>
+           </button>
+        </div>
+
         {isCreating && (
             <div className="absolute bottom-8 right-8 z-[1000] flex flex-col gap-2">
                 <div className="bg-white px-3 py-1 rounded shadow text-xs font-bold text-slate-600 mb-1">
@@ -887,17 +1403,32 @@ NOTIFY pgrst, 'reload schema';
                 </div>
                 <div className="flex-1 overflow-y-auto p-2 space-y-2">
                     {displayedOps.map(op => (
-                        <div key={op.id} className="bg-white border rounded-lg p-3 hover:shadow-md transition-shadow relative border-l-4 border-l-green-500">
+                        <div key={op.id} className={`bg-white border rounded-lg p-3 hover:shadow-md transition-shadow relative border-l-4 ${op.is_paused ? 'border-l-amber-500 bg-amber-50/20' : 'border-l-green-500'}`}>
                             <div className="flex justify-between items-start mb-1">
-                                <h3 className="font-bold text-slate-800 text-sm">{op.name}</h3>
-                                <Badge variant="success" className="text-[10px] uppercase">Ativa</Badge>
+                                <h3 className="font-bold text-slate-800 text-sm truncate pr-2">{op.name}</h3>
+                                {op.is_paused ? <Badge variant="warning" className="text-[9px] uppercase animate-pulse">Pausada</Badge> : <Badge variant="success" className="text-[10px] uppercase">Ativa</Badge>}
                             </div>
                             <div className="text-xs text-slate-500 space-y-1">
                                 <div className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(op.start_time).toLocaleString()}</div>
                                 <div className="flex items-center gap-1"><User className="w-3 h-3" /> {op.pilot_name || 'N/I'}</div>
                             </div>
+                            {/* Action Buttons Row */}
                             <div className="mt-3 flex gap-2 border-t pt-2">
-                                <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => handleStartEdit(op)}><Pencil className="w-3 h-3" /></Button>
+                                <Button variant="outline" size="sm" className="h-8 w-8 p-0 border-blue-200 text-blue-600 hover:bg-blue-50" onClick={() => handleShareOp(op)} title="Compartilhar WhatsApp">
+                                    <Share2 className="w-3 h-3" />
+                                </Button>
+                                
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className={`h-8 w-8 p-0 ${op.is_paused ? 'border-green-300 text-green-700 bg-green-50 hover:bg-green-100' : 'border-amber-300 text-amber-600 hover:bg-amber-50'}`} 
+                                    onClick={() => handleTogglePause(op)} 
+                                    title={op.is_paused ? "Retomar Operação" : "Pausar Operação"}
+                                >
+                                    {op.is_paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
+                                </Button>
+
+                                <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => handleStartEdit(op)} title="Editar"><Pencil className="w-3 h-3" /></Button>
                                 <Button size="sm" className="flex-1 h-8 text-xs bg-slate-800 text-white" onClick={() => setIsFinishing(op)}><CheckSquare className="w-3 h-3 mr-1" /> Encerrar</Button>
                             </div>
                         </div>

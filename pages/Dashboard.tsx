@@ -6,7 +6,7 @@ import { base44 } from "../services/base44Client";
 import { supabase, isConfigured } from "../services/supabase";
 import { Operation, Drone, Pilot, Maintenance, MISSION_HIERARCHY, ConflictNotification } from "../types";
 import { Badge, Button } from "../components/ui_components";
-import { Radio, Video, AlertTriangle, Map as MapIcon, Wrench, List, Shield, Check, Info, Share2 } from "lucide-react";
+import { Radio, Video, AlertTriangle, Map as MapIcon, Wrench, List, Shield, Check, Info, Share2, User, Plane, Building2 } from "lucide-react";
 
 // Fix Leaflet icons
 const icon = L.icon({
@@ -228,7 +228,7 @@ export default function Dashboard() {
       const startTime = new Date(op.start_time);
       const endTime = op.end_time 
           ? new Date(op.end_time) 
-          : new Date(startTime.getTime() + 2 * 60 * 60 * 1000); // +2h se não definido
+          : new Date(startTime.getTime() + 2 * 60 * 60 * 1000); 
 
       const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n` +
           `🚁 *Ocorrência:* ${op.name}\n` +
@@ -248,13 +248,16 @@ export default function Dashboard() {
       window.open(`https://wa.me/?text=${encodedText}`, '_blank');
   };
 
-  // MEMOIZED MARKERS: Prevents re-rendering markers when map/other state changes if ops are same
+  // MEMOIZED MARKERS: Rich Markers with Pilot, Drone, Unit info
   const mapMarkers = useMemo(() => {
     return activeOps.map(op => {
-      // Safety check for valid coordinates to prevent _leaflet_pos error
+      // Safety check for valid coordinates
       const lat = Number(op.latitude);
       const lng = Number(op.longitude);
       if (!isValidCoord(lat, lng)) return null;
+
+      const pilot = pilots.find(p => p.id === op.pilot_id);
+      const drone = drones.find(d => d.id === op.drone_id);
 
       return (
           <Marker 
@@ -263,13 +266,35 @@ export default function Dashboard() {
             icon={icon}
           >
             <Popup>
-              <div className="p-1">
-                <strong className="text-sm block">{op.name}</strong>
-                <span className="text-xs text-slate-500 block mb-1">#{op.occurrence_number}</span>
-                <Badge variant="danger">{MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}</Badge>
+              <div className="p-1 min-w-[200px]">
+                <strong className="text-sm block text-slate-900 border-b pb-1 mb-1">{op.name}</strong>
+                <span className="text-[10px] text-slate-500 block mb-1 font-mono">#{op.occurrence_number}</span>
+                
+                <Badge variant="danger" className="mb-2 block w-fit">
+                    {MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}
+                </Badge>
+
+                <div className="space-y-1 text-xs text-slate-700 bg-slate-50 p-2 rounded border border-slate-100">
+                    <div className="flex items-center gap-1">
+                        <User className="w-3 h-3 text-slate-400" />
+                        <span className="font-bold">Piloto:</span> {pilot?.full_name || op.pilot_name || 'N/A'}
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <Plane className="w-3 h-3 text-slate-400" />
+                        <span className="font-bold">RPA:</span> {drone ? `${drone.prefix} - ${drone.model}` : 'N/A'}
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <Building2 className="w-3 h-3 text-slate-400" />
+                        <span className="font-bold">Unidade:</span> {pilot?.unit || 'N/A'}
+                    </div>
+                    {pilot?.crbm && (
+                        <div className="text-[10px] text-slate-500 pl-4">{pilot.crbm}</div>
+                    )}
+                </div>
+
                 {op.stream_url && (
-                  <div className="mt-2 text-xs text-blue-600 font-bold flex items-center gap-1">
-                    <Video className="w-3 h-3" /> Transmissão Disponível
+                  <div className="mt-2 text-xs text-red-600 font-bold flex items-center gap-1 animate-pulse">
+                    <Video className="w-3 h-3" /> Transmissão Ao Vivo
                   </div>
                 )}
               </div>
@@ -277,7 +302,7 @@ export default function Dashboard() {
           </Marker>
         );
     });
-  }, [activeOps]);
+  }, [activeOps, pilots, drones]);
 
   return (
     <div className="flex flex-col h-full bg-slate-100 overflow-hidden">
@@ -323,7 +348,7 @@ export default function Dashboard() {
               <div className="font-bold text-slate-700 mb-2">Legenda</div>
               <div className="flex items-center gap-2 mb-1">
                 <div className="w-3 h-3 bg-blue-500 rounded-full border border-white shadow-sm"></div>
-                <span>Marcador Padrão (Ativo)</span>
+                <span>Operação Ativa</span>
               </div>
            </div>
         </div>
