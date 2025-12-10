@@ -1105,8 +1105,19 @@ NOTIFY pgrst, 'reload schema';
           })}
         </MapContainer>
         
-        {/* Layer Toggle Control (Updated) */}
-        <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-2">
+        {/* Toggle Panel Button (Top Right - Visible when collapsed) */}
+        <div className="absolute top-4 right-4 z-[1000]">
+            <button
+                onClick={() => setIsPanelCollapsed(!isPanelCollapsed)}
+                className="bg-white p-2 rounded-md shadow-md border border-slate-200 text-slate-600 hover:text-slate-900 transition-colors"
+                title={isPanelCollapsed ? "Expandir Painel" : "Minimizar Painel"}
+            >
+                {isPanelCollapsed ? <ChevronsLeft className="w-6 h-6" /> : <ChevronsRight className="w-6 h-6" />}
+            </button>
+        </div>
+
+        {/* Layer Toggle Control (Moved to Bottom Left) */}
+        <div className="absolute bottom-6 left-4 z-[1000] flex flex-col gap-2">
            <button 
               onClick={() => setShowUnits(!showUnits)} 
               className={`p-2 rounded-lg shadow-md border text-xs font-bold transition-all flex items-center justify-between w-32 ${showUnits ? 'bg-slate-800 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-200'}`}
@@ -1149,7 +1160,8 @@ NOTIFY pgrst, 'reload schema';
                 <div className="p-4 border-b flex items-center justify-between bg-slate-50 shrink-0">
                     <div className="flex items-center gap-2">
                         <h2 className="font-bold text-lg text-slate-800">{isEditing ? 'Gerenciar Operação' : 'Nova Operação'}</h2>
-                        <button onClick={() => setIsPanelCollapsed(true)} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronsRight className="w-5 h-5 hidden lg:block" /></button>
+                        {/* Internal close button kept for consistency, but main toggle is external now */}
+                        <button onClick={() => setIsPanelCollapsed(true)} className="p-1 hover:bg-slate-200 rounded text-slate-500 lg:hidden"><ChevronsRight className="w-5 h-5" /></button>
                     </div>
                     <Button variant="outline" onClick={handleCancelForm} size="sm"><X className="w-4 h-4"/></Button>
                 </div>
@@ -1424,7 +1436,7 @@ NOTIFY pgrst, 'reload schema';
                     <div className="flex justify-between items-center">
                         <div className="flex items-center gap-2">
                             <h2 className="font-bold text-lg text-slate-800">Operações</h2>
-                            <button onClick={() => setIsPanelCollapsed(true)} className="p-1 hover:bg-slate-200 rounded text-slate-500 ml-2"><ChevronsRight className="w-5 h-5 hidden lg:block" /></button>
+                            <button onClick={() => setIsPanelCollapsed(true)} className="p-1 hover:bg-slate-200 rounded text-slate-500 ml-2 lg:hidden"><ChevronsRight className="w-5 h-5" /></button>
                         </div>
                         <Button onClick={() => { setFormData(initialFormState); setIsCreating(true); setIsPanelCollapsed(false); }} size="sm"><Plus className="w-4 h-4 mr-1" /> Nova</Button>
                     </div>
