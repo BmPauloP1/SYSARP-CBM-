@@ -149,7 +149,6 @@ export default function OperationDailyLog({ operationId, pilots, drones, current
       } as any);
 
       // 2. Automação: Colocar drone em status 'in_operation' globalmente
-      // É crucial aguardar (await) para garantir que o banco atualize antes de atualizar a UI
       try {
         await base44.entities.Drone.update(selectedAsset, { status: 'in_operation' });
       } catch (updateErr: any) {
@@ -346,7 +345,11 @@ WITH CHECK (true);
       <div className="space-y-4">
          {days.length === 0 && <p className="text-center text-slate-400 italic py-4">Nenhum dia registrado nesta operação.</p>}
          
-         {days.map(day => (
+         {days.map(day => {
+            // FIX: Append time to prevent timezone shift (browser interprets "YYYY-MM-DD" as UTC midnight)
+            const displayDate = new Date(day.date + 'T12:00:00').toLocaleDateString();
+            
+            return (
             <div key={day.id} className={`border rounded-lg bg-white overflow-hidden shadow-sm ${day.status === 'closed' ? 'border-green-200 bg-green-50/30' : 'border-slate-200'}`}>
                
                {/* DAY HEADER */}
@@ -376,7 +379,7 @@ WITH CHECK (true);
                             </div>
                             <div>
                                 <h4 className="font-bold text-slate-800 flex items-center gap-2">
-                                    {new Date(day.date).toLocaleDateString()}
+                                    {displayDate}
                                     {day.status === 'closed' && <Badge variant="success">Fechado</Badge>}
                                 </h4>
                                 <p className="text-xs text-slate-500">Resp: {pilots.find(p => p.id === day.responsible_pilot_id)?.full_name}</p>
@@ -517,7 +520,7 @@ WITH CHECK (true);
                   </div>
                )}
             </div>
-         ))}
+         )})}
       </div>
     </div>
   );

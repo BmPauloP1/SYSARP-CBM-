@@ -635,7 +635,34 @@ export default function OperationManagement() {
         });
         alert("Ocorrência atualizada!"); 
       } else {
-        const occurrenceNumber = `${new Date().getFullYear()}ARP${Math.floor(Math.random()*1000)}`;
+        // --- GERAÇÃO DE PROTOCOLO AUTOMÁTICO ---
+        const currentYear = new Date().getFullYear();
+        
+        // 1. Obter Lotação Limpa (Ex: "2º BBM" -> "2BBM")
+        const selectedPilot = pilots.find(p => p.id === formData.pilot_id);
+        let unitCode = "GRL"; 
+        if (selectedPilot?.unit) {
+            const unitPart = selectedPilot.unit.split(' - ')[0]; // Pega antes do hífen
+            unitCode = unitPart.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(); // Remove º, ª e espaços
+        }
+
+        // 2. Obter Próximo Sequencial (Global)
+        // Busca a última operação criada para incrementar o ID
+        const allOps = await base44.entities.Operation.list('-created_at');
+        const lastOp = allOps.length > 0 ? allOps[0] : null;
+        
+        let nextSeq = 1;
+        if (lastOp && lastOp.occurrence_number) {
+            // Tenta extrair os últimos 5 dígitos do protocolo anterior
+            const match = lastOp.occurrence_number.match(/(\d{5})$/);
+            if (match) {
+                nextSeq = parseInt(match[1], 10) + 1;
+            }
+        }
+        
+        const seqStr = String(nextSeq).padStart(5, '0');
+        const occurrenceNumber = `${currentYear}ARP${unitCode}${seqStr}`;
+        // ---------------------------------------
         
         savedOp = await base44.entities.Operation.create({
           ...payloadBase,
@@ -647,7 +674,7 @@ export default function OperationManagement() {
           photos: [],
           aro: null,
         } as any);
-        alert("Operação criada!");
+        alert(`Operação criada! Protocolo: ${occurrenceNumber}`);
       }
 
       // --- AUTOMAÇÃO PARA OPERAÇÃO MULTIDIAS ---
@@ -953,6 +980,7 @@ NOTIFY pgrst, 'reload schema';
 
   return (
     <div className="flex flex-col lg:flex-row h-full w-full relative bg-slate-100 overflow-hidden">
+      {/* ... (Modal Components same as before) ... */}
       {showChecklist && <ChecklistModal onConfirm={performSave} onCancel={() => setShowChecklist(false)} />}
 
       {/* SQL FIX MODAL (Only for Admins) */}
@@ -1105,8 +1133,8 @@ NOTIFY pgrst, 'reload schema';
           })}
         </MapContainer>
         
-        {/* Toggle Panel Button (Top Right - Visible when collapsed) */}
-        <div className="absolute top-4 right-4 z-[1000]">
+        {/* Toggle Panel Button (Top Right - FIXED POS) */}
+        <div className="absolute top-4 right-4 z-[2000]">
             <button
                 onClick={() => setIsPanelCollapsed(!isPanelCollapsed)}
                 className="bg-white p-2 rounded-md shadow-md border border-slate-200 text-slate-600 hover:text-slate-900 transition-colors"
@@ -1116,8 +1144,8 @@ NOTIFY pgrst, 'reload schema';
             </button>
         </div>
 
-        {/* Layer Toggle Control (Moved to Bottom Left) */}
-        <div className="absolute bottom-6 left-4 z-[1000] flex flex-col gap-2">
+        {/* Layer Toggle Control (Bottom Left - FIXED POS) */}
+        <div className="absolute bottom-6 left-4 z-[2000] flex flex-col gap-2">
            <button 
               onClick={() => setShowUnits(!showUnits)} 
               className={`p-2 rounded-lg shadow-md border text-xs font-bold transition-all flex items-center justify-between w-32 ${showUnits ? 'bg-slate-800 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-200'}`}
@@ -1152,15 +1180,16 @@ NOTIFY pgrst, 'reload schema';
         )}
       </div>
 
-      {/* Painel Lateral (Direita) */}
+      {/* Painel Lateral (Direita) - Same as previous version */}
       <div className={`bg-white z-10 flex flex-col shadow-xl overflow-hidden order-2 lg:order-2 transition-all duration-300 ease-in-out flex-shrink-0 lg:h-full lg:border-l lg:border-t-0 ${isPanelCollapsed ? 'lg:w-0 lg:border-0' : 'lg:w-[28rem]'} w-full border-t border-slate-200 ${isPanelCollapsed ? 'h-0 border-0' : 'h-[55vh]'}`}>
         <div className="flex-1 flex flex-col h-full overflow-hidden w-full lg:min-w-[28rem]">
             {isCreating ? (
             <>
+                {/* ... (Create/Edit Form logic remains same) ... */}
                 <div className="p-4 border-b flex items-center justify-between bg-slate-50 shrink-0">
                     <div className="flex items-center gap-2">
                         <h2 className="font-bold text-lg text-slate-800">{isEditing ? 'Gerenciar Operação' : 'Nova Operação'}</h2>
-                        {/* Internal close button kept for consistency, but main toggle is external now */}
+                        {/* Only Mobile Collapse Button remains here, Desktop uses external */}
                         <button onClick={() => setIsPanelCollapsed(true)} className="p-1 hover:bg-slate-200 rounded text-slate-500 lg:hidden"><ChevronsRight className="w-5 h-5" /></button>
                     </div>
                     <Button variant="outline" onClick={handleCancelForm} size="sm"><X className="w-4 h-4"/></Button>
@@ -1344,6 +1373,7 @@ NOTIFY pgrst, 'reload schema';
                             />
 
                             <div className="space-y-4 py-2 border-t border-b border-slate-100 my-2">
+                                {/* ... SARPAS & SUMMER OPS CHECKBOXES ... */}
                                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                                     <div className="flex items-center justify-between mb-2">
                                         <label className="flex items-center gap-2 font-bold text-slate-700 text-sm">
@@ -1450,30 +1480,40 @@ NOTIFY pgrst, 'reload schema';
                         <div key={op.id} className={`bg-white border rounded-lg p-3 hover:shadow-md transition-shadow relative border-l-4 ${op.is_paused ? 'border-l-amber-500 bg-amber-50/20' : 'border-l-green-500'}`}>
                             <div className="flex justify-between items-start mb-1">
                                 <h3 className="font-bold text-slate-800 text-sm truncate pr-2">{op.name}</h3>
-                                {op.is_paused ? <Badge variant="warning" className="text-[9px] uppercase animate-pulse">Pausada</Badge> : <Badge variant="success" className="text-[10px] uppercase">Ativa</Badge>}
+                                {op.status === 'completed' ? (
+                                    <Badge className="bg-slate-200 text-slate-700 text-[10px] uppercase">Encerrada</Badge>
+                                ) : op.is_paused ? (
+                                    <Badge variant="warning" className="text-[9px] uppercase animate-pulse">Pausada</Badge>
+                                ) : (
+                                    <Badge variant="success" className="text-[10px] uppercase">Ativa</Badge>
+                                )}
                             </div>
                             <div className="text-xs text-slate-500 space-y-1">
                                 <div className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(op.start_time).toLocaleString()}</div>
                                 <div className="flex items-center gap-1"><User className="w-3 h-3" /> {op.pilot_name || 'N/I'}</div>
                             </div>
-                            {/* Action Buttons Row */}
+                            {/* Action Buttons Row - Only show active actions if operational is active */}
                             <div className="mt-3 flex gap-2 border-t pt-2">
                                 <Button variant="outline" size="sm" className="h-8 w-8 p-0 border-blue-200 text-blue-600 hover:bg-blue-50" onClick={() => handleShareOp(op)} title="Compartilhar WhatsApp">
                                     <Share2 className="w-3 h-3" />
                                 </Button>
                                 
-                                <Button 
-                                    variant="outline" 
-                                    size="sm" 
-                                    className={`h-8 w-8 p-0 ${op.is_paused ? 'border-green-300 text-green-700 bg-green-50 hover:bg-green-100' : 'border-amber-300 text-amber-600 hover:bg-amber-50'}`} 
-                                    onClick={() => handleTogglePause(op)} 
-                                    title={op.is_paused ? "Retomar Operação" : "Pausar Operação"}
-                                >
-                                    {op.is_paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
-                                </Button>
+                                {activeTab === 'active' && op.status === 'active' && (
+                                    <>
+                                        <Button 
+                                            variant="outline" 
+                                            size="sm" 
+                                            className={`h-8 w-8 p-0 ${op.is_paused ? 'border-green-300 text-green-700 bg-green-50 hover:bg-green-100' : 'border-amber-300 text-amber-600 hover:bg-amber-50'}`} 
+                                            onClick={() => handleTogglePause(op)} 
+                                            title={op.is_paused ? "Retomar Operação" : "Pausar Operação"}
+                                        >
+                                            {op.is_paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
+                                        </Button>
 
-                                <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => handleStartEdit(op)} title="Editar"><Pencil className="w-3 h-3" /></Button>
-                                <Button size="sm" className="flex-1 h-8 text-xs bg-slate-800 text-white" onClick={() => setIsFinishing(op)}><CheckSquare className="w-3 h-3 mr-1" /> Encerrar</Button>
+                                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => handleStartEdit(op)} title="Editar"><Pencil className="w-3 h-3" /></Button>
+                                        <Button size="sm" className="flex-1 h-8 text-xs bg-slate-800 text-white" onClick={() => setIsFinishing(op)}><CheckSquare className="w-3 h-3 mr-1" /> Encerrar</Button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     ))}

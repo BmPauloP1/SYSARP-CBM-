@@ -84,6 +84,7 @@ export default function Reports() {
   const [operations, setOperations] = useState<ExtendedOperation[]>([]);
   const [filteredOps, setFilteredOps] = useState<ExtendedOperation[]>([]);
   const [drones, setDrones] = useState<Drone[]>([]);
+  const [pilots, setPilots] = useState<Pilot[]>([]); // Added pilots state
   const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   const [loading, setLoading] = useState(true);
   
@@ -120,6 +121,7 @@ export default function Reports() {
       setOperations(extended);
       setFilteredOps(extended);
       setDrones(dronesData);
+      setPilots(pilotsData); // Set pilots state
       setCurrentUser(me);
     } catch(e) {
       console.error(e);
@@ -230,130 +232,209 @@ export default function Reports() {
       const autoTableModule = await import('jspdf-autotable');
       const autoTable = autoTableModule.default;
 
-      const doc = new jsPDF('l', 'mm', 'a4');
+      // Usar modo retrato (portrait) para ficha técnica
+      const doc = new jsPDF('p', 'mm', 'a4');
       const pageWidth = doc.internal.pageSize.width;
-      const generationDate = new Date().toLocaleString('pt-BR');
-      const selectedOpsList = filteredOps.filter(op => selectedIds.has(op.id));
-      
+      const pageHeight = doc.internal.pageSize.height;
       const logoData = await getImageData(SYSARP_LOGO);
+      const selectedOpsList = filteredOps.filter(op => selectedIds.has(op.id));
 
-      const drawHeader = (data: any) => {
-         doc.setFillColor(153, 27, 27);
-         doc.rect(0, 0, pageWidth, 25, 'F');
-         
-         try {
-            doc.addImage(logoData, "PNG", 10, 2, 20, 20);
-         } catch (e) { console.warn("Logo error", e); }
-
-         doc.setTextColor(255, 255, 255);
-         doc.setFontSize(14);
-         doc.setFont("helvetica", "bold");
-         doc.text("CORPO DE BOMBEIROS MILITAR DO PARANÁ", pageWidth / 2, 10, { align: "center" });
-         doc.setFontSize(10);
-         doc.text("RELATÓRIO DE OCORRÊNCIAS COM DRONES", pageWidth / 2, 18, { align: "center" });
-         
-         doc.setFontSize(8);
-         doc.text(`Gerado em: ${generationDate}`, pageWidth - 10, 22, { align: "right" });
-      };
-
-      const tableBody = [];
-      
-      // Fetch details for multi-day operations
-      const multiDayDetails: Record<string, { days: any[], assets: any[] }> = {};
+      // Fetch details for multi-day operations (agora incluindo pilotos)
+      const multiDayDetails: Record<string, { days: any[], assets: any[], pilots: any[] }> = {};
       
       await Promise.all(selectedOpsList.map(async (op) => {
           if (op.is_multi_day) {
               const days = await base44.entities.OperationDay.filter({ operation_id: op.id });
-              // Sort days
               days.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
               
-              // For each day, get assets
               const dayAssetsMap: any[] = [];
+              const dayPilotsMap: any[] = [];
+
               for(const d of days) {
                   const assets = await base44.entities.OperationDayAsset.filter({ operation_day_id: d.id });
                   dayAssetsMap.push({ dayId: d.id, assets });
+
+                  const team = await base44.entities.OperationDayPilot.filter({ operation_day_id: d.id });
+                  dayPilotsMap.push({ dayId: d.id, team });
               }
-              multiDayDetails[op.id] = { days, assets: dayAssetsMap };
+              multiDayDetails[op.id] = { days, assets: dayAssetsMap, pilots: dayPilotsMap };
           }
       }));
 
-      for (const op of selectedOpsList) {
-         const nature = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
-         const subNature = op.sub_mission_type || '';
-         const pilot = op.pilot?.full_name || 'N/A';
-         const drone = op.drone?.prefix || 'N/A';
-         const status = op.status === 'active' ? 'Ativa' : 'Encerrada';
-         const coords = `${op.latitude.toFixed(4)}, ${op.longitude.toFixed(4)}`;
+      for (let i = 0; i < selectedOpsList.length; i++) {
+         if (i > 0) doc.addPage();
          
-         // Main Row
-         tableBody.push([
-            op.occurrence_number,
-            `${new Date(op.start_time).toLocaleDateString()}\n${new Date(op.start_time).toLocaleTimeString().slice(0,5)}`,
-            `${nature}\n${subNature}`,
-            `${pilot}\n${drone}`,
-            `${coords}`,
-            `${op.flight_hours || 0}h\n${status}`,
-            `${op.name}\n${op.description || ''}`
-         ]);
+         const op = selectedOpsList[i];
+         const pilot = op.pilot;
+         const drone = op.drone;
+         
+         // --- HEADER (CABEÇALHO) ---
+         doc.setFillColor(153, 27, 27); // Vermelho CBMPR
+         doc.rect(0, 0, pageWidth, 25, 'F');
+         try { doc.addImage(logoData, "PNG", 10, 2, 20, 20); } catch (e) {}
+         doc.setTextColor(255, 255, 255);
+         doc.setFont("helvetica", "bold");
+         doc.setFontSize(14);
+         doc.text("CORPO DE BOMBEIROS MILITAR DO PARANÁ", pageWidth / 2, 10, { align: "center" });
+         doc.setFontSize(12);
+         doc.text(`RELATÓRIO TÉCNICO OPERACIONAL - RPA`, pageWidth / 2, 18, { align: "center" });
+         
+         doc.setFontSize(9);
+         doc.text(`Protocolo: ${op.occurrence_number}`, pageWidth - 10, 22, { align: "right" });
 
-         // Multi-day sub-rows
+         let currentY = 35;
+
+         // --- ESCOPO 1: RECURSOS (PILOTO E AERONAVE) ---
+         doc.setTextColor(0, 0, 0);
+         doc.setFontSize(11);
+         doc.setFont("helvetica", "bold");
+         doc.text("1. RECURSOS EMPREGADOS", 14, currentY);
+         currentY += 5;
+
+         autoTable(doc, {
+            startY: currentY,
+            head: [['Piloto em Comando', 'Código SARPAS', 'Aeronave (Modelo/Prefixo)']],
+            body: [[
+                pilot?.full_name || 'N/A',
+                pilot?.sarpas_code || 'N/A',
+                drone ? `${drone.model} (${drone.prefix})` : 'N/A'
+            ]],
+            theme: 'grid',
+            headStyles: { fillColor: [220, 220, 220], textColor: 0, fontStyle: 'bold' },
+            styles: { fontSize: 10, cellPadding: 3 }
+         });
+         currentY = (doc as any).lastAutoTable.finalY + 10;
+
+         // --- ESCOPO 2: DADOS DA OCORRÊNCIA ---
+         doc.setFont("helvetica", "bold");
+         doc.text("2. DADOS DA OCORRÊNCIA", 14, currentY);
+         currentY += 5;
+
+         const nature = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
+         const subNature = op.sub_mission_type || 'Não especificado';
+         
+         autoTable(doc, {
+            startY: currentY,
+            head: [['Acionamento', 'Localização (Lat / Lon)', 'Natureza / Sub-Natureza', 'Raio (m)', 'Altura (m)']],
+            body: [[
+                `${new Date(op.start_time).toLocaleDateString()} ${new Date(op.start_time).toLocaleTimeString()}`,
+                `${op.latitude.toFixed(5)}, ${op.longitude.toFixed(5)}`,
+                `${nature}\n${subNature}`,
+                op.radius?.toString() || '-',
+                op.flight_altitude?.toString() || '-'
+            ]],
+            theme: 'grid',
+            headStyles: { fillColor: [220, 220, 220], textColor: 0, fontStyle: 'bold' },
+            styles: { fontSize: 10, cellPadding: 3, valign: 'middle' },
+            columnStyles: { 2: { cellWidth: 60 } }
+         });
+         currentY = (doc as any).lastAutoTable.finalY + 10;
+
+         // --- SEPARAÇÃO DE DESCRIÇÃO E CONCLUSÃO ---
+         const fullDesc = op.description || '';
+         const parts = fullDesc.split('[CONCLUSÃO]:');
+         const mainDescription = parts[0].trim();
+         const conclusion = parts.length > 1 ? parts[1].trim() : (op.status === 'completed' ? 'Operação encerrada sem notas adicionais.' : 'Operação em andamento.');
+
+         // --- ESCOPO 3: DESCRITIVO DA OCORRÊNCIA ---
+         doc.setFont("helvetica", "bold");
+         doc.text("3. DESCRITIVO DA OCORRÊNCIA", 14, currentY);
+         currentY += 5;
+
+         const splitDesc = doc.splitTextToSize(mainDescription || "Sem descrição registrada.", pageWidth - 28);
+         doc.setFont("helvetica", "normal");
+         doc.setFontSize(10);
+         doc.text(splitDesc, 14, currentY);
+         currentY += (splitDesc.length * 5) + 10;
+
+         // Check page break
+         if (currentY > pageHeight - 40) { doc.addPage(); currentY = 20; }
+
+         // --- ESCOPO 4: HISTÓRICO MULTI-DIAS (SE HOUVER) ---
          if (op.is_multi_day && multiDayDetails[op.id]) {
+             doc.setFont("helvetica", "bold");
+             doc.setFontSize(11);
+             doc.text("4. HISTÓRICO OPERACIONAL (MULTI-DIAS)", 14, currentY);
+             currentY += 5;
+
              const details = multiDayDetails[op.id];
-             details.days.forEach((day: any) => {
+             const dayRows = details.days.map((day: any) => {
+                 // Assets
                  const dayAssets = details.assets.find((x: any) => x.dayId === day.id)?.assets || [];
                  const assetNames = dayAssets.map((a: any) => {
                      const d = drones.find(drone => drone.id === a.drone_id);
                      return d ? d.prefix : 'Drone';
                  }).join(', ');
 
-                 tableBody.push([
-                     { content: `Dia: ${new Date(day.date).toLocaleDateString()}`, colSpan: 2, styles: { fillColor: [240, 240, 240], fontStyle: 'bold' } },
-                     { content: `Aeronaves: ${assetNames || 'Nenhuma'}`, colSpan: 2, styles: { fillColor: [240, 240, 240] } },
-                     { content: `Ações: ${day.progress_notes || 'Sem descrição'}`, colSpan: 3, styles: { fillColor: [240, 240, 240], fontStyle: 'italic' } }
-                 ]);
+                 // Team
+                 const dayTeam = details.pilots.find((x: any) => x.dayId === day.id)?.team || [];
+                 const teamNames = dayTeam.map((t: any) => {
+                     const p = pilots.find(pi => pi.id === t.pilot_id);
+                     return p ? p.full_name : 'N/A';
+                 }).join(', ');
+
+                 // Date format fix
+                 const displayDate = new Date(day.date + 'T12:00:00').toLocaleDateString();
+
+                 return [
+                     displayDate,
+                     day.progress_notes || '-',
+                     assetNames || '-',
+                     teamNames || '-'
+                 ];
              });
+
+             if (dayRows.length > 0) {
+                 autoTable(doc, {
+                    startY: currentY,
+                    head: [['Data', 'Ações Realizadas', 'Aeronaves', 'Equipe']],
+                    body: dayRows,
+                    theme: 'grid',
+                    headStyles: { fillColor: [220, 220, 220], textColor: 0 },
+                    styles: { fontSize: 9, cellPadding: 2 },
+                    columnStyles: { 
+                        0: { cellWidth: 25 },
+                        1: { cellWidth: 'auto' }, 
+                        2: { cellWidth: 30 },
+                        3: { cellWidth: 40 }
+                    }
+                 });
+                 currentY = (doc as any).lastAutoTable.finalY + 10;
+             } else {
+                 doc.setFont("helvetica", "italic");
+                 doc.setFontSize(9);
+                 doc.text("Nenhum registro diário encontrado.", 14, currentY + 5);
+                 currentY += 15;
+             }
          }
+
+         // Check page break again
+         if (currentY > pageHeight - 40) { doc.addPage(); currentY = 20; }
+
+         // --- ESCOPO 5: CONCLUSÃO / AÇÕES FINAIS ---
+         doc.setFont("helvetica", "bold");
+         doc.setFontSize(11);
+         doc.text("5. AÇÕES DE ENCERRAMENTO E CONCLUSÃO", 14, currentY);
+         currentY += 5;
+
+         doc.setDrawColor(0);
+         doc.setFillColor(245, 245, 245);
+         doc.rect(14, currentY, pageWidth - 28, 25, 'F');
+         doc.rect(14, currentY, pageWidth - 28, 25, 'S'); // Border
+
+         const splitConclusion = doc.splitTextToSize(conclusion, pageWidth - 32);
+         doc.setFont("helvetica", "normal");
+         doc.setFontSize(10);
+         doc.text(splitConclusion, 16, currentY + 6);
+         
+         // Footer
+         doc.setFontSize(8);
+         doc.setTextColor(150);
+         const now = new Date().toLocaleString();
+         doc.text(`Relatório gerado pelo SYSARP em ${now} - Página ${i + 1} de ${selectedOpsList.length}`, pageWidth / 2, pageHeight - 10, { align: "center" });
       }
 
-      autoTable(doc, {
-         startY: 30,
-         head: [['Ocorrência', 'Data/Hora', 'Natureza', 'Piloto/Aeronave', 'Local (Lat/Lon)', 'Tempo/Status', 'Descrição']],
-         body: tableBody,
-         theme: 'grid',
-         headStyles: { 
-            fillColor: [60, 60, 60], 
-            textColor: 255, 
-            fontSize: 9, 
-            fontStyle: 'bold',
-            halign: 'center'
-         },
-         styles: { 
-            fontSize: 8, 
-            cellPadding: 3, 
-            overflow: 'linebreak', 
-            valign: 'middle' 
-         },
-         columnStyles: {
-            0: { cellWidth: 25, halign: 'center', fontStyle: 'bold' },
-            1: { cellWidth: 20, halign: 'center' },
-            2: { cellWidth: 35 },
-            3: { cellWidth: 35 },
-            4: { cellWidth: 30, fontStyle: 'italic', halign: 'center' },
-            5: { cellWidth: 20, halign: 'center' },
-            6: { cellWidth: 'auto' }
-         },
-         didDrawPage: drawHeader,
-      });
-
-      const pageCount = (doc as any).internal.getNumberOfPages();
-      for(let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setTextColor(100);
-        doc.text(`Página ${i} de ${pageCount}`, pageWidth / 2, doc.internal.pageSize.height - 10, { align: "center" });
-      }
-
-      doc.save(`SYSARP_Relatorio_Geral_${new Date().toISOString().split('T')[0]}.pdf`);
+      doc.save(`Ficha_Operacional_${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (error) {
       console.error(error);
       alert("Erro ao gerar PDF.");
@@ -526,7 +607,7 @@ export default function Reports() {
                     </Button>
                     <Button onClick={handleExport} disabled={generating || selectedIds.size === 0} className="h-8 text-xs bg-slate-800 text-white hover:bg-slate-900">
                        <Download className="w-3 h-3 mr-2" />
-                       {generating ? 'Gerando...' : 'Exportar PDF'}
+                       {generating ? 'Gerando...' : 'Exportar Ficha Técnica'}
                     </Button>
                  </div>
               </div>
