@@ -99,8 +99,6 @@ const MapController = ({ isPanelCollapsed }: { isPanelCollapsed: boolean }) => {
   return null;
 };
 
-// WeatherWidget removido conforme solicitado
-
 const ChecklistModal = ({ onConfirm, onCancel }: any) => (
     <div className="fixed inset-0 bg-black/70 z-[2000] flex items-center justify-center p-4">
         <div className="bg-white p-6 rounded-lg max-w-md w-full">
@@ -115,6 +113,7 @@ export default function OperationManagement() {
   const [operations, setOperations] = useState<Operation[]>([]);
   const [pilots, setPilots] = useState<Pilot[]>([]);
   const [drones, setDrones] = useState<Drone[]>([]);
+  const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   
   const [isCreating, setIsCreating] = useState(false);
   const [isEditing, setIsEditing] = useState<string | null>(null);
@@ -126,7 +125,7 @@ export default function OperationManagement() {
   const [showChecklist, setShowChecklist] = useState(false); 
   const [loading, setLoading] = useState(false);
   
-  // SARPAS state - now mostly unused visually but kept for logic structure
+  // SARPAS state
   const [sendToSarpas, setSendToSarpas] = useState(false); 
   
   const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
@@ -159,6 +158,7 @@ export default function OperationManagement() {
     sarpas_protocol: '', 
     shapes: null as any,
     is_multi_day: false,
+    date: new Date().toISOString().split('T')[0], // Novo Campo de Data
     start_time_local: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
     end_time_local: new Date(new Date().getTime() + 60*60*1000).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
   };
@@ -177,10 +177,11 @@ export default function OperationManagement() {
 
   const loadData = async () => {
     try {
-      const [ops, pils, drns] = await Promise.all([
+      const [ops, pils, drns, me] = await Promise.all([
         base44.entities.Operation.list('-created_at'),
         base44.entities.Pilot.filter({ status: 'active' }),
-        base44.entities.Drone.list()
+        base44.entities.Drone.list(),
+        base44.auth.me()
       ]);
       
       // Sort pilots alphabetically
@@ -189,10 +190,12 @@ export default function OperationManagement() {
       setOperations(ops);
       setPilots(sortedPilots);
       setDrones(drns);
+      setCurrentUser(me);
     } catch(e: any) {
       if (e.message && e.message.includes("DB_TABLE_MISSING")) {
          const fixSql = `... (SQL omitido para brevidade) ...`;
-         setSqlError(fixSql);
+         // Apenas admins veem erros de SQL no load
+         if (currentUser?.role === 'admin') setSqlError(fixSql);
       }
     }
   };
@@ -256,13 +259,14 @@ export default function OperationManagement() {
         sarpas_protocol: op.sarpas_protocol || '',
         shapes: op.shapes || null, 
         is_multi_day: op.is_multi_day || false,
+        date: start.toISOString().split('T')[0], // Extrai a data
         start_time_local: start.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
         end_time_local: end.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
     });
     
     // Restaurar estado da Op. Verão e SARPAS (se existente)
     setIsSummerOp(op.is_summer_op || false);
-    setSendToSarpas(false); // Reset to false as UI is "Under Construction"
+    setSendToSarpas(false); 
 
     setIsEditing(op.id);
     setIsCreating(true);
@@ -294,28 +298,26 @@ export default function OperationManagement() {
     }
   };
 
-  const combineDateAndTime = (timeStr: string): string => {
-    const now = new Date();
+  // Função atualizada para usar a data selecionada no formulário
+  const combineDateAndTime = (dateStr: string, timeStr: string): string => {
+    const [year, month, day] = dateStr.split('-').map(Number);
     const [hours, minutes] = timeStr.split(':').map(Number);
-    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+    // Cria data usando componentes locais
+    const date = new Date(year, month - 1, day, hours, minutes);
     return date.toISOString();
   };
 
   const performSave = async () => {
     setLoading(true);
     try {
-      const startTimeISO = combineDateAndTime(formData.start_time_local);
-      const endTimeISO = combineDateAndTime(formData.end_time_local);
+      const startTimeISO = combineDateAndTime(formData.date, formData.start_time_local);
+      const endTimeISO = combineDateAndTime(formData.date, formData.end_time_local);
       const sanitizeUuid = (val: string | undefined) => (!val || val === "") ? null : val;
 
-      // SARPAS Logic - Currently disabled/manual only
       let protocol = formData.sarpas_protocol;
 
-      // 2. Save Operation
-      let savedOp: Operation;
-
-      if (isEditing) {
-        savedOp = await base44.entities.Operation.update(isEditing, {
+      // Construir objeto limpo, sem campos de controle do formulário (como start_time_local, end_time_local)
+      const payloadBase = {
           name: formData.name,
           pilot_id: sanitizeUuid(formData.pilot_id),
           pilot_name: formData.pilot_name,
@@ -326,6 +328,8 @@ export default function OperationManagement() {
           drone_id: formData.drone_id,
           mission_type: formData.mission_type,
           sub_mission_type: formData.sub_mission_type,
+          latitude: formData.latitude,
+          longitude: formData.longitude,
           radius: Number(formData.radius),
           flight_altitude: Number(formData.flight_altitude),
           stream_url: formData.stream_url,
@@ -334,25 +338,29 @@ export default function OperationManagement() {
           is_multi_day: formData.is_multi_day,
           is_summer_op: isSummerOp,
           sarpas_protocol: protocol
+      };
+
+      let savedOp: Operation;
+
+      if (isEditing) {
+        savedOp = await base44.entities.Operation.update(isEditing, {
+          ...payloadBase,
+          start_time: startTimeISO,
+          end_time: endTimeISO
         });
-        alert("Ocorrência atualizada!"); // Feedback Adicionado
+        alert("Ocorrência atualizada!"); 
       } else {
         const occurrenceNumber = `${new Date().getFullYear()}ARP${Math.floor(Math.random()*1000)}`;
         
         savedOp = await base44.entities.Operation.create({
-          ...formData,
+          ...payloadBase,
           pilot_id: sanitizeUuid(formData.pilot_id)!,
-          second_pilot_id: sanitizeUuid(formData.second_pilot_id),
-          observer_id: sanitizeUuid(formData.observer_id),
           occurrence_number: occurrenceNumber,
           status: 'active',
           start_time: startTimeISO,
           end_time: endTimeISO,
           photos: [],
           aro: null,
-          shapes: formData.shapes,
-          is_summer_op: isSummerOp,
-          sarpas_protocol: protocol
         } as any);
         alert("Operação criada!");
       }
@@ -363,9 +371,9 @@ export default function OperationManagement() {
             await operationSummerService.create({
                pilot_id: savedOp.pilot_id,
                drone_id: savedOp.drone_id,
-               mission_type: 'patrulha', // Default
+               mission_type: 'patrulha', 
                location: `${summerCity} - ${summerPost}`,
-               date: new Date().toISOString(),
+               date: formData.date, // Usa a data do formulário
                start_time: formData.start_time_local,
                end_time: formData.end_time_local,
                flight_duration: 0, 
@@ -380,15 +388,16 @@ export default function OperationManagement() {
          await base44.entities.Drone.update(formData.drone_id, { status: 'in_operation' });
       }
 
-      handleCancelForm(); // Fecha o painel após sucesso
+      handleCancelForm();
       loadData();
     } catch (error: any) {
       console.error(error);
       const msg = error.message || '';
       
-      // FIX: Detect missing columns specifically for new features (is_multi_day, is_summer_op, sarpas_protocol)
+      // FIX: Check for missing columns and ONLY show to admins
       if (msg.includes("is_multi_day") || msg.includes("is_summer_op") || msg.includes("sarpas_protocol")) {
-          setSqlError(`
+          if (currentUser?.role === 'admin') {
+              setSqlError(`
 -- ATUALIZAÇÃO NECESSÁRIA NO BANCO DE DADOS
 -- Copie e execute este código no SQL Editor do Supabase para habilitar as novas funções.
 
@@ -398,7 +407,10 @@ ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS sarpas_protocol text;
 
 -- Atualizar cache do esquema
 NOTIFY pgrst, 'reload schema';
-          `);
+              `);
+          } else {
+              alert("Erro de versão do sistema. Contate o administrador.");
+          }
           return;
       }
 
@@ -425,7 +437,6 @@ NOTIFY pgrst, 'reload schema';
             end_time: new Date().toISOString()
         });
         
-        // Se houver aeronave vinculada, atualiza status para 'available'
         if (isFinishing.drone_id) {
            try {
              await base44.entities.Drone.update(isFinishing.drone_id, { status: 'available' });
@@ -457,8 +468,8 @@ NOTIFY pgrst, 'reload schema';
     <div className="flex flex-col lg:flex-row h-full w-full relative bg-slate-100 overflow-hidden">
       {showChecklist && <ChecklistModal onConfirm={performSave} onCancel={() => setShowChecklist(false)} />}
 
-      {/* SQL FIX MODAL */}
-      {sqlError && (
+      {/* SQL FIX MODAL (Only for Admins) */}
+      {sqlError && currentUser?.role === 'admin' && (
         <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
            <Card className="w-full max-w-3xl flex flex-col bg-white border-4 border-red-600 shadow-2xl">
               <div className="p-4 bg-red-600 text-white flex justify-between items-center">
@@ -532,12 +543,10 @@ NOTIFY pgrst, 'reload schema';
           <GeomanController initialShapes={formData.shapes} onUpdate={(g:any) => setFormData(p => ({...p, shapes: g}))} editable={isCreating} controllerKey={`geo-${isEditing}-${geoKey}`} drawRequest={drawRequest} />
           <LocationSelector onLocationSelect={handleLocationSelect} isSelecting={isCreating} />
           
-          {/* Recenter Map when Coordinates change manually */}
           {isCreating && (
              <MapRecenter lat={formData.latitude} lng={formData.longitude} />
           )}
 
-          {/* Marker & Radius for NEW Operation (Creation Mode) */}
           {isCreating && isValidCoord(formData.latitude, formData.longitude) && (
              <>
                <Marker position={[formData.latitude, formData.longitude]} icon={tempIcon}>
@@ -548,7 +557,6 @@ NOTIFY pgrst, 'reload schema';
                      </div>
                   </Popup>
                </Marker>
-               {/* Circle for Radius Visualization */}
                <Circle 
                   center={[formData.latitude, formData.longitude]} 
                   radius={Number(formData.radius) || 500} 
@@ -557,10 +565,8 @@ NOTIFY pgrst, 'reload schema';
              </>
           )}
 
-          {/* Markers & Radius for EXISTING Operations */}
           {activeOps.map(op => {
              if (!isValidCoord(op.latitude, op.longitude)) return null;
-             // Don't double render if we are editing this specific op
              if (isEditing === op.id) return null;
 
              return (
@@ -600,7 +606,6 @@ NOTIFY pgrst, 'reload schema';
                     <Button variant="outline" onClick={handleCancelForm} size="sm"><X className="w-4 h-4"/></Button>
                 </div>
 
-                {/* TABS FOR EDITING */}
                 {isEditing && (
                    <div className="flex border-b border-slate-200 bg-white">
                       <button 
@@ -610,7 +615,6 @@ NOTIFY pgrst, 'reload schema';
                          Detalhes Gerais
                       </button>
                       
-                      {/* Only show Daily Log Tab if is_multi_day is TRUE */}
                       {formData.is_multi_day && (
                         <button 
                             onClick={() => setEditTab('daily_log')}
@@ -703,7 +707,6 @@ NOTIFY pgrst, 'reload schema';
                                 </div>
                             </div>
 
-                            {/* COORDINATES INPUTS - NOW EDITABLE */}
                             <div className="grid grid-cols-2 gap-3">
                                 <Input 
                                    label="Latitude" 
@@ -738,19 +741,29 @@ NOTIFY pgrst, 'reload schema';
                                 />
                             </div>
 
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-slate-500 uppercase border-b pb-1 block">Data e Horário</label>
                                 <Input 
-                                    label="Início (Local)" 
-                                    type="time" 
-                                    value={formData.start_time_local} 
-                                    onChange={e => setFormData({...formData, start_time_local: e.target.value})}
+                                    label="Data da Ocorrência" 
+                                    type="date"
+                                    value={formData.date}
+                                    onChange={e => setFormData({...formData, date: e.target.value})}
+                                    className="bg-white border-blue-200"
                                 />
-                                <Input 
-                                    label="Término Previsto" 
-                                    type="time" 
-                                    value={formData.end_time_local} 
-                                    onChange={e => setFormData({...formData, end_time_local: e.target.value})}
-                                />
+                                <div className="grid grid-cols-2 gap-3">
+                                    <Input 
+                                        label="Início (Local)" 
+                                        type="time" 
+                                        value={formData.start_time_local} 
+                                        onChange={e => setFormData({...formData, start_time_local: e.target.value})}
+                                    />
+                                    <Input 
+                                        label="Término Previsto" 
+                                        type="time" 
+                                        value={formData.end_time_local} 
+                                        onChange={e => setFormData({...formData, end_time_local: e.target.value})}
+                                    />
+                                </div>
                             </div>
 
                             <div>
@@ -770,10 +783,7 @@ NOTIFY pgrst, 'reload schema';
                                 onChange={e => setFormData({...formData, stream_url: e.target.value})}
                             />
 
-                            {/* INTEGRAÇÕES ESPECIAIS (SARPAS / VERÃO / MULTIDIAS) */}
                             <div className="space-y-4 py-2 border-t border-b border-slate-100 my-2">
-                                
-                                {/* SARPAS TOGGLE (AGORA EM CONSTRUÇÃO) */}
                                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                                     <div className="flex items-center justify-between mb-2">
                                         <label className="flex items-center gap-2 font-bold text-slate-700 text-sm">
@@ -795,7 +805,6 @@ NOTIFY pgrst, 'reload schema';
                                     />
                                 </div>
 
-                                {/* OPERAÇÃO VERÃO TOGGLE */}
                                 <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
                                     <label className="flex items-center gap-3 cursor-pointer mb-2">
                                         <input 
@@ -835,7 +844,6 @@ NOTIFY pgrst, 'reload schema';
                                     )}
                                 </div>
 
-                                {/* MULTIDIAS TOGGLE */}
                                 <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
                                     <label className="flex items-center gap-3 cursor-pointer">
                                         <input 
@@ -858,13 +866,12 @@ NOTIFY pgrst, 'reload schema';
                             </div>
                         </form>
                     ) : (
-                        <OperationDailyLog operationId={isEditing!} pilots={pilots} drones={drones} />
+                        <OperationDailyLog operationId={isEditing!} pilots={pilots} drones={drones} currentUser={currentUser} />
                     )}
                 </div>
             </>
             ) : (
             <>
-                {/* List View (Default) */}
                 <div className="p-4 border-b flex flex-col gap-4 bg-slate-50 shrink-0">
                     <div className="flex justify-between items-center">
                         <div className="flex items-center gap-2">

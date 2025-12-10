@@ -9,9 +9,10 @@ interface OperationDailyLogProps {
   operationId: string;
   pilots: Pilot[];
   drones: Drone[];
+  currentUser: Pilot | null;
 }
 
-export default function OperationDailyLog({ operationId, pilots, drones }: OperationDailyLogProps) {
+export default function OperationDailyLog({ operationId, pilots, drones, currentUser }: OperationDailyLogProps) {
   const [days, setDays] = useState<OperationDay[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedDayId, setExpandedDayId] = useState<string | null>(null);
@@ -153,20 +154,20 @@ export default function OperationDailyLog({ operationId, pilots, drones }: Opera
         await base44.entities.Drone.update(selectedAsset, { status: 'in_operation' });
       } catch (updateErr: any) {
         console.error("Falha ao atualizar status da aeronave:", updateErr);
+        // Se falhar por permissão (RLS), mostrar SQL fix SOMENTE SE ADMIN
         if (updateErr.message && (updateErr.message.includes("policy") || updateErr.message.includes("permission"))) {
-           setSqlError(`
--- ERRO DE PERMISSÃO IDENTIFICADO AO ATUALIZAR STATUS DA AERONAVE
--- Execute este comando para permitir que pilotos atualizem o status dos drones:
-
+           if (currentUser?.role === 'admin') {
+               setSqlError(`
+-- Permissão para atualizar status do drone durante operação
+DROP POLICY IF EXISTS "Pilotos podem atualizar status de drones" ON public.drones;
 CREATE POLICY "Pilotos podem atualizar status de drones"
 ON public.drones FOR UPDATE
 TO authenticated
 USING (true)
 WITH CHECK (true);
-
--- Se a policy já existir, verifique se ela permite UPDATE.
-           `);
-           alert("Aeronave vinculada, mas o status global não pôde ser atualizado devido a permissões. Veja a solução técnica abaixo.");
+               `);
+           }
+           alert("Aeronave vinculada, mas o status global não pôde ser atualizado. Notifique o administrador.");
         }
       }
 
@@ -214,9 +215,6 @@ WITH CHECK (true);
       try {
           await base44.entities.OperationDay.update(dayId, { status: 'closed' });
           
-          // Opcional: Tentar liberar as aeronaves deste dia se elas não estiverem em outros dias abertos?
-          // Por enquanto, mantemos manual ou via encerramento da operação principal.
-          
           alert("Dia encerrado com sucesso!");
           setExpandedDayId(null); // Fecha a janela (accordion) após encerrar
           loadDays(); // Recarrega
@@ -236,8 +234,8 @@ WITH CHECK (true);
   return (
     <div className="space-y-6 relative">
       
-      {/* SQL FIX MODAL INSIDE COMPONENT */}
-      {sqlError && (
+      {/* SQL FIX MODAL INSIDE COMPONENT - Only for Admin */}
+      {sqlError && currentUser?.role === 'admin' && (
         <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
            <Card className="w-full max-w-3xl flex flex-col bg-white border-4 border-red-600 shadow-2xl">
               <div className="p-4 bg-red-600 text-white flex justify-between items-center">

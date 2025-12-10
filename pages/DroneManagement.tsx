@@ -238,7 +238,12 @@ export default function DroneManagement() {
       console.error(error);
       const msg = error.message || '';
       if (msg.includes("Falta a coluna") || msg.includes("crbm")) {
-          setSqlError("ALTER TABLE public.drones ADD COLUMN IF NOT EXISTS crbm text;\nALTER TABLE public.drones ADD COLUMN IF NOT EXISTS unit text;");
+          // Check for admin before setting SQL error
+          if (currentUser?.role === 'admin') {
+              setSqlError("ALTER TABLE public.drones ADD COLUMN IF NOT EXISTS crbm text;\nALTER TABLE public.drones ADD COLUMN IF NOT EXISTS unit text;");
+          } else {
+              alert("Erro de banco de dados. Contate o administrador.");
+          }
       } else {
           alert(msg || "Erro ao salvar aeronave");
       }
@@ -566,8 +571,8 @@ export default function DroneManagement() {
   return (
     <div className="p-4 md:p-6 max-w-screen-2xl mx-auto space-y-6 h-full overflow-y-auto">
       
-      {/* SQL FIX MODAL */}
-      {sqlError && (
+      {/* SQL FIX MODAL - Only for Admins */}
+      {sqlError && currentUser?.role === 'admin' && (
         <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
            <Card className="w-full max-w-3xl flex flex-col bg-white border-4 border-red-600 shadow-2xl">
               <div className="p-4 bg-red-600 text-white flex justify-between items-center">

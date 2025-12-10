@@ -293,7 +293,8 @@ export default function PilotManagement() {
       
       // Tratamento de erro RLS (Permissão)
       if (error.message && (error.message.includes("policy") || error.message.includes("permission"))) {
-         const fixSql = `
+         if (currentUser?.role === 'admin') {
+             const fixSql = `
 -- COPIE E RODE NO SUPABASE SQL EDITOR PARA CORRIGIR PERMISSÕES:
 DROP POLICY IF EXISTS "Edição de perfil" ON public.profiles;
 DROP POLICY IF EXISTS "Admins podem editar" ON public.profiles;
@@ -308,7 +309,10 @@ CREATE POLICY "Admins can update any profile"
 ON public.profiles FOR UPDATE TO authenticated
 USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admin' );
 `;
-        setSqlError(fixSql);
+            setSqlError(fixSql);
+         } else {
+             alert("Erro de permissão. Contate o administrador.");
+         }
       } else {
         alert(`Erro ao salvar: ${error.message || 'Erro desconhecido'}`);
       }
@@ -355,8 +359,8 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
   return (
     <div className="flex flex-col h-full bg-slate-50 overflow-hidden relative">
       
-      {/* SQL FIX MODAL */}
-      {sqlError && (
+      {/* SQL FIX MODAL - Only for Admins */}
+      {sqlError && currentUser?.role === 'admin' && (
         <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
            <Card className="w-full max-w-3xl flex flex-col bg-white border-4 border-red-600 shadow-2xl">
               <div className="p-4 bg-red-600 text-white flex justify-between items-center">
