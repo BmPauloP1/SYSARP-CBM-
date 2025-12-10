@@ -188,14 +188,15 @@ export default function Reports() {
     setLoading(true);
     try {
         const idsArray = Array.from(selectedIds);
-        await Promise.all(idsArray.map(id => base44.entities.Operation.delete(id)));
+        await Promise.all(idsArray.map((id: string) => base44.entities.Operation.delete(id)));
         
         alert("Operações excluídas com sucesso.");
         setSelectedIds(new Set());
         loadData();
     } catch (e: any) {
         console.error("Delete error:", e);
-        alert(`Erro ao excluir: ${e.message}`);
+        const errorMsg = e instanceof Error ? e.message : String(e);
+        alert(`Erro ao excluir: ${errorMsg}`);
     } finally {
         setLoading(false);
     }

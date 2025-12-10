@@ -15,14 +15,14 @@ import OperationDailyLog from "../components/OperationDailyLog";
 // Imports Geoman
 import "@geoman-io/leaflet-geoman-free";
 
-// --- COORDENADAS DAS UNIDADES DO CBMPR (BASE DE DADOS GEOGRÁFICA) ---
-// Mapeamento preciso baseado na lista fornecida (Endereços exatos e Cidades Sedes)
+// --- COORDENADAS DAS UNIDADES DO CBMPR (BASE DE DADOS GEOGRÁFICA CORRIGIDA) ---
+// Coordenadas ajustadas para o centro urbano ou endereço exato da unidade
 const UNIT_GEO: Record<string, [number, number]> = {
   // --- 1º CRBM (CURITIBA E RMC) ---
-  "1º CRBM - Curitiba (Sede Regional)": [-25.417336, -49.278911], // R. Nilo Peçanha, 557
-  "1º BBM - Curitiba (Portão)": [-25.474580, -49.294240], // Av. Pres. Wenceslau Braz, 3968B
-  "6º BBM - São José dos Pinhais": [-25.5347, -49.2063],
-  "7º BBM - Colombo": [-25.2917, -49.2242],
+  "1º CRBM - Curitiba (Sede Regional)": [-25.417336, -49.278911], 
+  "1º BBM - Curitiba (Portão)": [-25.474580, -49.294240], 
+  "6º BBM - São José dos Pinhais": [-25.535265, -49.202396], // Centro SJP
+  "7º BBM - Colombo": [-25.292900, -49.226800],
   "8º BBM - Paranaguá": [-25.5205, -48.5095],
   
   // Unidades Especializadas (Curitiba)
@@ -31,30 +31,30 @@ const UNIT_GEO: Record<string, [number, number]> = {
   "CCB (QCGBM) - Quartel do Comando Geral": [-25.4146, -49.2720],
 
   // --- 2º CRBM (LONDRINA / NORTE) ---
-  "2º CRBM - Londrina (Sede Regional)": [-23.311580, -51.171220], // R. Silvio Bussadori, 150
-  "3º BBM - Londrina": [-23.311580, -51.171220], // Sede junto ao CRBM
+  "2º CRBM - Londrina (Sede Regional)": [-23.311580, -51.171220],
+  "3º BBM - Londrina": [-23.311580, -51.171220], 
   "11º BBM - Apucarana": [-23.5510, -51.4614],
-  "1ª CIBM - Ivaiporã": [-24.2464, -51.3181],
-  "3ª CIBM - Santo Antônio da Platina": [-23.2974, -50.0759],
+  "1ª CIBM - Ivaiporã": [-24.23174830493947, -51.67066976419622], // Coordenadas Exatas (Rod. Celso Fumio Makita)
+  "3ª CIBM - Santo Antônio da Platina": [-23.295225, -50.078847], // Centro SAP
   
   // --- 3º CRBM (CASCAVEL / OESTE) ---
-  "3º CRBM - Cascavel (Sede Regional)": [-24.956700, -53.457800], // R. Jorge Lacerda, 2202
-  "4º BBM - Cascavel": [-24.956700, -53.457800], // Sede junto ao CRBM
-  "9º BBM - Foz do Iguaçu": [-25.5469, -54.5882],
-  "10º BBM - Francisco Beltrão": [-26.0810, -53.0548],
-  "13º BBM - Pato Branco": [-26.2295, -52.6713],
+  "3º CRBM - Cascavel (Sede Regional)": [-24.956700, -53.457800], 
+  "4º BBM - Cascavel": [-24.956700, -53.457800], 
+  "9º BBM - Foz do Iguaçu": [-25.540498, -54.584351], // Centro Foz
+  "10º BBM - Francisco Beltrão": [-26.0779, -53.0520], // Centro Beltrão
+  "13º BBM - Pato Branco": [-26.2282, -52.6705], // Centro Pato Branco
 
   // --- 4º CRBM (MARINGÁ / NOROESTE) ---
-  "4º CRBM - Maringá (Sede Regional)": [-23.418900, -51.938700], // Av. Centenário, 290
-  "5º BBM - Maringá": [-23.418900, -51.938700], // Sede junto ao CRBM
-  "2ª CIBM - Umuarama": [-23.7661, -53.3206],
+  "4º CRBM - Maringá (Sede Regional)": [-23.418900, -51.938700], 
+  "5º BBM - Maringá": [-23.418900, -51.938700], 
+  "2ª CIBM - Umuarama": [-23.7641, -53.3246],
   "4ª CIBM - Cianorte": [-23.6528, -52.6073],
   "5ª CIBM - Paranavaí": [-23.0792, -52.4607],
 
   // --- 5º CRBM (PONTA GROSSA / CAMPOS GERAIS) ---
-  "5º CRBM - Ponta Grossa (Sede Regional)": [-25.091600, -50.160800], // Praça Roosevelt, 43
-  "2º BBM - Ponta Grossa": [-25.091600, -50.160800], // Sede junto ao CRBM
-  "12º BBM - Guarapuava": [-25.3953, -51.4622],
+  "5º CRBM - Ponta Grossa (Sede Regional)": [-25.091600, -50.160800], 
+  "2º BBM - Ponta Grossa": [-25.091600, -50.160800], 
+  "12º BBM - Guarapuava": [-25.3935, -51.4566], // Centro Guarapuava
   "6ª CIBM - Irati": [-25.4682, -50.6511]
 };
 
@@ -63,7 +63,12 @@ const createCustomIcon = (type: 'pilot' | 'drone' | 'unit', count: number = 1) =
   let iconSvg = '';
   let bgColor = '';
   let size: [number, number] = [36, 36];
-  let badgeHtml = count > 1 ? `<div class="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border border-white shadow-sm">${count}</div>` : '';
+  
+  // Badge com Z-Index alto e posicionamento projetado para frente
+  let badgeHtml = count > 1 ? `
+    <div class="absolute -top-3 -right-3 z-[100] bg-red-600 text-white text-[11px] font-bold px-1.5 py-0.5 rounded-full border-2 border-white shadow-md min-w-[22px] flex items-center justify-center transform scale-110">
+        ${count}
+    </div>` : '';
 
   if (type === 'unit') {
     // Icone de Prédio (Quartel)
@@ -80,7 +85,7 @@ const createCustomIcon = (type: 'pilot' | 'drone' | 'unit', count: number = 1) =
   }
 
   const html = `
-    <div class="relative flex items-center justify-center w-full h-full shadow-lg rounded-lg border-2 border-white ${bgColor} text-white hover:scale-110 transition-transform">
+    <div class="relative flex items-center justify-center w-full h-full shadow-lg rounded-lg border-2 border-white ${bgColor} text-white hover:scale-110 transition-transform z-10">
       ${iconSvg}
       ${badgeHtml}
     </div>
@@ -204,39 +209,40 @@ const ResourceLayer = ({
     return Object.entries(UNIT_GEO).map(([unitName, coords]) => {
          const [lat, lng] = coords;
          
-         // Helper: Matching que prioriza a CIDADE
+         // Helper: Matching que prioriza a CIDADE e Designador
          const normalizeMatch = (resourceUnit: string | undefined, geoKey: string) => {
              if (!resourceUnit) return false;
              
              const rUnit = resourceUnit.toLowerCase().trim();
              const gKey = geoKey.toLowerCase().trim();
              
-             // 1. Match exato (para garantir casos simples)
+             // 1. Match exato
              if (rUnit === gKey) return true;
              
              // 2. Extração inteligente por CIDADE
-             // A chave do mapa (UNIT_GEO) geralmente é: "UNIDADE - CIDADE (DETALHE)"
-             // Ex: "10º BBM - Francisco Beltrão"
              const parts = gKey.split(' - ');
              
              if (parts.length >= 2) {
-                 const mapDesignator = parts[0].trim(); // ex: "10º bbm"
+                 const mapDesignator = parts[0].trim(); // ex: "10º bbm" ou "1ª cibm"
                  // Pega a parte da cidade, removendo detalhes entre parênteses ex: "curitiba (portão)" -> "curitiba"
                  const mapCity = parts[1].split('(')[0].trim(); 
                  
                  // REGRA DE OURO: Se a unidade do piloto contém o NOME DA CIDADE da chave do mapa, é match.
-                 // Isso resolve o problema de "10º BBM - Francisco Beltrão" vs "12º BBM - Guarapuava".
                  if (rUnit.includes(mapCity)) {
                      return true;
                  }
                  
+                 // Fallback específico para CIBM/BBM se a cidade não estiver explícita no cadastro do piloto
+                 // Ex: Piloto lotado em "1ª CIBM" deve cair em "1ª CIBM - Ivaiporã"
+                 if (rUnit === mapDesignator || rUnit === mapDesignator.replace('ª', 'a').replace('º', 'o')) {
+                     return true;
+                 }
+                 
                  // Fallback: Se for unidade de SEDE (sem cidade no nome do piloto), vincula pelo designador
-                 // Ex: "Sede Administrativa - 2º CRBM" -> Match em "2º CRBM - Londrina" (Se não achar Londrina no nome)
                  if (rUnit.includes(mapDesignator) && (rUnit.includes('sede') || rUnit.includes('comando') || rUnit.includes('ccb'))) {
                      return true;
                  }
                  
-                 // Se não tiver a cidade e não for sede, não dá match (evita duplicidade em Regionais)
                  return false;
              }
              
@@ -244,14 +250,19 @@ const ResourceLayer = ({
              return rUnit.includes(gKey);
          };
 
-         // Filtra pilotos e drones desta unidade específica usando a lógica estrita de cidade
+         // Filtra pilotos e drones desta unidade específica usando a lógica estrita
          const unitPilots = pilots.filter(p => normalizeMatch(p.unit, unitName));
          const unitDrones = drones.filter(d => normalizeMatch(d.unit, unitName) && d.status !== 'in_operation');
          
          const hasResources = unitPilots.length > 0 || unitDrones.length > 0;
          
-         // Se não deve mostrar unidades e não tem recursos, não renderiza nada
-         if (!showUnits && !hasResources) return null;
+         // Apenas renderiza se a flag correspondente estiver ativa E houver recursos para mostrar
+         // Unidades só aparecem se showUnits=true
+         // Pilotos só aparecem se showPilots=true e existem pilotos nessa unidade
+         // Etc.
+         
+         const shouldRender = (showUnits) || (showPilots && unitPilots.length > 0) || (showDrones && unitDrones.length > 0);
+         if (!shouldRender) return null;
 
          // LÓGICA DE POSICIONAMENTO EXATO (STACKING)
          const pilotPos: [number, number] = [lat + 0.0002, lng]; // Ligeiramente acima
@@ -375,10 +386,10 @@ export default function OperationManagement() {
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [isFinishing, setIsFinishing] = useState<Operation | null>(null);
   
-  // MAP LAYER CONTROLS (INDEPENDENT)
-  const [showUnits, setShowUnits] = useState(true);
-  const [showPilots, setShowPilots] = useState(true);
-  const [showDrones, setShowDrones] = useState(true);
+  // MAP LAYER CONTROLS - PADRÃO "OCULTO" (False)
+  const [showUnits, setShowUnits] = useState(false);
+  const [showPilots, setShowPilots] = useState(false);
+  const [showDrones, setShowDrones] = useState(false);
 
   // TABS FOR EDIT MODE
   const [editTab, setEditTab] = useState<'details' | 'daily_log'>('details');
