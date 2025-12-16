@@ -20,7 +20,6 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   type?: "button" | "submit" | "reset";
   disabled?: boolean;
   title?: string;
-  // FIX: Explicitly add 'form' attribute to ButtonProps to fix type error.
   form?: string;
 }
 

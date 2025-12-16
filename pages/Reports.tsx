@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
 // FIX: Import MISSION_COLORS from the central types file.

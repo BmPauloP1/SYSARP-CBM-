@@ -30,7 +30,7 @@ const getImageData = (url: string): Promise<string> => {
     };
     img.onerror = () => resolve("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
     img.src = url;
-  };
+  });
 };
 
 export default function DroneManagement() {
@@ -1156,63 +1156,53 @@ export default function DroneManagement() {
 
                   {/* MODEL SELECTOR */}
                   <div>
-                    {!isNewModel ? (
-                      <Select 
-                        label="Modelo" 
-                        required 
-                        value={newDroneData.model || ''} 
-                        disabled={(!newDroneData.brand && !isNewBrand)}
-                        onChange={e => {
-                           const val = e.target.value;
-                           setIsNewModel(false);
-                           if (val === 'NEW_MODEL') {
-                             setIsNewModel(true);
-                             setNewDroneData(prev => ({...prev, model: '', weight: undefined, max_flight_time: undefined, max_range: undefined, max_altitude: undefined, payloads: []}));
-                           } else {
-                              setNewDroneData(prev => {
-                                if (!editingId) {
-                                  const existingDrone = drones.find(d => d.brand === prev.brand && d.model === val);
-                                  if (existingDrone) {
-                                    return {
-                                      ...prev,
-                                      model: val,
-                                      weight: existingDrone.weight,
-                                      max_flight_time: existingDrone.max_flight_time,
-                                      max_range: existingDrone.max_range,
-                                      max_altitude: existingDrone.max_altitude,
-                                      payloads: existingDrone.payloads || [],
-                                    };
-                                  }
+                    <Select 
+                      label="Modelo" 
+                      required 
+                      value={newDroneData.model || ''} 
+                      disabled={(!newDroneData.brand && !isNewBrand)}
+                      onChange={e => {
+                          const val = e.target.value;
+                          setIsNewModel(false);
+                          if (val === 'NEW_MODEL') {
+                            setIsNewModel(true);
+                            setNewDroneData(prev => ({ ...prev, model: '', weight: undefined, max_flight_time: undefined, max_range: undefined, max_altitude: undefined, payloads: [] }));
+                          } else {
+                            setNewDroneData(prev => {
+                              if (!editingId) {
+                                const existingDrone = drones.find(d => d.brand === prev.brand && d.model === val);
+                                if (existingDrone) {
+                                  // Match found, populate
+                                  return {
+                                    ...prev, model: val,
+                                    weight: existingDrone.weight,
+                                    max_flight_time: existingDrone.max_flight_time,
+                                    max_range: existingDrone.max_range,
+                                    max_altitude: existingDrone.max_altitude,
+                                    payloads: existingDrone.payloads || [],
+                                  };
+                                } else {
+                                  // No match found, so clear specs
+                                  return {
+                                    ...prev, model: val,
+                                    weight: undefined, max_flight_time: undefined, max_range: undefined, max_altitude: undefined, payloads: []
+                                  };
                                 }
-                                return {...prev, model: val};
-                              });
-                           }
-                        }}
-                      >
-                        <option value="">Selecione...</option>
-                        {newDroneData.brand && catalog[newDroneData.brand]?.map(model => (
-                          <option key={model} value={model}>{model}</option>
-                        ))}
-                        {(newDroneData.brand || isNewBrand) && (
-                          <option value="NEW_MODEL" className="font-bold text-yellow-400 bg-slate-800">+ Adicionar Novo...</option>
-                        )}
-                      </Select>
-                    ) : (
-                      <div className="space-y-1">
-                        <label className="text-sm font-medium text-slate-700">Novo Modelo</label>
-                        <div className="flex gap-2">
-                           <Input 
-                            value={customModel}
-                            onChange={e => setCustomModel(e.target.value)}
-                            placeholder="Digite o modelo..."
-                            className="flex-1"
-                           />
-                           <Button type="button" variant="danger" className="px-3" onClick={() => { setIsNewModel(false); setCustomModel(''); }}>
-                              <X className="w-4 h-4" />
-                           </Button>
-                        </div>
-                      </div>
-                    )}
+                              }
+                              // Is editing, just update model
+                              return { ...prev, model: val };
+                            });
+                          }
+                      }}
+                    >
+                      <option value="">Selecione...</option>
+                      {newDroneData.brand && catalog[newDroneData.brand]?.map(model => (
+                        <option key={model} value={model}>{model}</option>
+                      ))}
+                      {(newDroneData.brand || isNewBrand) && (
+                        <option value="NEW_MODEL" className="font-bold text-yellow-400 bg-slate-800">+ Adicionar Novo...</option>
+                      )}
+                    </Select>
                   </div>
                 </div>
               </div>
