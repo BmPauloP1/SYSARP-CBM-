@@ -1,4 +1,3 @@
-
 import { supabase, isConfigured } from './supabase';
 import { Material, MaterialType, MaterialLog, BatteryStats, PropellerStats, HealthStatus } from '../types_inventory';
 
@@ -12,6 +11,29 @@ const setLocal = (key: string, data: any) => localStorage.setItem(key, JSON.stri
 export const inventoryService = {
   
   // --- LEITURA ---
+  getAllMaterials: async (): Promise<Material[]> => {
+    if (!isConfigured) {
+      return getLocal(STORAGE_MAT_KEY);
+    }
+    try {
+      const { data, error } = await supabase
+        .from('materials')
+        .select(`
+          *,
+          battery_stats (*),
+          propeller_stats (*)
+        `);
+      if (error) throw error;
+      return data.map((m: any) => ({
+        ...m,
+        battery_stats: m.battery_stats?.[0] || undefined,
+        propeller_stats: m.propeller_stats?.[0] || undefined
+      })) as Material[];
+    } catch (e) {
+      console.warn("Full inventory fetch error, using local:", e);
+      return getLocal(STORAGE_MAT_KEY);
+    }
+  },
   
   getMaterialsByDrone: async (droneId: string): Promise<Material[]> => {
     if (!isConfigured) {

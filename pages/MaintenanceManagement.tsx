@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { base44 } from "../services/base44Client";
 import { Maintenance, Drone, Pilot, MaintenanceType } from "../types";
@@ -17,7 +16,7 @@ export default function MaintenanceManagement() {
   const [formData, setFormData] = useState<Partial<Maintenance>>({
     maintenance_type: 'corrective',
     maintenance_date: new Date().toISOString().split('T')[0],
-    maintenance_time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    maintenance_time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
     in_flight_incident: false,
     status: 'scheduled'
   });
@@ -27,7 +26,7 @@ export default function MaintenanceManagement() {
   const [closureData, setClosureData] = useState({
     technician: "",
     date: new Date().toISOString().split('T')[0],
-    time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
     notes: "",
     type: "corrective" as MaintenanceType
   });
@@ -92,7 +91,7 @@ export default function MaintenanceManagement() {
       setFormData({
         maintenance_type: 'corrective',
         maintenance_date: new Date().toISOString().split('T')[0],
-        maintenance_time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        maintenance_time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
         in_flight_incident: false,
         status: 'scheduled',
         description: '',
@@ -171,7 +170,7 @@ NOTIFY pgrst, 'reload schema';
         setClosureData({
             technician: "",
             date: new Date().toISOString().split('T')[0],
-            time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+            time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
             notes: "",
             type: "corrective"
         });
@@ -267,7 +266,7 @@ CREATE POLICY "Permitir atualizar manutenções" ON public.maintenances FOR UPDA
                     <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                         <label className="text-xs font-bold text-slate-500 uppercase mb-1 block">Ordem de Serviço Pendente</label>
                         <select 
-                            className="w-full p-2 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-green-500 outline-none"
+                            className="w-full p-2 text-sm border border-slate-300 rounded focus:ring-2 focus:ring-green-500 outline-none bg-white"
                             value={closureId}
                             onChange={(e) => {
                                 setClosureId(e.target.value);
@@ -333,7 +332,7 @@ CREATE POLICY "Permitir atualizar manutenções" ON public.maintenances FOR UPDA
                     <div>
                         <label className="text-sm font-medium text-slate-700 mb-1 block">O que foi feito? (Relatório)</label>
                         <textarea 
-                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-sm h-20 resize-none"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-sm h-20 resize-none bg-white text-slate-900"
                             placeholder="Descreva o serviço executado..."
                             required
                             value={closureData.notes} 
@@ -444,7 +443,7 @@ CREATE POLICY "Permitir atualizar manutenções" ON public.maintenances FOR UPDA
                   <div>
                     <label className="text-sm font-medium text-slate-700 mb-1 block">Motivo / Problema</label>
                     <textarea 
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm h-20 resize-none"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm h-20 resize-none bg-white text-slate-900"
                       placeholder="Descreva o problema..."
                       required
                       value={formData.description || ''} 

@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
-import { Operation, Pilot, Drone, MISSION_LABELS, MISSION_HIERARCHY, SYSARP_LOGO, AroAssessment, ORGANIZATION_CHART } from "../types";
+// FIX: Import MISSION_COLORS from the central types file.
+import { Operation, Pilot, Drone, MISSION_LABELS, MISSION_HIERARCHY, SYSARP_LOGO, AroAssessment, ORGANIZATION_CHART, MISSION_COLORS } from "../types";
 import { Card, Input, Select, Button, Badge } from "../components/ui_components";
 import { Filter, FileText, Download, CheckSquare, Search, Map as MapIcon, PieChart as PieIcon, Navigation, Trash2, AlertTriangle } from "lucide-react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
@@ -14,23 +15,7 @@ type ExtendedOperation = Operation & {
   drone?: Drone;
 }
 
-// Colors for Map and Charts
-const MISSION_COLORS: Record<string, string> = {
-  fire: "#ef4444",             // Red (Incêndios)
-  sar: "#3b82f6",              // Blue (SAR)
-  aph: "#f43f5e",              // Rose (APH)
-  traffic_accident: "#f97316", // Orange (Trânsito)
-  hazmat: "#eab308",           // Yellow/Lime (Hazmat)
-  natural_disaster: "#64748b", // Slate (Desastres)
-  public_security: "#1e3a8a",  // Dark Blue (Segurança Pública)
-  inspection: "#14b8a6",       // Teal (Inspeção)
-  air_support: "#0ea5e9",      // Sky Blue (Apoio Aéreo)
-  maritime: "#06b6d4",         // Cyan (Marítimo)
-  environmental: "#22c55e",    // Green (Ambiental)
-  training: "#8b5cf6",         // Violet (Treinamento)
-  admin_support: "#94a3b8",    // Gray (Admin)
-  diverse: "#71717a"           // Zinc (Diversos)
-};
+// FIX: Removed local MISSION_COLORS constant. It is now imported from types.ts.
 
 // Gera chaves dinamicamente a partir do organograma atualizado
 const ORGANIZATION_CHART_KEYS = Object.keys(ORGANIZATION_CHART);

@@ -1,10 +1,9 @@
-
 import React, { useState } from 'react';
 import { operationSummerService } from '../services/operationSummerService';
 import { base44 } from '../services/base44Client';
 import { Card, Button } from '../components/ui_components';
 import { FileText, Download, Sun } from 'lucide-react';
-import { SUMMER_MISSION_LABELS } from '../types_summer';
+import { MISSION_HIERARCHY, MissionType } from '../types';
 
 export default function OperationSummerReport() {
   const [loading, setLoading] = useState(false);
@@ -58,7 +57,7 @@ export default function OperationSummerReport() {
         return [
           new Date(f.date).toLocaleDateString(),
           f.location,
-          SUMMER_MISSION_LABELS[f.mission_type] || f.mission_type,
+          MISSION_HIERARCHY[f.mission_type as MissionType]?.label || f.mission_type,
           pilot,
           drone,
           `${f.flight_duration}m`

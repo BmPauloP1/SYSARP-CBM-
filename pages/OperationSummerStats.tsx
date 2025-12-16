@@ -1,23 +1,13 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { operationSummerService } from '../services/operationSummerService';
 import { base44 } from '../services/base44Client';
-import { SummerStats, SUMMER_MISSION_LABELS, SummerFlight, SUMMER_LOCATIONS } from '../types_summer';
-import { Pilot, Drone } from '../types';
+import { SummerStats, SummerFlight, SUMMER_LOCATIONS } from '../types_summer';
+import { Pilot, Drone, MISSION_HIERARCHY, MissionType, MISSION_COLORS } from '../types';
 import { Card, Select, Input, Button } from '../components/ui_components';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { Clock, MapPin, Activity, Sun, Filter, RefreshCcw, Map as MapIcon, Search, Loader2 } from 'lucide-react';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-
-// Colors for Mission Types
-const MISSION_COLORS: Record<string, string> = {
-  patrulha: '#3b82f6',   // Blue
-  resgate: '#ef4444',    // Red
-  prevencao: '#f59e0b',  // Amber
-  apoio: '#8b5cf6',      // Violet
-  treinamento: '#10b981' // Emerald
-};
 
 const CHART_COLORS = ['#f97316', '#3b82f6', '#ef4444', '#10b981', '#8b5cf6'];
 
@@ -153,7 +143,7 @@ export default function OperationSummerStats() {
           lng: jitter(baseLng),
           title: f.location,
           type: f.mission_type,
-          info: `${new Date(f.date).toLocaleDateString()} - ${SUMMER_MISSION_LABELS[f.mission_type]}`
+          info: `${new Date(f.date).toLocaleDateString()} - ${MISSION_HIERARCHY[f.mission_type as MissionType]?.label || f.mission_type}`
         };
       }
       return null;
@@ -171,7 +161,7 @@ export default function OperationSummerStats() {
 
   // Prepare Chart Data
   const missionData = Object.entries(stats.flights_by_mission).map(([name, value]) => ({ 
-    name: SUMMER_MISSION_LABELS[name as keyof typeof SUMMER_MISSION_LABELS] || name, 
+    name: MISSION_HIERARCHY[name as MissionType]?.label || name, 
     value 
   }));
   
@@ -179,6 +169,8 @@ export default function OperationSummerStats() {
     .map(([name, value]) => ({ name, value }))
     .sort((a, b) => Number(b.value) - Number(a.value))
     .slice(0, 5);
+
+  const missionsInView = Array.from(new Set(filteredFlights.map(f => f.mission_type)));
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6 h-full overflow-y-auto">
@@ -203,8 +195,8 @@ export default function OperationSummerStats() {
             className="text-sm"
           >
             <option value="all">Todas</option>
-            {Object.entries(SUMMER_MISSION_LABELS).map(([key, label]) => (
-              <option key={key} value={key}>{label as string}</option>
+            {Object.entries(MISSION_HIERARCHY).map(([key, { label }]) => (
+              <option key={key} value={key}>{label}</option>
             ))}
           </Select>
 
@@ -255,7 +247,7 @@ export default function OperationSummerStats() {
             disabled={filterLocation === 'all'}
           >
              <option value="all">Todos os Postos</option>
-             {filterLocation !== 'all' && SUMMER_LOCATIONS[filterLocation]?.map(pgv => (
+             {filterLocation !== 'all' && SUMMER_LOCATIONS[filterLocation as keyof typeof SUMMER_LOCATIONS]?.map(pgv => (
                  <option key={pgv} value={pgv}>{pgv}</option>
              ))}
           </Select>
@@ -396,8 +388,8 @@ export default function OperationSummerStats() {
                       key={marker.id}
                       center={[marker.lat, marker.lng]}
                       pathOptions={{ 
-                          color: MISSION_COLORS[marker.type] || 'gray',
-                          fillColor: MISSION_COLORS[marker.type] || 'gray',
+                          color: MISSION_COLORS[marker.type as keyof typeof MISSION_COLORS] || 'gray',
+                          fillColor: MISSION_COLORS[marker.type as keyof typeof MISSION_COLORS] || 'gray',
                           fillOpacity: 0.6,
                           weight: 1
                       }}
@@ -407,8 +399,8 @@ export default function OperationSummerStats() {
                         <div className="text-xs font-sans">
                            <strong className="block text-sm mb-1">{marker.title}</strong>
                            <span className="block text-slate-500">{marker.info}</span>
-                           <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-white text-[10px] uppercase font-bold" style={{ backgroundColor: MISSION_COLORS[marker.type] }}>
-                              {SUMMER_MISSION_LABELS[marker.type as keyof typeof SUMMER_MISSION_LABELS]}
+                           <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-white text-[10px] uppercase font-bold" style={{ backgroundColor: MISSION_COLORS[marker.type as keyof typeof MISSION_COLORS] }}>
+                              {MISSION_HIERARCHY[marker.type as MissionType]?.label || marker.type}
                            </span>
                         </div>
                       </Popup>
@@ -418,12 +410,13 @@ export default function OperationSummerStats() {
 
               {/* Legend Overlay */}
               <div className="absolute bottom-6 left-6 bg-white/95 backdrop-blur p-3 rounded-lg shadow-xl border border-slate-200 z-[400] text-xs">
-                 <div className="font-bold text-slate-700 mb-2 border-b pb-1">Legenda (Tipo de Missão)</div>
-                 <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-                    {Object.entries(SUMMER_MISSION_LABELS).map(([key, label]) => (
-                       <div key={key} className="flex items-center gap-2">
-                          <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: MISSION_COLORS[key] }}></div>
-                          <span className="text-slate-600">{label as string}</span>
+                 <div className="font-bold text-slate-700 mb-2 border-b pb-1">Legenda (Missões no Filtro)</div>
+                 <div className="grid grid-cols-2 gap-x-4 gap-y-2 max-h-40 overflow-y-auto">
+                    {missionsInView.map(key => (
+                       <div key={key as string} className="flex items-center gap-2">
+                          {/* FIX: Cast `key` to a string-like type (MissionType) to use it as an index for MISSION_COLORS. The type was inferred as `unknown`. */}
+                          <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: MISSION_COLORS[key as MissionType] }}></div>
+                          <span className="text-slate-600">{MISSION_HIERARCHY[key as MissionType]?.label.split('. ')[1] || key}</span>
                        </div>
                     ))}
                  </div>

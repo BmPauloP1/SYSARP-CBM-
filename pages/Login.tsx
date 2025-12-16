@@ -129,9 +129,7 @@ CREATE TRIGGER on_auth_user_created_confirm
     } catch (err: any) {
       // Check for the specific database error that requires SQL fix
       if (err.message && err.message.includes("SQL FIX REQUIRED")) {
-         // SOLUÇÃO DEFINITIVA: REMOVER O GATILHO QUE ESTÁ TRAVANDO O CADASTRO
-         // Já que o sistema Base44 possui lógica interna para criar o perfil,
-         // o gatilho de banco de dados tornou-se redundante e problemático.
+      
          const fixSql = `
 -- COPIE E RODE NO SUPABASE SQL EDITOR PARA DESTRAVAR O CADASTRO:
 

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
@@ -735,7 +734,7 @@ export default function OperationManagement() {
             await operationSummerService.create({
                pilot_id: savedOp.pilot_id,
                drone_id: savedOp.drone_id,
-               mission_type: 'patrulha', 
+               mission_type: 'public_security', 
                location: `${summerCity} - ${summerPost}`,
                date: formData.date, // Usa a data do formulário
                start_time: formData.start_time_local,

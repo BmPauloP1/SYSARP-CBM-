@@ -1,9 +1,8 @@
-
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
 import { Drone, Pilot, DroneChecklist, ChecklistItemState, DRONE_CHECKLIST_TEMPLATE, SYSARP_LOGO, Maintenance, ORGANIZATION_CHART } from "../types";
 import { Card, Button, Badge, DroneIcon, Input, Select } from "../components/ui_components";
-import { Plus, AlertTriangle, X, Save, Activity, Pencil, RotateCcw, ClipboardCheck, CheckCircle, Printer, FileText, Trash2, Box, MapPin, Zap } from "lucide-react";
+import { Plus, AlertTriangle, X, Save, Activity, Pencil, RotateCcw, ClipboardCheck, CheckCircle, Printer, FileText, Trash2, Box, MapPin, Zap, Filter, RefreshCcw, Search } from "lucide-react";
 import DroneInventoryModal from './DroneInventoryModal';
 
 // Generate HARPIA 01 to 100
@@ -31,7 +30,7 @@ const getImageData = (url: string): Promise<string> => {
     };
     img.onerror = () => resolve("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
     img.src = url;
-  });
+  };
 };
 
 export default function DroneManagement() {
@@ -41,6 +40,13 @@ export default function DroneManagement() {
   
   // Catalog State
   const [catalog, setCatalog] = useState<Record<string, string[]>>({});
+
+  // Filter & Search State
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterCrbm, setFilterCrbm] = useState("all");
+  const [filterUnit, setFilterUnit] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
   // Create/Edit Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -111,6 +117,94 @@ export default function DroneManagement() {
       if (e.message !== "Não autenticado" && !e.message?.includes("Failed to fetch")) {
          console.error("Erro ao carregar dados", e);
       }
+    }
+  };
+  
+  // --- FILTERING LOGIC ---
+  const filteredDrones = useMemo(() => {
+    return drones.filter(drone => {
+      const searchLower = searchTerm.toLowerCase();
+      
+      const matchesSearch = (
+        drone.prefix?.toLowerCase().includes(searchLower) ||
+        drone.model?.toLowerCase().includes(searchLower) ||
+        drone.serial_number?.toLowerCase().includes(searchLower) ||
+        drone.sisant?.toLowerCase().includes(searchLower)
+      );
+
+      const matchesCrbm = filterCrbm === "all" || drone.crbm === filterCrbm;
+      const matchesUnit = filterUnit === "all" || drone.unit === filterUnit;
+      const matchesStatus = filterStatus === "all" || drone.status === filterStatus;
+
+      return matchesSearch && matchesCrbm && matchesUnit && matchesStatus;
+    });
+  }, [drones, searchTerm, filterCrbm, filterUnit, filterStatus]);
+
+  const handleResetFilters = () => {
+    setSearchTerm("");
+    setFilterCrbm("all");
+    setFilterUnit("all");
+    setFilterStatus("all");
+  };
+
+  // --- REPORTING LOGIC ---
+  const handleExportReport = async () => {
+    if (filteredDrones.length === 0) {
+        alert("Nenhuma aeronave na lista para exportar.");
+        return;
+    }
+    setGeneratingPdf(true);
+    try {
+        const jsPDFModule = await import('jspdf');
+        const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+        const autoTableModule = await import('jspdf-autotable');
+        const autoTable = autoTableModule.default;
+
+        const doc = new jsPDF();
+        const logoData = await getImageData(SYSARP_LOGO);
+
+        // Header
+        try { doc.addImage(logoData, "PNG", 14, 10, 20, 20); } catch(e) {}
+        doc.setFontSize(16);
+        doc.setFont("helvetica", "bold");
+        doc.text("RELATÓRIO DE FROTA - AERONAVES RPA", 105, 20, { align: "center" });
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text("CORPO DE BOMBEIROS MILITAR DO PARANÁ", 105, 26, { align: "center" });
+        
+        doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 35);
+
+        const tableBody = filteredDrones.map(d => {
+            const checklist = getChecklistStatus(d.last_30day_check);
+            return [
+                d.prefix,
+                d.model,
+                `${d.unit || 'N/A'}\n${d.crbm || ''}`,
+                d.status.replace('_', ' ').toUpperCase(),
+                d.total_flight_hours?.toFixed(1) || '0.0',
+                checklist.label
+            ];
+        });
+
+        autoTable(doc, {
+            startY: 45,
+            head: [['Prefixo', 'Modelo', 'Lotação', 'Status', 'Horas Voo', 'Checklist']],
+            body: tableBody,
+            theme: 'grid',
+            headStyles: { fillColor: [185, 28, 28], textColor: 255, fontSize: 8 },
+            styles: { fontSize: 7, cellPadding: 2, valign: 'middle' },
+            columnStyles: {
+                2: { cellWidth: 50 },
+            }
+        });
+
+        doc.save(`Relatorio_Frota_SYSARP_${new Date().toISOString().split('T')[0]}.pdf`);
+
+    } catch (e) {
+        console.error(e);
+        alert("Erro ao gerar relatório PDF.");
+    } finally {
+        setGeneratingPdf(false);
     }
   };
 
@@ -569,246 +663,268 @@ export default function DroneManagement() {
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-screen-2xl mx-auto space-y-6 h-full overflow-y-auto">
-      
-      {/* SQL FIX MODAL - Only for Admins */}
-      {sqlError && currentUser?.role === 'admin' && (
-        <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
-           <Card className="w-full max-w-3xl flex flex-col bg-white border-4 border-red-600 shadow-2xl">
-              <div className="p-4 bg-red-600 text-white flex justify-between items-center">
-                 <h3 className="font-bold text-lg flex items-center gap-2">
-                   <Box className="w-6 h-6" />
-                   Atualização de Banco de Dados Necessária
-                 </h3>
-                 <button onClick={() => setSqlError(null)} className="hover:bg-red-700 p-1 rounded"><X className="w-5 h-5" /></button>
-              </div>
-              <div className="p-6 space-y-4">
-                 <p className="text-slate-700 font-medium">
-                    Para atribuir localização às aeronaves, é necessário adicionar colunas novas na tabela 'drones'.
-                    <br/><br/>
-                    <strong>Solução:</strong> Copie o código abaixo e execute no SQL Editor do Supabase.
-                 </p>
-                 <div className="relative">
-                    <pre className="bg-slate-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto font-mono border border-slate-700 max-h-64">
-                       {sqlError}
-                    </pre>
-                    <button onClick={copySqlToClipboard} className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded transition-colors"><FileText className="w-4 h-4" /></button>
-                 </div>
-              </div>
-              <div className="p-4 bg-slate-50 border-t flex justify-end gap-3">
-                 <Button variant="outline" onClick={() => setSqlError(null)}>Fechar</Button>
-                 <Button onClick={copySqlToClipboard} className="bg-blue-600 text-white hover:bg-blue-700"><FileText className="w-4 h-4 mr-2" /> Copiar SQL</Button>
-              </div>
-           </Card>
-        </div>
-      )}
-
-      {/* NOVO MODAL DE ALMOXARIFADO */}
-      {inventoryDrone && (
-        <DroneInventoryModal 
-          drone={inventoryDrone} 
-          onClose={() => setInventoryDrone(null)} 
-        />
-      )}
-
-      {/* Header Responsive */}
-      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
-        <div className="flex items-center gap-4 w-full md:w-auto">
-           <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center border-4 border-white shadow-md flex-shrink-0">
-              <DroneIcon className="w-7 h-7 text-red-700" />
-           </div>
-           <div className="text-center md:text-left flex-1 md:flex-none">
-              <h1 className="text-xl md:text-2xl font-bold text-slate-800 tracking-tight">Frota de Aeronaves</h1>
-              <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mt-0.5">CBM-PR • Gestão de Ativos</p>
-           </div>
+    <div className="flex flex-col h-full bg-slate-50 overflow-hidden relative">
+      <div className="flex-shrink-0 bg-white border-b border-slate-200 p-4 md:p-6 shadow-sm z-10 space-y-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
+                <DroneIcon className="w-8 h-8 text-slate-700" />
+                Gestão de Frota
+            </h1>
+            {currentUser?.role === 'admin' && (
+                <Button onClick={() => setIsCreateModalOpen(true)} className="w-full md:w-auto">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Nova Aeronave
+                </Button>
+            )}
         </div>
         
-        {currentUser?.role === 'admin' && (
-          <Button 
-            onClick={() => { setIsCreateModalOpen(true); setEditingId(null); }}
-            className="w-full md:w-auto shadow-lg shadow-red-200 hover:scale-105 transition-transform font-bold"
-          >
-            <Plus className="w-5 h-5 mr-2" />
-            Nova Aeronave
-          </Button>
-        )}
+        {/* FILTERS BAR */}
+        <Card className="p-4 bg-slate-50 border-slate-200">
+            <div className="flex items-center gap-2 mb-3 text-xs font-bold text-slate-500 uppercase">
+                <Filter className="w-3 h-3" /> Filtros de Frota
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+                <div className="lg:col-span-1">
+                    <Input
+                      placeholder="Buscar por Prefixo, Modelo..."
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      className="h-10 text-sm bg-white"
+                    />
+                </div>
+                <div className="lg:col-span-1">
+                    <Select 
+                       value={filterCrbm} 
+                       onChange={e => { setFilterCrbm(e.target.value); setFilterUnit("all"); }}
+                       className="h-10 text-sm bg-white"
+                    >
+                        <option value="all">Todos os CRBMs</option>
+                        {Object.keys(ORGANIZATION_CHART).map(crbm => <option key={crbm} value={crbm}>{crbm}</option>)}
+                    </Select>
+                </div>
+                <div className="lg:col-span-1">
+                    <Select 
+                       value={filterUnit} 
+                       onChange={e => setFilterUnit(e.target.value)}
+                       disabled={filterCrbm === "all"}
+                       className="h-10 text-sm bg-white disabled:bg-slate-100"
+                    >
+                        <option value="all">Todas as Unidades</option>
+                        {filterCrbm !== "all" && ORGANIZATION_CHART[filterCrbm]?.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                    </Select>
+                </div>
+                <div className="lg:col-span-1">
+                    <Select 
+                       value={filterStatus} 
+                       onChange={e => setFilterStatus(e.target.value)}
+                       className="h-10 text-sm bg-white"
+                    >
+                        <option value="all">Todos os Status</option>
+                        <option value="available">Disponível</option>
+                        <option value="in_operation">Em Operação</option>
+                        <option value="maintenance">Manutenção</option>
+                    </Select>
+                </div>
+                <div className="lg:col-span-1 flex gap-2">
+                    <Button onClick={handleResetFilters} variant="outline" className="h-10 bg-white" title="Limpar Filtros">
+                        <RefreshCcw className="w-4 h-4" />
+                    </Button>
+                    <Button onClick={handleExportReport} disabled={generatingPdf} className="h-10 flex-1 bg-slate-800 text-white hover:bg-slate-900">
+                        <FileText className="w-4 h-4 mr-2" />
+                        {generatingPdf ? 'Gerando...' : 'Relatório'}
+                    </Button>
+                </div>
+            </div>
+        </Card>
       </div>
 
-      {/* Drone Grid - Optimized for all screen sizes */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-6">
-        {drones.map((drone) => {
-          const tbo = getTBOStatus(drone.total_flight_hours || 0);
-          const checklist = getChecklistStatus(drone.last_30day_check);
-          // Highlight "Força Tarefa"
-          const isFT = drone.unit?.includes("FORÇA TAREFA") || drone.unit?.includes("FT");
+      <div className="flex-1 overflow-y-auto p-4 md:p-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-6">
+            {filteredDrones.length > 0 ? filteredDrones.map((drone) => {
+              const tbo = getTBOStatus(drone.total_flight_hours || 0);
+              const checklist = getChecklistStatus(drone.last_30day_check);
+              const isFT = drone.unit?.includes("FORÇA TAREFA") || drone.unit?.includes("FT");
 
-          return (
-            <Card key={drone.id} className={`flex flex-col h-full overflow-hidden hover:shadow-lg transition-shadow relative ${isFT ? 'ring-2 ring-orange-500' : ''}`}>
-              {isFT && (
-                  <div className="absolute top-0 right-0 bg-orange-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg z-10 flex items-center gap-1 shadow-md">
-                      <Zap className="w-3 h-3" /> FORÇA TAREFA
-                  </div>
-              )}
-              
-              <div className="bg-slate-900 p-4 flex justify-between items-start pt-6"> {/* increased padding-top to avoid overlay */}
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className="w-12 h-12 bg-slate-800 rounded-lg flex-shrink-0 flex items-center justify-center">
-                    <DroneIcon className="w-8 h-8 text-white" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-bold text-white text-base md:text-lg break-words leading-tight">{drone.prefix}</h3>
-                    <p className="text-xs text-slate-400 font-medium break-words whitespace-normal leading-tight mt-0.5">{drone.brand} {drone.model}</p>
-                  </div>
-                </div>
-                <div className="ml-2 flex-shrink-0 flex flex-col items-end gap-2">
-                  {getStatusBadge(drone.status)}
-                  {currentUser?.role === 'admin' && (
-                     <button 
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          handleDeleteDrone(drone.id); 
-                        }}
-                        disabled={deletingId === drone.id}
-                        aria-disabled={deletingId === drone.id}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] transition-colors
-                          ${deletingId === drone.id ? 'opacity-60 cursor-not-allowed bg-red-900/30 text-red-200 border-red-900/30' : 'bg-red-950/50 border border-red-900/50 text-red-400 hover:text-red-200 hover:bg-red-900'}`}
-                        title="Excluir Aeronave"
-                     >
-                        <Trash2 className="w-3 h-3" /> 
-                        {deletingId === drone.id ? '...' : 'Excluir'}
-                     </button>
-                  )}
-                </div>
-              </div>
-              
-              <div className="p-4 space-y-4 flex-1 flex flex-col">
-                {/* Stats Grid */}
-                <div className="grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
-                  <div>
-                    <p className="text-slate-500 text-[10px] uppercase font-bold">SISANT</p>
-                    <p className="font-medium text-slate-900 break-all text-xs md:text-sm">{drone.sisant}</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-500 text-[10px] uppercase font-bold">Validade</p>
-                    <p className="font-medium text-amber-700 text-xs md:text-sm">{new Date(drone.sisant_expiry_date).toLocaleDateString()}</p>
-                  </div>
-                  <div className="col-span-2">
-                    <p className="text-slate-500 text-[10px] uppercase font-bold flex items-center gap-1"><MapPin className="w-3 h-3"/> Localização / Emprego</p>
-                    <p className="font-medium text-blue-900 text-xs md:text-sm truncate" title={drone.unit || drone.crbm || 'Não Atribuído'}>
-                      {drone.unit || (drone.crbm ? `${drone.crbm}` : 'Não Atribuído')}
-                    </p>
-                  </div>
-                </div>
-
-                {/* 7-DAY CHECKLIST WITH PROGRESS BAR */}
-                <div className={`p-2 rounded-lg border ${checklist.color === 'text-red-600' ? 'border-red-200 bg-red-50' : 'border-slate-100 bg-slate-50'}`}>
-                   <div className="flex justify-between items-center mb-1">
-                      <div className="flex items-center gap-2">
-                        <ClipboardCheck className={`w-4 h-4 ${checklist.color}`} />
-                        <span className="text-[10px] font-bold text-slate-500 uppercase">Checklist 7 Dias</span>
+              return (
+                <Card key={drone.id} className={`flex flex-col h-full overflow-hidden hover:shadow-lg transition-shadow relative ${isFT ? 'ring-2 ring-orange-500' : ''}`}>
+                  {isFT && (
+                      <div className="absolute top-0 right-0 bg-orange-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg z-10 flex items-center gap-1 shadow-md">
+                          <Zap className="w-3 h-3" /> FORÇA TAREFA
                       </div>
-                      <button 
-                        onClick={() => openChecklistModal(drone)}
-                        className="p-1 hover:bg-white rounded-full transition-colors text-blue-600"
-                        title="Realizar Checklist (Renovar)"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                      </button>
-                   </div>
-                   
-                   {/* Barra de Progresso do Checklist */}
-                   <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden mb-1">
-                      <div 
-                        className={`h-full ${checklist.barColor} transition-all duration-500`} 
-                        style={{ width: `${checklist.percentage}%` }}
-                      ></div>
-                   </div>
-
-                   <div className="flex items-center justify-between">
-                      <span className={`text-xs font-bold ${checklist.color}`}>{checklist.label}</span>
-                      {checklist.daysLeft < 2 && (
-                        <span className="flex h-2 w-2 relative">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                        </span>
+                  )}
+                  
+                  <div className="bg-slate-900 p-4 flex justify-between items-start pt-6">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="w-12 h-12 bg-slate-800 rounded-lg flex-shrink-0 flex items-center justify-center">
+                        <DroneIcon className="w-8 h-8 text-white" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-bold text-white text-base md:text-lg break-words leading-tight">{drone.prefix}</h3>
+                        <p className="text-xs text-slate-400 font-medium break-words whitespace-normal leading-tight mt-0.5">{drone.brand} {drone.model}</p>
+                      </div>
+                    </div>
+                    <div className="ml-2 flex-shrink-0 flex flex-col items-end gap-2">
+                      {getStatusBadge(drone.status)}
+                      {currentUser?.role === 'admin' && (
+                         <button 
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              handleDeleteDrone(drone.id); 
+                            }}
+                            disabled={deletingId === drone.id}
+                            aria-disabled={deletingId === drone.id}
+                            className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] transition-colors
+                              ${deletingId === drone.id ? 'opacity-60 cursor-not-allowed bg-red-900/30 text-red-200 border-red-900/30' : 'bg-red-950/50 border border-red-900/50 text-red-400 hover:text-red-200 hover:bg-red-900'}`}
+                            title="Excluir Aeronave"
+                         >
+                            <Trash2 className="w-3 h-3" /> 
+                            {deletingId === drone.id ? '...' : 'Excluir'}
+                         </button>
                       )}
-                   </div>
-                </div>
-
-                {/* TBO / Maintenance Health Bar */}
-                <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                  <div className="flex justify-between items-center mb-1">
-                     <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
-                        <Activity className="w-3 h-3" /> Manutenção (TBO)
-                     </span>
-                     <span className="text-[10px] font-bold text-slate-700">{tbo.remaining.toFixed(1)}h rest.</span>
+                    </div>
                   </div>
-                  <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div className={`h-full ${tbo.color} transition-all duration-500`} style={{ width: `${tbo.percentage}%` }}></div>
+                  
+                  <div className="p-4 space-y-4 flex-1 flex flex-col">
+                    {/* Stats Grid */}
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-3 text-sm">
+                      <div>
+                        <p className="text-slate-500 text-[10px] uppercase font-bold">SISANT</p>
+                        <p className="font-medium text-slate-900 break-all text-xs md:text-sm">{drone.sisant}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-500 text-[10px] uppercase font-bold">Validade</p>
+                        <p className="font-medium text-amber-700 text-xs md:text-sm">{new Date(drone.sisant_expiry_date).toLocaleDateString()}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-slate-500 text-[10px] uppercase font-bold flex items-center gap-1"><MapPin className="w-3 h-3"/> Localização / Emprego</p>
+                        <p className="font-medium text-blue-900 text-xs md:text-sm truncate" title={drone.unit || drone.crbm || 'Não Atribuído'}>
+                          {drone.unit || (drone.crbm ? `${drone.crbm}` : 'Não Atribuído')}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 7-DAY CHECKLIST WITH PROGRESS BAR */}
+                    <div className={`p-2 rounded-lg border ${checklist.color === 'text-red-600' ? 'border-red-200 bg-red-50' : 'border-slate-100 bg-slate-50'}`}>
+                       <div className="flex justify-between items-center mb-1">
+                          <div className="flex items-center gap-2">
+                            <ClipboardCheck className={`w-4 h-4 ${checklist.color}`} />
+                            <span className="text-[10px] font-bold text-slate-500 uppercase">Checklist 7 Dias</span>
+                          </div>
+                          <button 
+                            onClick={() => openChecklistModal(drone)}
+                            className="p-1 hover:bg-white rounded-full transition-colors text-blue-600"
+                            title="Realizar Checklist (Renovar)"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </button>
+                       </div>
+                       
+                       {/* Barra de Progresso do Checklist */}
+                       <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden mb-1">
+                          <div 
+                            className={`h-full ${checklist.barColor} transition-all duration-500`} 
+                            style={{ width: `${checklist.percentage}%` }}
+                          ></div>
+                       </div>
+
+                       <div className="flex items-center justify-between">
+                          <span className={`text-xs font-bold ${checklist.color}`}>{checklist.label}</span>
+                          {checklist.daysLeft < 2 && (
+                            <span className="flex h-2 w-2 relative">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                            </span>
+                          )}
+                       </div>
+                    </div>
+
+                    {/* TBO / Maintenance Health Bar */}
+                    <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                      <div className="flex justify-between items-center mb-1">
+                         <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
+                            <Activity className="w-3 h-3" /> Manutenção (TBO)
+                         </span>
+                         <span className="text-[10px] font-bold text-slate-700">{tbo.remaining.toFixed(1)}h rest.</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div className={`h-full ${tbo.color} transition-all duration-500`} style={{ width: `${tbo.percentage}%` }}></div>
+                      </div>
+                      <div className="mt-1 flex justify-between">
+                         <span className="text-[9px] text-slate-400">Total Voo: {drone.total_flight_hours?.toFixed(1) || 0}h</span>
+                      </div>
+                    </div>
+
+                    {/* --- STACKED BUTTONS FOR MOBILE/TABLET --- */}
+                    <div className="space-y-2">
+                        <Button 
+                          onClick={() => setInventoryDrone(drone)}
+                          variant="outline" 
+                          className="w-full h-8 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200"
+                        >
+                          <Box className="w-3 h-3 mr-1.5" /> Almoxarifado
+                        </Button>
+
+                        <Button 
+                          onClick={() => handleDownloadDroneReport(drone)}
+                          variant="outline" 
+                          className="w-full h-8 text-xs bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
+                        >
+                          <FileText className="w-3 h-3 mr-1.5" /> Relatório
+                        </Button>
+                    </div>
+
+                    <div className="pt-2 flex gap-2 mt-auto border-t border-slate-100">
+                      {currentUser?.role === 'admin' && (
+                        <Button 
+                          variant="outline" 
+                          className="px-2 h-9 border-slate-300 text-slate-600 hover:bg-slate-100 min-w-[36px]"
+                          onClick={() => handleEditDrone(drone)}
+                          title="Editar Informações"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+
+                      {drone.status !== 'maintenance' ? (
+                        <Button 
+                          variant="danger" 
+                          className="flex-1 text-xs h-9 bg-red-600 hover:bg-red-700 text-white border-none"
+                          onClick={() => setSelectedDrone(drone)}
+                        >
+                          Manutenção
+                        </Button>
+                      ) : (
+                        <Button 
+                          variant="outline" 
+                          className="flex-1 text-xs h-9 bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
+                          onClick={() => {
+                              if(confirm("Liberar aeronave da manutenção?")) {
+                                  base44.entities.Drone.update(drone.id, { status: 'available' }).then(loadData);
+                              }
+                          }}
+                        >
+                          Liberar
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                  <div className="mt-1 flex justify-between">
-                     <span className="text-[9px] text-slate-400">Total Voo: {drone.total_flight_hours?.toFixed(1) || 0}h</span>
-                  </div>
-                </div>
-
-                {/* --- STACKED BUTTONS FOR MOBILE/TABLET --- */}
-                <div className="space-y-2">
-                    <Button 
-                      onClick={() => setInventoryDrone(drone)}
-                      variant="outline" 
-                      className="w-full h-8 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200"
-                    >
-                      <Box className="w-3 h-3 mr-1.5" /> Almoxarifado
-                    </Button>
-
-                    <Button 
-                      onClick={() => handleDownloadDroneReport(drone)}
-                      variant="outline" 
-                      className="w-full h-8 text-xs bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
-                    >
-                      <FileText className="w-3 h-3 mr-1.5" /> Relatório
-                    </Button>
-                </div>
-
-                <div className="pt-2 flex gap-2 mt-auto border-t border-slate-100">
-                  {currentUser?.role === 'admin' && (
-                    <Button 
-                      variant="outline" 
-                      className="px-2 h-9 border-slate-300 text-slate-600 hover:bg-slate-100 min-w-[36px]"
-                      onClick={() => handleEditDrone(drone)}
-                      title="Editar Informações"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </Button>
-                  )}
-
-                  {drone.status !== 'maintenance' ? (
-                    <Button 
-                      variant="danger" 
-                      className="flex-1 text-xs h-9 bg-red-600 hover:bg-red-700 text-white border-none"
-                      onClick={() => setSelectedDrone(drone)}
-                    >
-                      Manutenção
-                    </Button>
-                  ) : (
-                    <Button 
-                      variant="outline" 
-                      className="flex-1 text-xs h-9 bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
-                      onClick={() => {
-                          if(confirm("Liberar aeronave da manutenção?")) {
-                              base44.entities.Drone.update(drone.id, { status: 'available' }).then(loadData);
-                          }
-                      }}
-                    >
-                      Liberar
-                    </Button>
-                  )}
-                </div>
+                </Card>
+              );
+            }) : (
+              <div className="sm:col-span-2 lg:col-span-3 2xl:col-span-4 p-8 text-center text-slate-500 italic bg-white rounded-xl border border-dashed">
+                  Nenhuma aeronave encontrada para os filtros selecionados.
               </div>
-            </Card>
-          );
-        })}
+            )}
+        </div>
       </div>
+      
+      {/* FIX: Render Inventory Modal when inventoryDrone is set */}
+      {inventoryDrone && (
+        <DroneInventoryModal
+          drone={inventoryDrone}
+          onClose={() => setInventoryDrone(null)}
+        />
+      )}
 
       {/* --- MODAL DE MANUTENÇÃO (Corrigido: Adicionado) --- */}
       {selectedDrone && (
@@ -1004,11 +1120,13 @@ export default function DroneManagement() {
                         value={newDroneData.brand || ''} 
                         onChange={e => {
                           const val = e.target.value;
+                          setIsNewBrand(false);
+                          const resetState = { model: '', weight: undefined, max_flight_time: undefined, max_range: undefined, max_altitude: undefined, payloads: [] };
                           if (val === 'NEW_BRAND') {
                             setIsNewBrand(true);
-                            setNewDroneData({...newDroneData, brand: '', model: ''});
+                            setNewDroneData(prev => ({...prev, ...resetState, brand: ''}));
                           } else {
-                            setNewDroneData({...newDroneData, brand: val, model: ''});
+                            setNewDroneData(prev => ({...prev, ...resetState, brand: val}));
                           }
                         }}
                       >
@@ -1046,11 +1164,28 @@ export default function DroneManagement() {
                         disabled={(!newDroneData.brand && !isNewBrand)}
                         onChange={e => {
                            const val = e.target.value;
+                           setIsNewModel(false);
                            if (val === 'NEW_MODEL') {
                              setIsNewModel(true);
-                             setNewDroneData({...newDroneData, model: ''});
+                             setNewDroneData(prev => ({...prev, model: '', weight: undefined, max_flight_time: undefined, max_range: undefined, max_altitude: undefined, payloads: []}));
                            } else {
-                             setNewDroneData({...newDroneData, model: val});
+                              setNewDroneData(prev => {
+                                if (!editingId) {
+                                  const existingDrone = drones.find(d => d.brand === prev.brand && d.model === val);
+                                  if (existingDrone) {
+                                    return {
+                                      ...prev,
+                                      model: val,
+                                      weight: existingDrone.weight,
+                                      max_flight_time: existingDrone.max_flight_time,
+                                      max_range: existingDrone.max_range,
+                                      max_altitude: existingDrone.max_altitude,
+                                      payloads: existingDrone.payloads || [],
+                                    };
+                                  }
+                                }
+                                return {...prev, model: val};
+                              });
                            }
                         }}
                       >
@@ -1102,7 +1237,7 @@ export default function DroneManagement() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <Input 
                   label="Peso (g)" 
                   type="number" 
@@ -1126,6 +1261,14 @@ export default function DroneManagement() {
                   required
                   value={newDroneData.max_range || ''} 
                   onChange={e => setNewDroneData({...newDroneData, max_range: Number(e.target.value)})}
+                />
+                <Input 
+                  label="Alt. Máx (m AGL)" 
+                  type="number" 
+                  placeholder="Ex: 120"
+                  required
+                  value={newDroneData.max_altitude || ''} 
+                  onChange={e => setNewDroneData({...newDroneData, max_altitude: Number(e.target.value)})}
                 />
               </div>
 

@@ -148,7 +148,9 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
 
   return {
     list: async (orderBy?: string): Promise<T[]> => {
-      // 1. Verificação Rápida de Conexão
+      const cachedData = getLocal<T>(storageKey);
+
+      // 1. Verificação Rápida de Conexão ou Configuração
       if (!isConfigured || !navigator.onLine) {
         if (entityName === 'Drone') seedDronesIfEmpty();
         if (entityName === 'Pilot') seedPilotsIfEmpty();
@@ -156,11 +158,8 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
       }
 
       // 2. Lógica de Timeout Adaptativo
-      // Se temos cache, damos pouco tempo para a rede (2s) para a UI parecer rápida.
-      // Se NÃO temos cache, damos mais tempo (10s) para garantir que baixe.
-      const cachedData = getLocal<T>(storageKey);
       const hasCache = cachedData.length > 0;
-      const adaptiveTimeout = hasCache ? 2000 : 10000;
+      const adaptiveTimeout = hasCache ? 2500 : 12000;
 
       try {
         let query = supabase.from(tableName).select('*');
@@ -185,19 +184,25 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
         
         return data as unknown as T[];
       } catch (e: any) {
-        // FALHA: Fallback silencioso para o cache local
-        if (hasCache) {
-           console.debug(`[Speed Optimization] Usando cache local para ${entityName} devido à lentidão da rede.`);
+        const msg = e.message || '';
+        
+        // CORREÇÃO: Tratamento silencioso de erro de conexão ("Failed to fetch")
+        if (msg.includes("Failed to fetch") || msg === "Timeout") {
+           console.warn(`[Offline Mode] Falha ao conectar ao servidor para ${entityName}. Usando cache local.`);
+           
+           if (cachedData.length === 0) {
+               if (entityName === 'Drone') return seedDronesIfEmpty() as any;
+               if (entityName === 'Pilot') return seedPilotsIfEmpty() as any;
+           }
+           
            return cachedData;
         }
 
-        // Se cache vazio e for entidade crítica, tenta seedar para não quebrar UI
-        if (cachedData.length === 0) {
-           if (entityName === 'Drone') return seedDronesIfEmpty() as any;
-           if (entityName === 'Pilot') return seedPilotsIfEmpty() as any;
-        }
+        // Se for outro erro (ex: tabela inexistente), loga mas não quebra se tiver cache
+        console.error(`Erro ao carregar ${entityName}:`, e);
+        if (hasCache) return cachedData;
         
-        return cachedData;
+        return [];
       }
     },
 
@@ -219,7 +224,7 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
       // Adaptive Timeout também para filtros
       const cachedData = getLocal<T>(storageKey);
       const hasCache = cachedData.length > 0;
-      const adaptiveTimeout = hasCache ? 2000 : 8000;
+      const adaptiveTimeout = hasCache ? 2500 : 8000;
 
       try {
         if (typeof predicate === 'object') {
@@ -244,6 +249,11 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
         return (data as unknown as T[]).filter(predicate);
 
       } catch (e: any) {
+        // Fallback silently on fetch error
+        if (e.message?.includes("Failed to fetch") || e.message === "Timeout") {
+           return applyLocalFilter();
+        }
+        console.warn(`Filter fallback for ${entityName}`, e);
         return applyLocalFilter();
       }
     },

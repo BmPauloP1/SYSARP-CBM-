@@ -1,10 +1,8 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { operationSummerService } from '../services/operationSummerService';
 import { base44 } from '../services/base44Client';
-import { SummerFlight, SUMMER_MISSION_LABELS } from '../types_summer';
-import { Pilot, Drone } from '../types';
+import { SummerFlight } from '../types_summer';
+import { Pilot, Drone, MISSION_HIERARCHY, MissionType } from '../types';
 import { Card, Badge, Button } from '../components/ui_components';
 import { Sun, Clock, MapPin, User, FileText, Trash2, CheckSquare, Square, Filter } from 'lucide-react';
 
@@ -199,7 +197,7 @@ export default function OperationSummerFlights() {
                               </td>
                               <td className="px-4 py-3 font-medium text-orange-700 whitespace-nowrap">{f.location}</td>
                               <td className="px-4 py-3">
-                                <Badge variant="default" className="whitespace-nowrap">{SUMMER_MISSION_LABELS[f.mission_type] || f.mission_type}</Badge>
+                                <Badge variant="default" className="whitespace-nowrap">{MISSION_HIERARCHY[f.mission_type as MissionType]?.label || f.mission_type}</Badge>
                               </td>
                               <td className="px-4 py-3 text-xs whitespace-nowrap">
                                 <div className="font-bold text-slate-800">{pilot?.full_name || 'N/A'}</div>
@@ -271,7 +269,7 @@ export default function OperationSummerFlights() {
                               <div className="grid grid-cols-2 gap-2 text-xs">
                                  <div className="bg-slate-50 p-2 rounded border border-slate-100">
                                     <span className="text-slate-400 block text-[10px] uppercase font-bold">Missão</span>
-                                    <span className="text-slate-700 font-medium">{SUMMER_MISSION_LABELS[f.mission_type]}</span>
+                                    <span className="text-slate-700 font-medium">{MISSION_HIERARCHY[f.mission_type as MissionType]?.label}</span>
                                  </div>
                                  <div className="bg-slate-50 p-2 rounded border border-slate-100">
                                     <span className="text-slate-400 block text-[10px] uppercase font-bold">Aeronave</span>

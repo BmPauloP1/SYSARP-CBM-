@@ -22,8 +22,8 @@ export type DroneStatus = 'available' | 'in_operation' | 'maintenance';
 export type MaintenanceType = 'preventive' | 'corrective' | 'inspection' | 'calibration' | 'battery' | 'propeller' | 'camera' | 'general';
 export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed';
 
-// Logo Oficial do CBMPR (Local)
-export const SYSARP_LOGO = "/img/logosoarp.png";
+// Logo Oficial do CBMPR (SVG Vetorial)
+export const SYSARP_LOGO = "/img/logo_soarp.svg";
 
 export interface Pilot {
   id: string;
@@ -472,6 +472,24 @@ export const MISSION_LABELS: Record<MissionType, string> = {
   training: MISSION_HIERARCHY.training.label,
   admin_support: MISSION_HIERARCHY.admin_support.label,
   diverse: MISSION_HIERARCHY.diverse.label
+};
+
+// FIX: Export MISSION_COLORS so it can be used in other components.
+export const MISSION_COLORS: Record<string, string> = {
+  fire: "#ef4444",             // Red (Incêndios)
+  sar: "#3b82f6",              // Blue (SAR)
+  aph: "#f43f5e",              // Rose (APH)
+  traffic_accident: "#f97316", // Orange (Trânsito)
+  hazmat: "#eab308",           // Yellow/Lime (Hazmat)
+  natural_disaster: "#64748b", // Slate (Desastres)
+  public_security: "#1e3a8a",  // Dark Blue (Segurança Pública)
+  inspection: "#14b8a6",       // Teal (Inspeção)
+  air_support: "#0ea5e9",      // Sky Blue (Apoio Aéreo)
+  maritime: "#06b6d4",         // Cyan (Marítimo)
+  environmental: "#22c55e",    // Green (Ambiental)
+  training: "#8b5cf6",         // Violet (Treinamento)
+  admin_support: "#94a3b8",    // Gray (Admin)
+  diverse: "#71717a"           // Zinc (Diversos)
 };
 
 // Estrutura Organizacional do CBM-PR (Mapeamento CRBM -> Unidades)

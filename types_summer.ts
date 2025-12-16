@@ -1,13 +1,4 @@
-
-export type SummerMissionType = 'patrulha' | 'resgate' | 'prevencao' | 'apoio' | 'treinamento';
-
-export const SUMMER_MISSION_LABELS: Record<SummerMissionType, string> = {
-  patrulha: "Patrulhamento Ostensivo",
-  resgate: "Resgate Aquático (Afogamento)",
-  prevencao: "Prevenção (Banhistas)",
-  apoio: "Apoio a Embarcações/Incidentes",
-  treinamento: "Treinamento Operacional"
-};
+import { MissionType } from '../types';
 
 export const SUMMER_LOCATIONS: Record<string, string[]> = {
   "Pontal do Paraná": [
@@ -50,7 +41,7 @@ export interface SummerFlight {
   id: string;
   pilot_id: string;
   drone_id: string;
-  mission_type: SummerMissionType;
+  mission_type: MissionType;
   location: string;
   date: string;
   start_time: string;

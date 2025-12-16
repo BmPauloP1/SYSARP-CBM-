@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { base44 } from "../services/base44Client";
 import { Drone, Pilot, Operation } from "../types";
@@ -40,7 +39,7 @@ export default function FlightPlan() {
     const loadData = async () => {
       const [p, d, ops] = await Promise.all([
         base44.entities.Pilot.filter({ status: 'active' }),
-        base44.entities.Drone.filter({ status: 'available' }),
+        base44.entities.Drone.list(),
         base44.entities.Operation.filter({ status: 'active' })
       ]);
       setPilots(p);
@@ -61,8 +60,8 @@ export default function FlightPlan() {
     setFormData(prev => ({
       ...prev,
       drone_id: selectedDroneId,
-      // Preenche automaticamente o callsign com o SISANT se o drone for encontrado
-      callsign: selectedDrone ? selectedDrone.sisant : prev.callsign
+      callsign: selectedDrone ? selectedDrone.sisant : prev.callsign,
+      endurance: selectedDrone ? String(selectedDrone.max_flight_time) : ""
     }));
   };
 
@@ -72,15 +71,35 @@ export default function FlightPlan() {
 
     const op = activeOps.find(o => o.id === opId);
     if (op) {
-      // Tenta achar o drone para pegar o SISANT
       const opDrone = drones.find(d => d.id === op.drone_id);
+
+      // Calculate EET
+      let eet = "0030"; // default 30 mins
+      if (op.start_time && op.end_time) {
+          const start = new Date(op.start_time).getTime();
+          const end = new Date(op.end_time).getTime();
+          const durationMinutes = Math.round((end - start) / (1000 * 60));
+          if (durationMinutes > 0) {
+              const hours = Math.floor(durationMinutes / 60).toString().padStart(2, '0');
+              const minutes = (durationMinutes % 60).toString().padStart(2, '0');
+              eet = `${hours}${minutes}`;
+          }
+      }
       
       setFormData(prev => ({
         ...prev,
         pilot_id: op.pilot_id || prev.pilot_id,
         drone_id: op.drone_id || prev.drone_id,
         callsign: opDrone ? opDrone.sisant : prev.callsign,
-        remarks: `${op.name} (Ocorrência #${op.occurrence_number})`
+        remarks: `${op.name} (Ocorrência #${op.occurrence_number})`,
+        
+        // Auto-population
+        departure_aerodrome: `${op.latitude.toFixed(6)}, ${op.longitude.toFixed(6)}`,
+        departure_time: new Date(op.start_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }),
+        min_altitude_agl: "0",
+        max_altitude_agl: String(op.flight_altitude || 120),
+        total_eet: eet,
+        endurance: opDrone ? String(opDrone.max_flight_time) : ""
       }));
     }
   };
@@ -144,8 +163,8 @@ export default function FlightPlan() {
       doc.text("2. DADOS DO VOO", 14, y);
       y += lineHeight;
       doc.setFont("helvetica", "normal");
-      doc.text(`Aeródromo de Partida: ${formData.departure_aerodrome}`, 14, y);
-      doc.text(`Hora (EOBT): ${formData.departure_time || "0000"}`, 110, y);
+      doc.text(`Ponto de Partida: ${formData.departure_aerodrome}`, 14, y);
+      doc.text(`Hora (UTC): ${formData.departure_time || "0000"}`, 110, y);
       y += lineHeight;
       doc.text(`Velocidade de Cruzeiro: ${formData.cruising_speed}`, 14, y);
       
@@ -157,7 +176,7 @@ export default function FlightPlan() {
       doc.text(`Rota: ${formData.route}`, 14, y);
       y += lineHeight;
       doc.text(`Aeródromo de Destino: ${formData.destination_aerodrome}`, 14, y);
-      doc.text(`EET Total: ${formData.total_eet || "0030"}`, 110, y);
+      doc.text(`Tempo Previsto (HHMM): ${formData.total_eet || "0030"}`, 110, y);
       y += lineHeight;
       doc.text(`Alt. Aeródromo: ${formData.altn_aerodrome || "NIL"}`, 14, y);
 
@@ -297,13 +316,13 @@ export default function FlightPlan() {
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Input 
-                    label="Aeródromo de Partida" 
+                    label="Ponto de Partida" 
                     value={formData.departure_aerodrome}
                     onChange={(e) => handleChange('departure_aerodrome', e.target.value)}
-                    placeholder="ZZZZ ou ICAO"
+                    placeholder="ZZZZ ou Lat/Lon"
                   />
                   <Input 
-                    label="Hora (EOBT - UTC)" 
+                    label="Hora (UTC)" 
                     type="time"
                     value={formData.departure_time}
                     onChange={(e) => handleChange('departure_time', e.target.value)}
@@ -347,7 +366,7 @@ export default function FlightPlan() {
                     placeholder="ZZZZ ou ICAO"
                   />
                   <Input 
-                    label="EET Total (HHMM)" 
+                    label="Tempo Previsto (HHMM)" 
                     value={formData.total_eet}
                     onChange={(e) => handleChange('total_eet', e.target.value)}
                     placeholder="0030"
@@ -397,7 +416,7 @@ export default function FlightPlan() {
                   <div>
                     <label className="text-sm font-medium text-slate-700 mb-1 block">Observações (RMK)</label>
                     <textarea 
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none h-24 resize-none"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none h-24 resize-none bg-white"
                       value={formData.remarks}
                       onChange={(e) => handleChange('remarks', e.target.value)}
                       placeholder="Informações adicionais..."
