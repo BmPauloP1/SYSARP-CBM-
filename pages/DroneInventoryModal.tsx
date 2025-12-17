@@ -18,11 +18,13 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
   const [allMaterials, setAllMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [isReportLoading, setIsReportLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<MaterialType>('battery');
   
   // Form states
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingItem, setEditingItem] = useState<Material | null>(null);
+  const [isBatchMode, setIsBatchMode] = useState(false);
 
   const [newItem, setNewItem] = useState<Partial<Material>>({
     type: 'battery',
@@ -49,6 +51,20 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
     setEditingItem(null);
     setNewItem({ status: 'new', name: '', quantity: 1, type: activeTab });
     setNewStats({});
+    setIsBatchMode(false);
+  };
+
+  const handleBatchModeToggle = () => {
+    if (!editingItem) {
+        setIsBatchMode(prev => {
+            setNewItem(currentItem => ({
+                ...currentItem,
+                serial_number: '',
+                quantity: 1
+            }));
+            return !prev;
+        });
+    }
   };
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -56,12 +72,10 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
     setNewItem({ ...newItem, name });
 
     if (!editingItem) {
-        // Use trim() for more robust matching against whitespace
         const trimmedName = name.trim().toLowerCase();
         
-        // Don't search if the input is empty
         if (!trimmedName) {
-            setNewStats({}); // Clear stats if input is empty
+            setNewStats({});
             return;
         }
 
@@ -72,7 +86,8 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
             setNewStats({
               capacity_mah: existing.battery_stats.capacity_mah,
               max_cycles: existing.battery_stats.max_cycles,
-              cycles: 0
+              cycles: 0,
+              health_percent: 100
             });
           } else if (activeTab === 'propeller' && existing.propeller_stats) {
             setNewStats({
@@ -81,11 +96,9 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
               hours_flown: 0
             });
           } else {
-            // Item exists but has no stats for this tab type, so clear any previous auto-fill
             setNewStats({});
           }
         } else {
-          // No matching item found, clear stats
           setNewStats({});
         }
     }
@@ -93,6 +106,7 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
 
   const handleStartEdit = (mat: Material) => {
     setEditingItem(mat);
+    setIsBatchMode(false); // Can't batch edit
     setNewItem({
       name: mat.name,
       serial_number: mat.serial_number,
@@ -110,18 +124,47 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSaving(true);
     try {
       if (editingItem) {
         await inventoryService.updateMaterial(editingItem.id, { ...newItem, drone_id: drone.id }, newStats);
         await inventoryService.logAction(editingItem.id, 'update', 'Item editado.');
+        alert("Item atualizado com sucesso!");
+      } else if (isBatchMode) {
+        const serialsRaw = newItem.serial_number || '';
+        const serials = serialsRaw.split(/[\n,;]+/)
+                                .map(s => s.trim())
+                                .filter(s => s.length > 0);
+        
+        if (serials.length === 0) {
+            alert("Por favor, insira pelo menos um número de série para o modo em lote.");
+            return;
+        }
+
+        const createPromises = serials.map(serial => {
+            const singleItemPayload = {
+                ...newItem,
+                drone_id: drone.id,
+                type: activeTab,
+                serial_number: serial,
+                quantity: 1, // Each item with a serial has quantity of 1
+            };
+            return inventoryService.addMaterial(singleItemPayload, newStats);
+        });
+
+        await Promise.all(createPromises);
+        alert(`${serials.length} iten(s) adicionados com sucesso!`);
       } else {
         await inventoryService.addMaterial({ ...newItem, drone_id: drone.id, type: activeTab }, newStats);
+        alert("Item adicionado com sucesso!");
       }
       resetForm();
       loadMaterials();
     } catch (e) {
-      alert("Erro ao salvar item.");
+      alert("Erro ao salvar item(s). Verifique se todos os campos obrigatórios estão preenchidos.");
       console.error(e);
+    } finally {
+      setIsSaving(false);
     }
   };
   
@@ -139,7 +182,7 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
   const handleDownloadReport = async () => {
     setIsReportLoading(true);
     try {
-        const droneItems = materials; // Usa apenas os materiais da aeronave atual
+        const droneItems = materials; 
 
         const doc = new jsPDF();
         doc.text(`Relatório de Almoxarifado - ${drone.prefix}`, 14, 15);
@@ -298,18 +341,56 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
                       {editingItem ? <Pencil className="w-4 h-4"/> : <Plus className="w-4 h-4"/>}
                       {editingItem ? `Editando Item: ${editingItem.name}` : `Novo Item em ${getTabLabel(activeTab)}`}
                    </h4>
+                   
+                   {!editingItem && (
+                     <div className="col-span-full mb-3 border-t border-b border-slate-200 py-2">
+                         <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-600">
+                             <input 
+                                 type="checkbox"
+                                 checked={isBatchMode}
+                                 onChange={handleBatchModeToggle}
+                                 className="w-4 h-4 accent-blue-600"
+                                 disabled={!!editingItem}
+                             />
+                             Adicionar em Lote (múltiplos números de série)
+                         </label>
+                     </div>
+                   )}
+                   
                    <form onSubmit={handleAddSubmit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                      <div className="sm:col-span-2">
+                      <div className={isBatchMode ? "sm:col-span-4" : "sm:col-span-2"}>
                          <Input label="Nome / Modelo" required placeholder="Ex: Bateria TB30..." value={newItem.name || ''} onChange={handleNameChange} />
+                         <datalist id="material-names">
+                           {Array.from(new Set(allMaterials.filter(m => m.type === activeTab).map(m => m.name))).map(name => (
+                             <option key={name} value={name} />
+                           ))}
+                         </datalist>
                       </div>
-                      <Input label="Serial (SN)" placeholder="Opcional" value={newItem.serial_number || ''} onChange={e => setNewItem({...newItem, serial_number: e.target.value})} />
-                      <Input label="Quantidade" type="number" required min="1" value={newItem.quantity} onChange={e => setNewItem({...newItem, quantity: Number(e.target.value)})} />
+                      
+                      {isBatchMode ? (
+                          <div className="sm:col-span-4">
+                              <label className="text-sm font-medium text-slate-700">Números de Série</label>
+                              <textarea 
+                                  placeholder="Cole os seriais, um por linha ou separados por vírgula/ponto e vírgula"
+                                  className="w-full p-2 border border-slate-300 rounded-lg text-sm h-24"
+                                  value={newItem.serial_number || ''} 
+                                  onChange={e => setNewItem({...newItem, serial_number: e.target.value})}
+                              />
+                          </div>
+                      ) : (
+                          <>
+                              <Input label="Serial (SN)" placeholder="Opcional" value={newItem.serial_number || ''} onChange={e => setNewItem({...newItem, serial_number: e.target.value})} />
+                              <Input label="Quantidade" type="number" required min="1" value={newItem.quantity} onChange={e => setNewItem({...newItem, quantity: Number(e.target.value)})} />
+                          </>
+                      )}
+                      
                       <Select label="Status" value={newItem.status} onChange={e => setNewItem({...newItem, status: e.target.value as any})}>
                          <option value="new">Novo</option>
                          <option value="active">Em Uso</option>
                          <option value="maintenance">Manutenção</option>
                          <option value="retired">Baixado</option>
                       </Select>
+                      
                       {activeTab === 'battery' && (
                          <>
                            <Input label="Capacidade (mAh)" type="number" required value={newStats.capacity_mah || ''} onChange={e => setNewStats({...newStats, capacity_mah: Number(e.target.value)})} />
@@ -326,7 +407,7 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
                       )}
                       <div className="col-span-1 sm:col-span-2 md:col-span-4 flex justify-end gap-2 mt-2 pt-2 border-t border-slate-200">
                          <Button type="button" variant="outline" size="sm" onClick={resetForm}>Cancelar</Button>
-                         <Button type="submit" size="sm" className="bg-green-600 text-white hover:bg-green-700"><Save className="w-4 h-4 mr-1"/> {editingItem ? 'Atualizar Item' : 'Salvar no Estoque'}</Button>
+                         <Button type="submit" size="sm" disabled={isSaving} className="bg-green-600 text-white hover:bg-green-700"><Save className="w-4 h-4 mr-1"/> {isSaving ? 'Salvando...' : (editingItem ? 'Atualizar Item' : 'Salvar no Estoque')}</Button>
                       </div>
                    </form>
                 </div>
