@@ -1,6 +1,3 @@
-
-
-
 import React, { useEffect, Suspense, lazy } from 'react';
 import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import Layout from './components/Layout';
@@ -27,6 +24,7 @@ const OperationSummerAudit = lazy(() => import('./pages/OperationSummerAudit'));
 
 // Módulo Administração
 const SystemAudit = lazy(() => import('./pages/SystemAudit'));
+const DatabaseUpdates = lazy(() => import('./pages/DatabaseUpdates')); // Novo
 
 // Componente de Loading elegante para feedback visual durante o carregamento de chunks
 const LoadingScreen = () => (
@@ -124,6 +122,7 @@ function App() {
           
           {/* Módulo Administração */}
           <Route path="/admin/audit" element={<Layout><SystemAudit /></Layout>} />
+          <Route path="/admin/db-updates" element={<Layout><DatabaseUpdates /></Layout>} />
 
           <Route path="/operations" element={<Layout><OperationManagement /></Layout>} />
           <Route path="/flight-plan" element={<Layout><FlightPlan /></Layout>} />

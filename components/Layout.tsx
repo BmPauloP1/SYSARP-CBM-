@@ -1,5 +1,3 @@
-
-
 import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { base44 } from "../services/base44Client";
@@ -56,7 +54,8 @@ const navigationItems: NavigationItem[] = [
     icon: Shield,
     adminOnly: true,
     children: [
-      { title: "Auditoria", url: "/admin/audit" }
+      { title: "Auditoria", url: "/admin/audit" },
+      { title: "Scripts SQL", url: "/admin/db-updates" }
     ]
   }
 ];

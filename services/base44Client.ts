@@ -661,6 +661,41 @@ const authHandler = {
      }
   },
 
+  adminResetPassword: async (userId: string, newPassword: string): Promise<void> => {
+    if (!isConfigured) {
+        const pilots = getLocal<Pilot>('sysarp_pilots');
+        const index = pilots.findIndex(p => p.id === userId);
+        if (index !== -1) {
+            pilots[index].password = newPassword;
+            pilots[index].change_password_required = true;
+            setLocal('sysarp_pilots', pilots);
+        }
+        return;
+    }
+
+    try {
+        const { error } = await supabase.rpc('admin_reset_user_password', {
+            user_id: userId,
+            new_password: newPassword
+        });
+
+        if (error) {
+            // Specific error for missing function
+            if (error.code === '42883' || error.message.includes('function admin_reset_user_password')) {
+                throw new Error("RPC_NOT_FOUND");
+            }
+            throw error;
+        }
+
+        // Also force change_password_required to true on the profile client-side for consistency
+        await base44.entities.Pilot.update(userId, { change_password_required: true });
+
+    } catch (e: any) {
+        console.error("RPC adminResetPassword failed:", e);
+        throw e;
+    }
+  },
+
   logout: async () => {
     // Try to log logout action before removing session
     try {

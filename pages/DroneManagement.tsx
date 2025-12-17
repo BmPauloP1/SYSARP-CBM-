@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
 import { Drone, Pilot, DroneChecklist, ChecklistItemState, DRONE_CHECKLIST_TEMPLATE, SYSARP_LOGO, Maintenance, ORGANIZATION_CHART } from "../types";
 import { Card, Button, Badge, DroneIcon, Input, Select } from "../components/ui_components";
-import { Plus, AlertTriangle, X, Save, Activity, Pencil, RotateCcw, ClipboardCheck, CheckCircle, Printer, FileText, Trash2, Box, MapPin, Zap, Filter, RefreshCcw, Search } from "lucide-react";
+import { Plus, AlertTriangle, X, Save, Activity, Pencil, RotateCcw, ClipboardCheck, CheckCircle, Printer, FileText, Trash2, Box, MapPin, Zap, Filter, RefreshCcw, Search, RefreshCw } from "lucide-react";
 import DroneInventoryModal from './DroneInventoryModal';
 
 // Generate HARPIA 01 to 100
@@ -261,6 +261,60 @@ export default function DroneManagement() {
       loadData();
     } finally {
       setDeletingId(null);
+    }
+  };
+  
+  const handleSyncStatus = async () => {
+    if (!confirm("Isso irá verificar todas as aeronaves 'Em Operação' e liberá-las se não estiverem vinculadas a nenhuma ocorrência ativa. Deseja continuar?")) {
+        return;
+    }
+
+    setLoading(true);
+    try {
+        // 1. Get all active operations
+        const activeOps = await base44.entities.Operation.filter({ status: 'active' });
+
+        // 2. Create a Set of all drone IDs that are legitimately in use
+        const inUseDroneIds = new Set<string>();
+        for (const op of activeOps) {
+            if (op.drone_id) {
+                inUseDroneIds.add(op.drone_id);
+            }
+            // If it's a multi-day op, we also need to check its daily assets
+            if (op.is_multi_day) {
+                const days = await base44.entities.OperationDay.filter({ operation_id: op.id });
+                for (const day of days) {
+                    const assets = await base44.entities.OperationDayAsset.filter({ operation_day_id: day.id });
+                    assets.forEach(asset => inUseDroneIds.add(asset.drone_id));
+                }
+            }
+        }
+
+        // 3. Get all drones currently marked as 'in_operation'
+        const busyDrones = await base44.entities.Drone.filter({ status: 'in_operation' });
+
+        // 4. Find the drones that are 'in_operation' but NOT in our 'inUse' set
+        const dronesToRelease = busyDrones.filter(d => !inUseDroneIds.has(d.id));
+
+        if (dronesToRelease.length === 0) {
+            alert("Nenhuma inconsistência encontrada. Todas as aeronaves 'Em Operação' estão vinculadas a ocorrências ativas.");
+            return;
+        }
+
+        // 5. Release the inconsistent drones
+        const releasePromises = dronesToRelease.map(drone =>
+            base44.entities.Drone.update(drone.id, { status: 'available' })
+        );
+        await Promise.all(releasePromises);
+
+        alert(`${dronesToRelease.length} aeronave(s) com status inconsistente foram liberadas com sucesso! A página será recarregada.`);
+        loadData(); // Reload data to reflect changes
+
+    } catch (error) {
+        console.error("Erro ao sincronizar status:", error);
+        alert("Ocorreu um erro durante a sincronização. Verifique o console.");
+    } finally {
+        setLoading(false);
     }
   };
 
@@ -671,10 +725,16 @@ export default function DroneManagement() {
                 Gestão de Frota
             </h1>
             {currentUser?.role === 'admin' && (
-                <Button onClick={() => setIsCreateModalOpen(true)} className="w-full md:w-auto">
+              <div className="flex gap-2 w-full md:w-auto">
+                <Button onClick={handleSyncStatus} disabled={loading} variant="outline" className="h-10 text-sm flex-1 md:flex-initial bg-white">
+                    <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                    Sincronizar Status
+                </Button>
+                <Button onClick={() => setIsCreateModalOpen(true)} className="h-10 text-sm flex-1 md:flex-initial">
                     <Plus className="w-4 h-4 mr-2" />
                     Nova Aeronave
                 </Button>
+              </div>
             )}
         </div>
         

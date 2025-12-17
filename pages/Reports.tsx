@@ -174,6 +174,37 @@ export default function Reports() {
     setLoading(true);
     try {
         const idsArray = Array.from(selectedIds);
+        
+        // --- NEW LOGIC: Release drones BEFORE deleting operations ---
+        const dronesToRelease = new Set<string>();
+        const opsToDelete = operations.filter(op => idsArray.includes(op.id));
+
+        for (const op of opsToDelete) {
+            // Only release drones from active operations being deleted
+            if (op.status === 'active') {
+                if (op.drone_id) {
+                    dronesToRelease.add(op.drone_id);
+                }
+                if (op.is_multi_day) {
+                    const days = await base44.entities.OperationDay.filter({ operation_id: op.id });
+                    for (const day of days) {
+                        const assets = await base44.entities.OperationDayAsset.filter({ operation_day_id: day.id });
+                        assets.forEach(asset => dronesToRelease.add(asset.drone_id));
+                    }
+                }
+            }
+        }
+
+        if (dronesToRelease.size > 0) {
+            console.log(`Liberando ${dronesToRelease.size} aeronave(s) antes de excluir as operações...`);
+            const releasePromises = Array.from(dronesToRelease).map(droneId =>
+                base44.entities.Drone.update(droneId, { status: 'available' })
+            );
+            await Promise.all(releasePromises);
+        }
+        // --- END OF NEW LOGIC ---
+
+        // Now, delete the operations
         await Promise.all(idsArray.map((id: string) => base44.entities.Operation.delete(id)));
         
         alert("Operações excluídas com sucesso.");
@@ -299,18 +330,19 @@ export default function Reports() {
          
          autoTable(doc, {
             startY: currentY,
-            head: [['Acionamento', 'Localização (Lat / Lon)', 'Natureza / Sub-Natureza', 'Raio (m)', 'Altura (m)']],
+            head: [['Acionamento', 'Localização (Lat / Lon)', 'Natureza / Sub-Natureza', 'Raio (m)', 'Altura (m)', 'A.R.O.']],
             body: [[
                 `${new Date(op.start_time).toLocaleDateString()} ${new Date(op.start_time).toLocaleTimeString()}`,
                 `${op.latitude.toFixed(5)}, ${op.longitude.toFixed(5)}`,
                 `${nature}\n${subNature}`,
                 op.radius?.toString() || '-',
-                op.flight_altitude?.toString() || '-'
+                op.flight_altitude?.toString() || '-',
+                op.aro ? 'REALIZADA' : 'PENDENTE'
             ]],
             theme: 'grid',
             headStyles: { fillColor: [220, 220, 220], textColor: 0, fontStyle: 'bold' },
             styles: { fontSize: 10, cellPadding: 3, valign: 'middle' },
-            columnStyles: { 2: { cellWidth: 60 } }
+            columnStyles: { 2: { cellWidth: 50 } }
          });
          currentY = (doc as any).lastAutoTable.finalY + 10;
 
@@ -428,11 +460,93 @@ export default function Reports() {
   };
 
   const handleDownloadFlightPlan = async (op: ExtendedOperation, e: React.MouseEvent) => {
+    e.stopPropagation();
     // ... existing implementation
+    alert("A função de download do Plano de Voo ainda não foi implementada.");
   };
 
   const handleDownloadAro = async (op: ExtendedOperation, e: React.MouseEvent) => {
-    // ... existing implementation
+    e.stopPropagation();
+    if (!op.aro) {
+        alert("Nenhum A.R.O. registrado para esta operação.");
+        return;
+    }
+
+    setGenerating(true);
+    try {
+        const jsPDFModule = await import('jspdf');
+        const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+        const autoTableModule = await import('jspdf-autotable');
+        const autoTable = autoTableModule.default;
+        
+        const doc = new jsPDF();
+        doc.setFontSize(16);
+        doc.setFont("helvetica", "bold");
+        doc.text("AVALIAÇÃO DE RISCO OPERACIONAL (A.R.O.)", 105, 15, { align: "center" });
+        
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Operação: ${op.name} (#${op.occurrence_number})`, 14, 25);
+        doc.text(`Data: ${new Date(op.start_time).toLocaleDateString()}`, 14, 30);
+        
+        const tableBody = op.aro.items.map(item => [
+            item.description,
+            item.probability,
+            item.severity,
+            item.risk_code,
+            item.mitigation
+        ]);
+
+        autoTable(doc, {
+            startY: 40,
+            head: [['Cenário de Risco', 'Prob.', 'Sev.', 'Risco', 'Medidas Mitigadoras']],
+            body: tableBody,
+            theme: 'grid',
+            headStyles: { fillColor: [41, 51, 61], textColor: 255 },
+            styles: { fontSize: 8 },
+            didParseCell: function (data) {
+                if (data.column.index === 3 && data.cell.section === 'body') {
+                    const riskCode = data.cell.raw as string;
+                    const red = ["5A", "5B", "5C", "4A", "4B", "3A"];
+                    const orange = ["5D", "4C", "3B", "2A", "2B"];
+                    const yellow = ["5E", "4D", "4E", "3C", "3D", "2C", "1A", "1B"];
+                    if (red.includes(riskCode)) {
+                        data.cell.styles.fillColor = '#b91c1c';
+                        data.cell.styles.textColor = '#ffffff';
+                    } else if (orange.includes(riskCode)) {
+                        data.cell.styles.fillColor = '#f97316';
+                        data.cell.styles.textColor = '#ffffff';
+                    } else if (yellow.includes(riskCode)) {
+                        data.cell.styles.fillColor = '#facc15';
+                        data.cell.styles.textColor = '#000000';
+                    } else {
+                        data.cell.styles.fillColor = '#16a34a';
+                        data.cell.styles.textColor = '#ffffff';
+                    }
+                }
+            }
+        });
+
+        let finalY = (doc as any).lastAutoTable.finalY + 15;
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "bold");
+        doc.text("Declaração de Responsabilidade", 14, finalY);
+        
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        finalY += 6;
+        doc.text(`Status: ${op.aro.declaration_accepted ? 'ACEITA' : 'NÃO ACEITA'}`, 14, finalY);
+        finalY += 6;
+        doc.text(`Responsável: ${op.aro.rubric || 'N/A'}`, 14, finalY);
+
+        doc.save(`ARO_${op.occurrence_number}.pdf`);
+
+    } catch (error) {
+        console.error(error);
+        alert("Erro ao gerar PDF do A.R.O.");
+    } finally {
+        setGenerating(false);
+    }
   };
 
   const mapMarkers = useMemo(() => {
@@ -469,7 +583,7 @@ export default function Reports() {
   }, [filteredOps]);
 
   return (
-    <div className="p-4 md:p-6 max-w-[1600px] mx-auto space-y-6 h-full overflow-y-auto">
+    <div className="p-4 md:p-6 max-w-[1600px] mx-auto space-y-6 h-full overflow-y-auto pb-20">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
            <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
@@ -637,40 +751,35 @@ export default function Reports() {
                              </td>
                              <td className="px-4 py-3 text-xs">
                                 <div className="flex items-center gap-2">
-                                   {op.aro ? 
-                                      <Badge className="bg-green-100 text-green-700">ARO OK</Badge> : 
-                                      <Badge className="bg-amber-100 text-amber-700">ARO Pend.</Badge>
-                                   }
-                                   
-                                   {op.flight_plan_data ? 
-                                      <Badge className="bg-blue-100 text-blue-700">Plan OK</Badge> : 
-                                      <span className="text-[10px] text-slate-400">Sem Plano</span>
-                                   }
-
-                                   <div className="flex gap-1 ml-1">
-                                      {op.aro && (
-                                          <Button 
-                                            variant="outline" 
-                                            className="h-6 w-6 p-0 border-slate-200" 
-                                            title="Baixar A.R.O. (Documento Completo)"
-                                            onClick={(e) => handleDownloadAro(op, e)}
-                                          >
-                                            <FileText className="w-3 h-3 text-green-600" />
-                                          </Button>
-                                      )}
-                                      {op.flight_plan_data && (
-                                          <Button 
-                                            variant="outline" 
-                                            className="h-6 w-6 p-0 border-slate-200" 
-                                            title="Baixar Plano de Voo (Documento Completo)"
-                                            onClick={(e) => handleDownloadFlightPlan(op, e)}
-                                          >
-                                            <Navigation className="w-3 h-3 text-blue-600" />
-                                          </Button>
-                                      )}
-                                   </div>
+                                    {op.aro ? (
+                                        <Button 
+                                          variant="outline" 
+                                          className="h-7 px-2 text-xs bg-green-50 text-green-700 border-green-200 hover:bg-green-100" 
+                                          title="Baixar A.R.O."
+                                          onClick={(e) => handleDownloadAro(op, e)}
+                                        >
+                                          <Download className="w-3 h-3 mr-1" /> ARO OK
+                                        </Button>
+                                      ) : (
+                                        <Badge className="bg-amber-100 text-amber-700">ARO Pend.</Badge>
+                                      )
+                                    }
+                                    
+                                    {op.flight_plan_data ? (
+                                        <Button 
+                                          variant="outline" 
+                                          className="h-7 px-2 text-xs bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100" 
+                                          title="Baixar Plano de Voo"
+                                          onClick={(e) => handleDownloadFlightPlan(op, e)}
+                                        >
+                                          <Download className="w-3 h-3 mr-1" /> Plan OK
+                                        </Button>
+                                      ) : (
+                                        <span className="text-[10px] text-slate-400">Sem Plano</span>
+                                      )
+                                    }
                                 </div>
-                             </td>
+                              </td>
                           </tr>
                        ))}
                     </tbody>

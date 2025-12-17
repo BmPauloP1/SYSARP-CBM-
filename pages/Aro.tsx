@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { base44 } from "../services/base44Client";
 import { Operation, ARO_SCENARIOS, AroItem, AroAssessment } from "../types";
@@ -27,15 +26,18 @@ const matrixData = {
   ]
 };
 
-const DEFAULT_ITEMS: AroItem[] = ARO_SCENARIOS.map((desc, idx) => ({
-  scenario_id: idx + 1,
-  description: desc,
-  probability: 1,
-  severity: 'E',
-  risk_code: '1E',
-  mitigation: '',
-  authorization_level: ''
-}));
+const DEFAULT_ITEMS: AroItem[] = ARO_SCENARIOS.map((desc, idx) => {
+  const isScenario8 = idx + 1 === 8;
+  return {
+    scenario_id: idx + 1,
+    description: desc,
+    probability: isScenario8 ? 5 : 1,
+    severity: isScenario8 ? 'A' : 'E',
+    risk_code: isScenario8 ? '5A' : '1E',
+    mitigation: isScenario8 ? 'Prevencao a eventos, risco de laser, luzes' : '',
+    authorization_level: isScenario8 ? 'Comando Superior / DECEA' : ''
+  };
+});
 
 export default function Aro() {
   const [activeOps, setActiveOps] = useState<Operation[]>([]);

@@ -146,7 +146,7 @@ export default function PilotManagement() {
   };
 
   const prevPage = () => {
-    if (currentPage > 1) setCurrentPage(prev => prev - 1);
+    if (currentPage > 1) setCurrentPage(prev => prev + 1);
   };
 
   // --- GERAR RELATÓRIO PDF ---
@@ -345,6 +345,59 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
       } finally {
         setLoading(false);
       }
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!editingPilotId || currentUser?.role !== 'admin') return;
+
+    const pilotToReset = pilots.find(p => p.id === editingPilotId);
+    if (!pilotToReset) return;
+    
+    const newPassword = '123321';
+
+    if (confirm(`Tem certeza que deseja resetar a senha de ${pilotToReset.full_name}?\n\nA nova senha temporária será: "${newPassword}"\n\nO piloto será obrigado a alterá-la no próximo login.`)) {
+        setLoading(true);
+        try {
+            await base44.auth.adminResetPassword(editingPilotId, newPassword);
+            alert(`Senha resetada com sucesso para "${newPassword}"!`);
+        } catch (error: any) {
+            if (error.message.includes("RPC_NOT_FOUND")) {
+                const fixSql = `
+-- HABILITA RESET DE SENHA PELO ADMIN
+-- Cole e execute no SQL Editor do Supabase para criar a função necessária.
+
+CREATE OR REPLACE FUNCTION admin_reset_user_password(user_id uuid, new_password text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  -- Atualiza a senha do usuário na tabela 'users' do schema 'auth'
+  UPDATE auth.users
+  SET
+    encrypted_password = crypt(new_password, gen_salt('bf')),
+    -- Força a expiração de sessões antigas
+    password_changed_at = now()
+  WHERE id = user_id;
+
+  -- Também marca que o usuário precisa mudar a senha no próximo login
+  UPDATE public.profiles
+  SET change_password_required = true
+  WHERE id = user_id;
+END;
+$$;
+
+-- Garante que a função pode ser chamada pelo app
+GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authenticated;
+                `;
+                setSqlError(fixSql);
+            } else {
+                alert(`Erro ao resetar senha: ${error.message}`);
+            }
+        } finally {
+            setLoading(false);
+        }
     }
   };
 
@@ -666,7 +719,7 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
                 ))}
               </div>
             ) : (
-              <div className="p-8 text-center text-slate-500 italic bg-white rounded-xl border border-slate-200">
+              <div className="p-8 text-center text-slate-500 italic bg-white rounded-xl border border-dashed">
                   Nenhum piloto encontrado.
               </div>
             )}
@@ -839,14 +892,26 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
                  </div>
               </div>
 
-              <div className="pt-4 flex gap-3">
-                <Button type="button" variant="outline" className="flex-1" onClick={() => setIsModalOpen(false)}>
+              <div className="pt-4 flex flex-col-reverse sm:flex-row gap-3">
+                <Button type="button" variant="outline" className="w-full sm:w-auto sm:flex-1" onClick={() => setIsModalOpen(false)}>
                   Cancelar
                 </Button>
-                <Button type="submit" disabled={loading} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white">
-                  <Save className="w-4 h-4 mr-2" />
-                  {loading ? "Salvando..." : (editingPilotId ? "Atualizar Piloto" : "Cadastrar Piloto")}
-                </Button>
+                <div className="flex flex-col-reverse sm:flex-row gap-3 w-full sm:flex-1">
+                    {currentUser?.role === 'admin' && editingPilotId && (
+                        <Button 
+                            type="button"
+                            className="w-full sm:w-auto sm:flex-1 bg-amber-500 hover:bg-amber-600 text-white" 
+                            onClick={handleResetPassword}
+                        >
+                            <Lock className="w-4 h-4 mr-2" />
+                            Resetar Senha
+                        </Button>
+                    )}
+                    <Button type="submit" disabled={loading} className="w-full sm:w-auto sm:flex-1 bg-blue-600 hover:bg-blue-700 text-white">
+                      <Save className="w-4 h-4 mr-2" />
+                      {loading ? "Salvando..." : (editingPilotId ? "Atualizar Piloto" : "Cadastrar Piloto")}
+                    </Button>
+                </div>
               </div>
             </form>
           </Card>

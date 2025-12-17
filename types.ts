@@ -1,4 +1,3 @@
-
 export type MissionType = 
   | 'fire' 
   | 'sar' 
@@ -209,7 +208,7 @@ export interface Operation {
   actions_taken?: string;
   sarpas_protocol?: string;
   is_summer_op?: boolean;
-  is_multi_day?: boolean; // Novo campo
+  is_multi_day?: boolean;
   aro?: AroAssessment;
   flight_plan_data?: string;
   shapes?: any;
@@ -217,6 +216,8 @@ export interface Operation {
   last_pause_start?: string | null;
   total_pause_duration?: number;
   pause_logs?: { start: string; end?: string; reason: string; duration?: number }[];
+  op_crbm?: string;
+  op_unit?: string;
 }
 
 // --- NEW MULTI-DAY OPERATION TYPES ---

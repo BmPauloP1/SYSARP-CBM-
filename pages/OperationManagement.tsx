@@ -5,7 +5,7 @@ import { base44 } from "../services/base44Client";
 import { supabase, isConfigured } from "../services/supabase"; 
 import { sarpasApi } from "../services/sarpasApi";
 import { operationSummerService } from "../services/operationSummerService";
-import { Operation, Drone, Pilot, MISSION_HIERARCHY, AroAssessment, MissionType, ConflictNotification } from "../types";
+import { Operation, Drone, Pilot, MISSION_HIERARCHY, AroAssessment, MissionType, ConflictNotification, ORGANIZATION_CHART } from "../types";
 import { SUMMER_LOCATIONS } from "../types_summer";
 import { Button, Input, Select, Badge, Card } from "../components/ui_components";
 import { Plus, Map as MapIcon, Clock, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, Users, Eye, History, Activity, Pause, Play, Edit3, Database, Copy, ChevronsRight, ChevronsLeft, ChevronsDown, ChevronsUp, Maximize2, Building2, Landmark, MapPin, Phone, Calendar, Hammer, Layers, MessageCircle } from "lucide-react";
@@ -365,16 +365,6 @@ const ResourceLayer = ({
   return <>{layerContent}</>;
 };
 
-const ChecklistModal = ({ onConfirm, onCancel }: any) => (
-    <div className="fixed inset-0 bg-black/70 z-[2000] flex items-center justify-center p-4">
-        <div className="bg-white p-6 rounded-lg max-w-md w-full">
-            <h2 className="font-bold text-xl mb-4">Checklist de Decolagem</h2>
-            <Button onClick={onConfirm} className="w-full bg-green-600 text-white">Confirmar</Button>
-            <Button variant="outline" onClick={onCancel} className="w-full mt-2">Cancelar</Button>
-        </div>
-    </div>
-);
-
 export default function OperationManagement() {
   const [operations, setOperations] = useState<Operation[]>([]);
   const [pilots, setPilots] = useState<Pilot[]>([]);
@@ -393,7 +383,6 @@ export default function OperationManagement() {
   // TABS FOR EDIT MODE
   const [editTab, setEditTab] = useState<'details' | 'daily_log'>('details');
 
-  const [showChecklist, setShowChecklist] = useState(false); 
   const [loading, setLoading] = useState(false);
   
   // SARPAS state
@@ -432,6 +421,8 @@ export default function OperationManagement() {
     date: new Date().toISOString().split('T')[0], // Novo Campo de Data
     start_time_local: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
     end_time_local: new Date(new Date().getTime() + 60*60*1000).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
+    op_crbm: '',
+    op_unit: '',
   };
 
   const [formData, setFormData] = useState(initialFormState);
@@ -546,6 +537,8 @@ export default function OperationManagement() {
         date: start.toISOString().split('T')[0], // Extrai a data
         start_time_local: start.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
         end_time_local: end.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
+        op_crbm: op.op_crbm || '',
+        op_unit: op.op_unit || '',
     });
     
     // Restaurar estado da Op. Verão e SARPAS (se existente)
@@ -578,7 +571,7 @@ export default function OperationManagement() {
     } else {
        if (!formData.pilot_name || !formData.drone_id) { alert("Dados obrigatórios faltando"); return; }
        if (isSummerOp && (!summerCity || !summerPost)) { alert("Selecione a cidade e o posto para a Operação Verão."); return; }
-       setShowChecklist(true);
+       performSave();
     }
   };
 
@@ -621,7 +614,9 @@ export default function OperationManagement() {
           shapes: formData.shapes,
           is_multi_day: formData.is_multi_day,
           is_summer_op: isSummerOp,
-          sarpas_protocol: protocol
+          sarpas_protocol: protocol,
+          op_crbm: formData.op_crbm,
+          op_unit: formData.op_unit,
       };
 
       let savedOp: Operation;
@@ -637,22 +632,25 @@ export default function OperationManagement() {
         // --- GERAÇÃO DE PROTOCOLO AUTOMÁTICO ---
         const currentYear = new Date().getFullYear();
         
-        // 1. Obter Lotação Limpa (Ex: "2º BBM" -> "2BBM")
-        const selectedPilot = pilots.find(p => p.id === formData.pilot_id);
-        let unitCode = "GRL"; 
-        if (selectedPilot?.unit) {
-            const unitPart = selectedPilot.unit.split(' - ')[0]; // Pega antes do hífen
-            unitCode = unitPart.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(); // Remove º, ª e espaços
+        let unitCode = "GRL";
+        if (isSummerOp) {
+            unitCode = "8BBM";
+        } else if (formData.op_unit) {
+            const unitPart = formData.op_unit.split(' - ')[0];
+            unitCode = unitPart.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+        } else {
+            const selectedPilot = pilots.find(p => p.id === formData.pilot_id);
+            if (selectedPilot?.unit) {
+                const unitPart = selectedPilot.unit.split(' - ')[0];
+                unitCode = unitPart.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+            }
         }
-
-        // 2. Obter Próximo Sequencial (Global)
-        // Busca a última operação criada para incrementar o ID
+        
         const allOps = await base44.entities.Operation.list('-created_at');
         const lastOp = allOps.length > 0 ? allOps[0] : null;
         
         let nextSeq = 1;
         if (lastOp && lastOp.occurrence_number) {
-            // Tenta extrair os últimos 5 dígitos do protocolo anterior
             const match = lastOp.occurrence_number.match(/(\d{5})$/);
             if (match) {
                 nextSeq = parseInt(match[1], 10) + 1;
@@ -758,6 +756,23 @@ export default function OperationManagement() {
       const msg = error.message || '';
       
       // FIX: Check for missing columns and ONLY show to admins
+      if (msg.includes("op_crbm") || msg.includes("op_unit")) {
+          if (currentUser?.role === 'admin') {
+              setSqlError(`
+-- ATUALIZAÇÃO NECESSÁRIA PARA ÁREA DE OCORRÊNCIA
+-- Copie e execute este código no SQL Editor do Supabase.
+
+ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS op_crbm text;
+ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS op_unit text;
+
+-- Atualizar cache do esquema
+NOTIFY pgrst, 'reload schema';
+              `);
+          } else {
+              alert("Erro de versão do sistema (área da ocorrência). Contate o administrador.");
+          }
+          return;
+      }
       if (msg.includes("is_multi_day") || msg.includes("is_summer_op") || msg.includes("sarpas_protocol")) {
           if (currentUser?.role === 'admin') {
               setSqlError(`
@@ -784,7 +799,6 @@ NOTIFY pgrst, 'reload schema';
       }
     } finally {
       setLoading(false);
-      setShowChecklist(false);
     }
   };
 
@@ -813,15 +827,42 @@ NOTIFY pgrst, 'reload schema';
             flight_hours: Number(finishData.flight_hours),
             description: finishData.description ? (isFinishing.description + "\n\n[CONCLUSÃO]: " + finishData.description) : isFinishing.description,
             end_time: new Date().toISOString(),
-            is_paused: false, // Ensure it's not paused when completed
+            is_paused: false,
             total_pause_duration: isFinishing.total_pause_duration,
             pause_logs: isFinishing.pause_logs
         });
         
+        // CORREÇÃO: Libera TODAS as aeronaves vinculadas à operação (principal e de múltiplos dias)
+        const dronesToRelease = new Set<string>();
+
+        // 1. Adiciona a aeronave principal
         if (isFinishing.drone_id) {
-           try {
-             await base44.entities.Drone.update(isFinishing.drone_id, { status: 'available' });
-           } catch(e) { console.warn("Erro ao liberar drone", e); }
+          dronesToRelease.add(isFinishing.drone_id);
+        }
+
+        // 2. Se for operação de múltiplos dias, busca todas as aeronaves nos diários
+        if (isFinishing.is_multi_day) {
+            try {
+                const days = await base44.entities.OperationDay.filter({ operation_id: isFinishing.id });
+                const dayIds = days.map(d => d.id);
+                
+                if (dayIds.length > 0) {
+                    const assets = await base44.entities.OperationDayAsset.filter(asset => dayIds.includes(asset.operation_day_id));
+                    assets.forEach(asset => dronesToRelease.add(asset.drone_id));
+                }
+            } catch(e) {
+                console.warn("Não foi possível buscar aeronaves de múltiplos dias para liberar:", e);
+            }
+        }
+
+        // 3. Atualiza o status de todas as aeronaves encontradas para "disponível"
+        if (dronesToRelease.size > 0) {
+            const releasePromises = Array.from(dronesToRelease).map(droneId =>
+                base44.entities.Drone.update(droneId, { status: 'available' }).catch(e => {
+                    console.warn(`Falha ao liberar a aeronave ${droneId}:`, e);
+                })
+            );
+            await Promise.all(releasePromises);
         }
 
         alert("Operação encerrada com sucesso!");
@@ -979,9 +1020,7 @@ NOTIFY pgrst, 'reload schema';
 
   return (
     <div className="flex flex-col lg:flex-row h-full w-full relative bg-slate-100 overflow-hidden">
-      {/* ... (Modal Components same as before) ... */}
-      {showChecklist && <ChecklistModal onConfirm={performSave} onCancel={() => setShowChecklist(false)} />}
-
+      
       {/* SQL FIX MODAL (Only for Admins) */}
       {sqlError && currentUser?.role === 'admin' && (
         <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
@@ -1185,7 +1224,7 @@ NOTIFY pgrst, 'reload schema';
             {isCreating ? (
             <>
                 {/* ... (Create/Edit Form logic remains same) ... */}
-                <div className="p-4 border-b flex items-center justify-between bg-slate-50 shrink-0">
+                <div className="p-4 border-b flex items-center justify-between bg-white shrink-0">
                     <div className="flex items-center gap-2">
                         <h2 className="font-bold text-lg text-slate-800">{isEditing ? 'Gerenciar Operação' : 'Nova Operação'}</h2>
                         {/* Only Mobile Collapse Button remains here, Desktop uses external */}
@@ -1225,6 +1264,30 @@ NOTIFY pgrst, 'reload schema';
                                 </Select>
                             </div>
 
+                            <div className="space-y-3 p-3 bg-white rounded border border-slate-200">
+                                <h3 className="text-xs font-bold text-slate-500 uppercase border-b pb-1 mb-2">Área da Ocorrência (Protocolo)</h3>
+                                <p className="text-[11px] text-slate-500 -mt-2 mb-2">Define a unidade no número do protocolo. Deixe em branco para usar a unidade do piloto.</p>
+                                <div className="grid grid-cols-2 gap-3">
+                                <Select 
+                                    label="CRBM da Área" 
+                                    value={formData.op_crbm} 
+                                    onChange={e => setFormData({...formData, op_crbm: e.target.value, op_unit: ''})}
+                                >
+                                    <option value="">(Padrão: Unidade do Piloto)</option>
+                                    {Object.keys(ORGANIZATION_CHART).map(crbm => <option key={crbm} value={crbm}>{crbm}</option>)}
+                                </Select>
+                                <Select 
+                                    label="Unidade da Área" 
+                                    value={formData.op_unit} 
+                                    disabled={!formData.op_crbm}
+                                    onChange={e => setFormData({...formData, op_unit: e.target.value})}
+                                >
+                                    <option value="">Selecione...</option>
+                                    {formData.op_crbm && ORGANIZATION_CHART[formData.op_crbm as keyof typeof ORGANIZATION_CHART]?.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                                </Select>
+                                </div>
+                            </div>
+                            
                             <div className="grid grid-cols-2 gap-3">
                                 <Select 
                                     label="Natureza da Missão" 
@@ -1256,7 +1319,7 @@ NOTIFY pgrst, 'reload schema';
                                 )}
                             </div>
 
-                            <div className="space-y-3 p-3 bg-slate-50 rounded border border-slate-200">
+                            <div className="space-y-3 p-3 bg-white rounded border border-slate-200">
                                 <h3 className="text-xs font-bold text-slate-500 uppercase border-b pb-1 mb-2">Equipe e Responsáveis</h3>
                                 <Input 
                                     label="Piloto em Comando (PIC) *" 
@@ -1282,15 +1345,10 @@ NOTIFY pgrst, 'reload schema';
                                         placeholder="Nome"
                                     />
                                     <Input 
-                                        label="Observador (Opcional)" 
-                                        list="pilots-list"
+                                        label="Observador (Opcional)"
                                         value={formData.observer_name || ''} 
-                                        onChange={e => {
-                                            const val = e.target.value;
-                                            const found = pilots.find(p => p.full_name === val);
-                                            setFormData({...formData, observer_name: val, observer_id: found ? found.id : ''});
-                                        }}
-                                        placeholder="Nome"
+                                        onChange={e => setFormData({...formData, observer_name: e.target.value, observer_id: ''})}
+                                        placeholder="Digite o nome (não cadastrado)"
                                     />
                                 </div>
                             </div>
@@ -1373,7 +1431,7 @@ NOTIFY pgrst, 'reload schema';
 
                             <div className="space-y-4 py-2 border-t border-b border-slate-100 my-2">
                                 {/* ... SARPAS & SUMMER OPS CHECKBOXES ... */}
-                                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                                <div className="bg-white p-4 rounded-lg border border-slate-200">
                                     <div className="flex items-center justify-between mb-2">
                                         <label className="flex items-center gap-2 font-bold text-slate-700 text-sm">
                                             <Send className="w-4 h-4 text-blue-600" />
@@ -1394,7 +1452,7 @@ NOTIFY pgrst, 'reload schema';
                                     />
                                 </div>
 
-                                <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                                <div className="bg-white p-4 rounded-lg border border-slate-200">
                                     <label className="flex items-center gap-3 cursor-pointer mb-2">
                                         <input 
                                             type="checkbox" 
@@ -1427,13 +1485,13 @@ NOTIFY pgrst, 'reload schema';
                                                 disabled={!summerCity}
                                             >
                                                 <option value="">Selecione o Posto...</option>
-                                                {summerCity && SUMMER_LOCATIONS[summerCity]?.map(post => <option key={post} value={post}>{post}</option>)}
+                                                {summerCity && SUMMER_LOCATIONS[summerCity as keyof typeof SUMMER_LOCATIONS]?.map(post => <option key={post} value={post}>{post}</option>)}
                                             </Select>
                                         </div>
                                     )}
                                 </div>
 
-                                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                                <div className="bg-white p-4 rounded-lg border border-slate-200">
                                     <label className="flex items-center gap-3 cursor-pointer">
                                         <input 
                                             type="checkbox" 
@@ -1461,7 +1519,7 @@ NOTIFY pgrst, 'reload schema';
             </>
             ) : (
             <>
-                <div className="p-4 border-b flex flex-col gap-4 bg-slate-50 shrink-0">
+                <div className="p-4 border-b flex flex-col gap-4 bg-white shrink-0">
                     <div className="flex justify-between items-center">
                         <div className="flex items-center gap-2">
                             <h2 className="font-bold text-lg text-slate-800">Operações</h2>
@@ -1469,7 +1527,7 @@ NOTIFY pgrst, 'reload schema';
                         </div>
                         <Button onClick={() => { setFormData(initialFormState); setIsCreating(true); setIsPanelCollapsed(false); }} size="sm"><Plus className="w-4 h-4 mr-1" /> Nova</Button>
                     </div>
-                    <div className="flex bg-slate-200 p-1 rounded-lg">
+                    <div className="flex bg-slate-100 p-1 rounded-lg">
                         <button className={`flex-1 py-1.5 text-xs font-bold rounded-md ${activeTab === 'active' ? 'bg-white text-green-700 shadow-sm' : 'text-slate-500'}`} onClick={() => setActiveTab('active')}>Ativas</button>
                         <button className={`flex-1 py-1.5 text-xs font-bold rounded-md ${activeTab === 'history' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500'}`} onClick={() => setActiveTab('history')}>Histórico</button>
                     </div>
