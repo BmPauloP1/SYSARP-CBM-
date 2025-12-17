@@ -28,9 +28,7 @@ BEGIN
   -- Atualiza a senha do usuário na tabela 'users' do schema 'auth'
   UPDATE auth.users
   SET
-    encrypted_password = crypt(new_password, gen_salt('bf')),
-    -- Força a expiração de sessões antigas
-    password_changed_at = now()
+    encrypted_password = crypt(new_password, gen_salt('bf'))
   WHERE id = user_id;
 
   -- Também marca que o usuário precisa mudar a senha no próximo login
