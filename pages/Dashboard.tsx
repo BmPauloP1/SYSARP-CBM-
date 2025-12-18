@@ -238,6 +238,7 @@ export default function Dashboard() {
           `📞 *Contato:* ${pilot ? pilot.phone : 'N/A'}\n` +
           `🛸 *Aeronave:* ${drone ? `${drone.model} (${drone.prefix})` : 'N/A'}\n` +
           `📍 *Coord:* ${op.latitude}, ${op.longitude}\n` +
+          `📏 *Parâmetros:* Raio: ${op.radius}m | Altura: ${op.flight_altitude || 'N/A'}m\n` +
           `🗺️ *Mapa:* ${mapLink}\n` +
           `🕒 *Início:* ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
           `🏁 *Término Previsto:* ${endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +

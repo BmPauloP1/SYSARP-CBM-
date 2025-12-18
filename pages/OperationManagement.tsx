@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
@@ -912,6 +913,7 @@ ALTER TABLE public.operations ALTER COLUMN flight_hours TYPE float USING flight_
           `👤 *Piloto:* ${pilot ? pilot.full_name : 'N/A'}\n` +
           `🛸 *Aeronave:* ${drone ? `${drone.model} (${drone.prefix})` : 'N/A'}\n` +
           `📍 *Coord:* ${op.latitude}, ${op.longitude}\n` +
+          `📏 *Parâmetros:* Raio: ${op.radius}m | Altura: ${op.flight_altitude || 'N/A'}m\n` +
           `🗺️ *Mapa:* ${mapLink}\n` +
           `🕒 *Início:* ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
           `🏁 *Término Previsto:* ${endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +

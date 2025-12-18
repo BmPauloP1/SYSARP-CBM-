@@ -276,9 +276,9 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
 
         let startY = 30;
 
-        const types = Object.keys(grouped).sort() as MaterialType[];
-        for (const type of types) {
-            const items = grouped[type];
+        // FIX: Use Object.entries to ensure `items` is correctly typed as an array, resolving a type inference issue.
+        const groupedEntries = Object.entries(grouped).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
+        for (const [type, items] of groupedEntries) {
             if (!items || items.length === 0) continue;
 
             if (startY > 250) {
@@ -287,7 +287,7 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
             }
 
             doc.setFontSize(12);
-            doc.text(getTabLabel(type), 14, startY);
+            doc.text(getTabLabel(type as MaterialType), 14, startY);
             startY += 2;
 
             const tableBody = items.map(item => [
