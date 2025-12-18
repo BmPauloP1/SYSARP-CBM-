@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, Button, Badge } from '../components/ui_components';
 import { Database, Copy, CheckCircle, AlertTriangle, ChevronDown, History } from 'lucide-react';
+import { base44 } from '../services/base44Client';
 
 // Define the structure for each SQL update script
 interface SqlUpdate {
@@ -8,11 +9,35 @@ interface SqlUpdate {
   title: string;
   description: string;
   sql: string;
-  category: 'profiles' | 'operations' | 'drones' | 'auth' | 'maintenances';
+  category: 'profiles' | 'operations' | 'drones' | 'auth' | 'maintenances' | 'system';
 }
 
 // Array of all SQL updates needed for the application
 const ALL_UPDATES: SqlUpdate[] = [
+  {
+    id: 'system_create_migrations_table',
+    title: 'Habilitar Controle de Versão do Banco',
+    description: 'Cria a tabela `schema_migrations` para rastrear quais atualizações SQL já foram aplicadas. Este é o script mais importante e deve ser o primeiro a ser executado para habilitar o novo sistema de controle.',
+    category: 'system',
+    sql: `
+CREATE TABLE IF NOT EXISTS public.schema_migrations (
+    id text PRIMARY KEY,
+    applied_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permitir Acesso Total a Migrations" ON public.schema_migrations;
+
+CREATE POLICY "Permitir Acesso Total a Migrations"
+    ON public.schema_migrations
+    FOR ALL
+    TO authenticated
+    USING (true)
+    WITH CHECK (true);
+
+NOTIFY pgrst, 'reload schema';
+`
+  },
   {
     id: 'auth_admin_reset_password',
     title: 'Habilitar Reset de Senha pelo Admin',
@@ -118,11 +143,15 @@ NOTIFY pgrst, 'reload schema';
   {
     id: 'summer_op_link',
     title: 'Vincular Op. Verão à Operação Principal',
-    description: 'Adiciona a coluna `operation_id` à tabela `op_summer_flights` e cria uma chave estrangeira para a tabela `operations`. Isso garante a integridade dos dados e permite buscar coordenadas exatas para o mapa de calor.',
+    description: 'Adiciona a coluna `operation_id` e uma chave estrangeira na tabela `op_summer_flights` para vincular à `operations`. O script agora remove a constraint se ela já existir, tornando a atualização re-executável.',
     category: 'operations',
     sql: `
 -- VINCULA OCORRÊNCIAS DE VERÃO À OPERAÇÃO PRINCIPAL
 ALTER TABLE public.op_summer_flights ADD COLUMN IF NOT EXISTS operation_id uuid;
+
+-- Garante que o script possa ser re-executado removendo a constraint se ela já existir
+ALTER TABLE public.op_summer_flights
+DROP CONSTRAINT IF EXISTS op_summer_flights_operation_id_fkey;
 
 ALTER TABLE public.op_summer_flights
 ADD CONSTRAINT op_summer_flights_operation_id_fkey
@@ -251,9 +280,6 @@ NOTIFY pgrst, 'reload schema';
   }
 ];
 
-const STORAGE_KEY = 'sysarp_sql_updates_applied';
-
-// FIX: Refactored component props into a named interface to resolve a TypeScript error where the `key` prop was being incorrectly type-checked.
 interface UpdateCardProps {
   update: SqlUpdate;
   applied: boolean;
@@ -261,9 +287,6 @@ interface UpdateCardProps {
   onCopy: (sql: string) => void;
 }
 
-// @FIX: Converted to a const arrow function component with React.FC.
-// This is a robust method for typing functional components that correctly handles
-// React's special props like `key`, preventing them from being checked against UpdateCardProps.
 const UpdateCard: React.FC<UpdateCardProps> = ({ update, applied, onMark, onCopy }) => {
   return (
     <Card className="p-0 overflow-hidden">
@@ -305,14 +328,16 @@ export default function DatabaseUpdates() {
   const [showCompleted, setShowCompleted] = useState(false);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        setApplied(new Set(JSON.parse(stored)));
+    const loadAppliedStatus = async () => {
+      try {
+        const appliedMigrations = await base44.entities.SchemaMigration.list();
+        const appliedIds = new Set(appliedMigrations.map(m => m.id));
+        setApplied(appliedIds);
+      } catch (e) {
+        console.error("Falha ao carregar status de atualizações do banco. Verifique se a tabela 'schema_migrations' existe.", e);
       }
-    } catch (e) {
-      console.error("Failed to load applied status from localStorage", e);
-    }
+    };
+    loadAppliedStatus();
   }, []);
 
   const reversedUpdates = useMemo(() => [...ALL_UPDATES].reverse(), []);
@@ -333,11 +358,15 @@ export default function DatabaseUpdates() {
       .catch(() => alert('Falha ao copiar.'));
   };
 
-  const markAsApplied = (id: string) => {
-    const newApplied = new Set(applied);
-    newApplied.add(id);
-    setApplied(newApplied);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(newApplied)));
+  const markAsApplied = async (id: string) => {
+    try {
+      await base44.entities.SchemaMigration.create({ id } as any);
+      const newApplied = new Set(applied);
+      newApplied.add(id);
+      setApplied(newApplied);
+    } catch (error) {
+      alert(`Erro ao marcar script como aplicado: ${error}`);
+    }
   };
 
   return (

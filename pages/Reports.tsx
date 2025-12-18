@@ -303,12 +303,13 @@ export default function Reports() {
          doc.text(`Protocolo: ${op.occurrence_number}`, pageWidth - 10, 22, { align: "right" });
 
          let currentY = 35;
+         let sectionCounter = 1;
 
          // --- ESCOPO 1: RECURSOS (PILOTO E AERONAVE) ---
          doc.setTextColor(0, 0, 0);
          doc.setFontSize(11);
          doc.setFont("helvetica", "bold");
-         doc.text("1. RECURSOS EMPREGADOS", 14, currentY);
+         doc.text(`${sectionCounter++}. RECURSOS EMPREGADOS`, 14, currentY);
          currentY += 5;
 
          autoTable(doc, {
@@ -327,7 +328,7 @@ export default function Reports() {
 
          // --- ESCOPO 2: DADOS DA OCORRÊNCIA ---
          doc.setFont("helvetica", "bold");
-         doc.text("2. DADOS DA OCORRÊNCIA", 14, currentY);
+         doc.text(`${sectionCounter++}. DADOS DA OCORRÊNCIA`, 14, currentY);
          currentY += 5;
 
          const nature = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
@@ -351,13 +352,35 @@ export default function Reports() {
          });
          currentY = (doc as any).lastAutoTable.finalY + 10;
 
+         // --- ESCOPO 2.1: MÚLTIPLOS PONTOS (NOVO) ---
+         if (op.takeoff_points && op.takeoff_points.length > 0) {
+            if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20; }
+            doc.setFont("helvetica", "bold");
+            doc.text(`2.1. Pontos de Interesse / Decolagem Múltiplos`, 14, currentY);
+            currentY += 5;
+
+            const pointsBody = op.takeoff_points.map((p, i) => [
+                `${i + 1}`, `${p.lat.toFixed(6)}`, `${p.lng.toFixed(6)}`, `${p.alt}m`
+            ]);
+
+            autoTable(doc, {
+                startY: currentY,
+                head: [['#', 'Latitude', 'Longitude', 'Altitude (AGL)']],
+                body: pointsBody,
+                theme: 'grid',
+                headStyles: { fillColor: [241, 245, 249], textColor: 0, fontStyle: 'bold' },
+                styles: { fontSize: 8, cellPadding: 2 }
+            });
+            currentY = (doc as any).lastAutoTable.finalY + 10;
+         }
+
          // --- ESCOPO 3: DESCRITIVO DA OCORRÊNCIA ---
          const fullDesc = op.description || '';
          const parts = fullDesc.split('[CONCLUSÃO]:');
          const mainDescription = parts[0].trim();
          
          doc.setFont("helvetica", "bold");
-         doc.text("3. DESCRITIVO DA OCORRÊNCIA", 14, currentY);
+         doc.text(`${sectionCounter++}. DESCRITIVO DA OCORRÊNCIA`, 14, currentY);
          currentY += 5;
 
          const splitDesc = doc.splitTextToSize(mainDescription || "Sem descrição registrada.", pageWidth - 28);
@@ -369,7 +392,7 @@ export default function Reports() {
          // Check page break
          if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20; }
          
-         // --- NOVO ESCOPO 4: TEMPOS E DURAÇÕES ---
+         // --- ESCOPO 4: TEMPOS E DURAÇÕES ---
          const startTime = new Date(op.start_time).getTime();
          const endTime = op.end_time ? new Date(op.end_time).getTime() : new Date().getTime();
          const totalDuration = (endTime - startTime) / 60000;
@@ -377,7 +400,7 @@ export default function Reports() {
          const effectiveFlightTime = op.flight_hours ? op.flight_hours * 60 : Math.max(0, totalDuration - pausedDuration);
 
          doc.setFont("helvetica", "bold");
-         doc.text("4. TEMPOS E DURAÇÕES", 14, currentY);
+         doc.text(`${sectionCounter++}. TEMPOS E DURAÇÕES`, 14, currentY);
          currentY += 5;
 
          autoTable(doc, {
@@ -400,7 +423,7 @@ export default function Reports() {
          if (op.is_multi_day && multiDayDetails[op.id]) {
              doc.setFont("helvetica", "bold");
              doc.setFontSize(11);
-             doc.text("5. HISTÓRICO OPERACIONAL (MULTI-DIAS)", 14, currentY);
+             doc.text(`${sectionCounter++}. HISTÓRICO OPERACIONAL (MULTI-DIAS)`, 14, currentY);
              currentY += 5;
 
              const details = multiDayDetails[op.id];
@@ -438,7 +461,7 @@ export default function Reports() {
 
          doc.setFont("helvetica", "bold");
          doc.setFontSize(11);
-         doc.text("6. AÇÕES DE ENCERRAMENTO E CONCLUSÃO", 14, currentY);
+         doc.text(`${sectionCounter++}. AÇÕES DE ENCERRAMENTO E CONCLUSÃO`, 14, currentY);
          currentY += 5;
 
          doc.setDrawColor(0);

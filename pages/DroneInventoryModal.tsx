@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { inventoryService } from '../services/inventoryService';
 import { base44 } from '../services/base44Client';
 import { Material, MaterialType, BatteryStats, PropellerStats, MaterialLog } from '../types_inventory';
 import { Drone } from '../types';
 import { Card, Button, Input, Select, Badge } from '../components/ui_components';
 import { X, Battery, Fan, Box, Plus, Trash2, History, AlertTriangle, CheckCircle, Activity, Save, Camera, Plug, Minus, Gamepad2, Pencil, Download, FileText, Search, Loader2 } from 'lucide-react';
-// FIX: Removed static imports for jspdf and jspdf-autotable to use dynamic imports, consistent with other files.
-// This resolves a TypeScript type inference issue causing the error.
 
+// Fix: Removed static imports for jspdf and jspdf-autotable to use dynamic imports.
+// This resolves a TypeScript type inference issue that was causing type conflicts throughout the file.
 interface DroneInventoryModalProps {
   drone: Drone;
   drones: Drone[];
@@ -254,10 +254,9 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
   const handleDownloadReport = async () => {
     setIsReportLoading(true);
     try {
-        const jsPDFModule = await import('jspdf');
-        const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
-        const autoTableModule = await import('jspdf-autotable');
-        const autoTable = autoTableModule.default;
+        // @FIX: Use modern dynamic import syntax for jspdf and jspdf-autotable to fix type inference issues.
+        const { default: jsPDF } = await import('jspdf');
+        const { default: autoTable } = await import('jspdf-autotable');
         
         const droneItems = materials; 
 
@@ -276,10 +275,9 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
 
         let startY = 30;
 
-        // FIX: Using Object.entries provides better type inference for 'items' inside the loop.
-        // By explicitly typing sortedEntries, TypeScript correctly infers `items` as Material[] inside the loop.
-        const sortedEntries: [string, Material[]][] = Object.entries(grouped).sort(([typeA], [typeB]) => typeA.localeCompare(typeB));
-        for (const [type, items] of sortedEntries) {
+        // FIX: Replaced Object.entries with Object.keys to resolve a TypeScript type inference issue.
+        // Reverting to Object.entries as it is safer for iterating key-value pairs and ensures `items` is correctly typed as an array.
+        for (const [type, items] of Object.entries(grouped)) {
             if (!items || items.length === 0) continue;
 
             if (startY > 250) {
@@ -291,7 +289,6 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
             doc.text(getTabLabel(type as MaterialType), 14, startY);
             startY += 2;
 
-            // FIX: Use the correctly typed `items` variable.
             const tableBody = items.map(item => [
                 item.name,
                 item.quantity,
@@ -370,8 +367,8 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
 
   const filteredMaterials = materials.filter(m => m.type === activeTab);
   
-  // FIX: Extracted array generation to a strongly typed variable to help TypeScript inference.
-  const uniqueMaterialNames: string[] = Array.from(new Set(allMaterials.filter(m => m.type === activeTab).map(m => m.name)));
+  // FIX: Wrap the derivation of uniqueMaterialNames in useMemo to prevent re-computation on every render and potentially resolve type inference issues.
+  const uniqueMaterialNames: string[] = useMemo(() => Array.from(new Set(allMaterials.filter(m => m.type === activeTab).map(m => m.name))), [allMaterials, activeTab]);
 
   return (
     <div className="fixed inset-0 bg-black/70 z-[3000] flex items-center justify-center p-4">
@@ -571,7 +568,7 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
                    
                    <form onSubmit={handleAddSubmit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                       <div className={isBatchMode ? "sm:col-span-4" : "sm:col-span-2"}>
-                         <Input label="Nome / Modelo" required placeholder="Ex: Bateria TB30..." value={newItem.name || ''} onChange={handleNameChange} />
+                         <Input list="material-names" label="Nome / Modelo" required placeholder="Ex: Bateria TB30..." value={newItem.name || ''} onChange={handleNameChange} />
                          <datalist id="material-names">
                            {uniqueMaterialNames.map(name => (
                              <option key={name} value={name} />

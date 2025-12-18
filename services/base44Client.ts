@@ -1,4 +1,5 @@
 
+
 import { supabase, isConfigured } from './supabase';
 import { Drone, Operation, Pilot, Maintenance, FlightLog, ConflictNotification, DroneChecklist, SystemAuditLog, OperationDay, OperationDayAsset, OperationDayPilot } from '../types';
 
@@ -14,7 +15,8 @@ const TABLE_MAP = {
   SystemAudit: 'system_audit',
   OperationDay: 'operation_days',
   OperationDayAsset: 'operation_day_assets',
-  OperationDayPilot: 'operation_day_pilots'
+  OperationDayPilot: 'operation_day_pilots',
+  SchemaMigration: 'schema_migrations'
 };
 
 // Chaves do LocalStorage para Fallback Offline
@@ -29,7 +31,8 @@ const STORAGE_KEYS = {
   SystemAudit: 'sysarp_system_audit',
   OperationDay: 'sysarp_op_days',
   OperationDayAsset: 'sysarp_op_day_assets',
-  OperationDayPilot: 'sysarp_op_day_pilots'
+  OperationDayPilot: 'sysarp_op_day_pilots',
+  SchemaMigration: 'sysarp_schema_migrations'
 };
 
 // Default Catalog Data
@@ -168,7 +171,10 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
           const column = orderBy.replace('-', '');
           query = query.order(column, { ascending });
         } else {
-          query = query.order('created_at', { ascending: false });
+          // A tabela de migrations não tem 'created_at', então usamos 'id'
+          if (entityName !== 'SchemaMigration') {
+             query = query.order('created_at', { ascending: false });
+          }
         }
 
         const timeoutPromise = new Promise((_, reject) => 
@@ -185,6 +191,13 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
         return data as unknown as T[];
       } catch (e: any) {
         const msg = e.message || '';
+        
+        // NOVO: Tratamento específico para a tabela de migrações que pode não existir na primeira execução.
+        if (entityName === 'SchemaMigration' && msg.includes("relation") && msg.includes("does not exist")) {
+            console.warn("[SYSARP DB] Tabela 'schema_migrations' não encontrada, assumindo primeira execução.");
+            setLocal(storageKey, []); // Limpa o cache local para garantir consistência
+            return []; // Retorna array vazio, permitindo que o script de criação seja exibido.
+        }
         
         // CORREÇÃO: Tratamento silencioso de erro de conexão ("Failed to fetch")
         if (msg.includes("Failed to fetch") || msg === "Timeout") {
@@ -308,7 +321,7 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
         const missingCol = msg.match(/Could not find the '(.+?)' column/)?.[1];
         if (missingCol) {
            // Fallback gracioso para a tabela de Auditoria se ela não existir
-           if (entityName === 'SystemAudit') {
+           if (entityName === 'SystemAudit' || entityName === 'SchemaMigration') {
              return createOffline();
            }
            // Fallback para novas tabelas de Operações Multidias
@@ -319,6 +332,8 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
         }
         
         if (msg.includes("relation") && msg.includes("does not exist")) {
+             // Fallback gracioso se a tabela de migrações não existir no primeiro uso
+             if(entityName === 'SchemaMigration') return createOffline();
              throw new Error("DB_TABLE_MISSING");
         }
         
@@ -765,6 +780,7 @@ export const base44 = {
     OperationDay: createEntityHandler<OperationDay>('OperationDay'),
     OperationDayAsset: createEntityHandler<OperationDayAsset>('OperationDayAsset'),
     OperationDayPilot: createEntityHandler<OperationDayPilot>('OperationDayPilot'),
+    SchemaMigration: createEntityHandler<{ id: string }>('SchemaMigration'),
   },
   auth: authHandler,
   system: authHandler.system,

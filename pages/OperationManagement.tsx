@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
@@ -9,7 +10,7 @@ import { operationSummerService } from "../services/operationSummerService";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, AroAssessment, MissionType, ConflictNotification, ORGANIZATION_CHART } from "../types";
 import { SUMMER_LOCATIONS } from "../types_summer";
 import { Button, Input, Select, Badge, Card } from "../components/ui_components";
-import { Plus, Map as MapIcon, Clock, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, Users, Eye, History, Activity, Pause, Play, Edit3, Database, Copy, ChevronsRight, ChevronsLeft, ChevronsDown, ChevronsUp, Maximize2, Building2, Landmark, MapPin, Phone, Calendar, Hammer, Layers, MessageCircle } from "lucide-react";
+import { Plus, Map as MapIcon, Clock, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, Users, Eye, History, Activity, Pause, Play, Edit3, Database, Copy, ChevronsRight, ChevronsLeft, ChevronsDown, ChevronsUp, Maximize2, Building2, Landmark, MapPin, Phone, Calendar, Hammer, Layers, MessageCircle, Trash2 } from "lucide-react";
 import OperationDailyLog from "../components/OperationDailyLog";
 
 // Imports Geoman
@@ -119,6 +120,15 @@ const tempIcon = L.icon({
   popupAnchor: [1, -34],
   shadowSize: [41, 41]
 });
+
+// NOVO: Ícone para pontos de decolagem secundários
+const takeoffPointIcon = L.divIcon({
+    html: `<div class="w-3 h-3 bg-blue-500 rounded-full border-2 border-white shadow-md"></div>`,
+    className: 'bg-transparent',
+    iconSize: [12, 12],
+    iconAnchor: [6, 6]
+});
+
 
 const isValidCoord = (lat: any, lng: any) => {
   const nLat = Number(lat);
@@ -399,6 +409,9 @@ export default function OperationManagement() {
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const [geoKey, setGeoKey] = useState(0);
 
+  // NOVO: State para seleção de ponto no mapa
+  const [selectingPointIndex, setSelectingPointIndex] = useState<number | null>(null);
+
   const initialFormState = {
     name: '',
     pilot_id: '',
@@ -424,6 +437,7 @@ export default function OperationManagement() {
     end_time_local: new Date(new Date().getTime() + 60*60*1000).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
     op_crbm: '',
     op_unit: '',
+    takeoff_points: [] as { lat: number; lng: number; alt: number }[],
   };
 
   const [formData, setFormData] = useState(initialFormState);
@@ -504,10 +518,16 @@ export default function OperationManagement() {
   }, [isFinishing]);
 
   const handleLocationSelect = (lat: number, lng: number) => {
-    // Round to 6 decimal places for precision
     const roundedLat = Number(lat.toFixed(6));
     const roundedLng = Number(lng.toFixed(6));
-    setFormData(prev => ({ ...prev, latitude: roundedLat, longitude: roundedLng }));
+  
+    if (selectingPointIndex !== null) {
+      handlePointChange(selectingPointIndex, 'lat', roundedLat);
+      handlePointChange(selectingPointIndex, 'lng', roundedLng);
+      setSelectingPointIndex(null);
+    } else {
+      setFormData(prev => ({ ...prev, latitude: roundedLat, longitude: roundedLng }));
+    }
   };
 
   const handleStartEdit = (op: Operation) => {
@@ -516,6 +536,7 @@ export default function OperationManagement() {
     const safeMissionType = MISSION_HIERARCHY[op.mission_type] ? op.mission_type : 'diverse';
 
     setFormData({
+        ...initialFormState,
         name: op.name,
         pilot_id: op.pilot_id || '',
         pilot_name: op.pilot_name || '',
@@ -540,6 +561,7 @@ export default function OperationManagement() {
         end_time_local: end.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
         op_crbm: op.op_crbm || '',
         op_unit: op.op_unit || '',
+        takeoff_points: op.takeoff_points || [],
     });
     
     // Restaurar estado da Op. Verão e SARPAS (se existente)
@@ -584,6 +606,29 @@ export default function OperationManagement() {
     const date = new Date(year, month - 1, day, hours, minutes);
     return date.toISOString();
   };
+  
+  // Handlers para Múltiplos Pontos
+  const handleAddPoint = () => {
+    const newPoint = { lat: formData.latitude, lng: formData.longitude, alt: formData.flight_altitude };
+    setFormData(prev => ({
+        ...prev,
+        takeoff_points: [...(prev.takeoff_points || []), newPoint]
+    }));
+  };
+
+  const handlePointChange = (index: number, field: 'lat' | 'lng' | 'alt', value: string | number) => {
+    const newPoints = [...(formData.takeoff_points || [])];
+    // @ts-ignore
+    newPoints[index][field] = Number(value);
+    setFormData(prev => ({ ...prev, takeoff_points: newPoints }));
+  };
+  
+  const handleRemovePoint = (index: number) => {
+    const newPoints = [...(formData.takeoff_points || [])];
+    newPoints.splice(index, 1);
+    setFormData(prev => ({ ...prev, takeoff_points: newPoints }));
+  };
+
 
   const performSave = async () => {
     setLoading(true);
@@ -618,6 +663,7 @@ export default function OperationManagement() {
           sarpas_protocol: protocol,
           op_crbm: formData.op_crbm,
           op_unit: formData.op_unit,
+          takeoff_points: formData.takeoff_points, // Adicionado
       };
 
       let savedOp: Operation;
@@ -757,6 +803,22 @@ export default function OperationManagement() {
       console.error(error);
       const msg = error.message || '';
       
+      if (msg.includes("takeoff_points")) {
+        if (currentUser?.role === 'admin') {
+            setSqlError(`
+-- ATUALIZAÇÃO NECESSÁRIA PARA MÚLTIPLOS PONTOS
+-- Copie e execute este código no SQL Editor do Supabase.
+
+ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS takeoff_points jsonb;
+
+-- Atualizar cache do esquema
+NOTIFY pgrst, 'reload schema';
+            `);
+        } else {
+            alert("Erro de versão do sistema (múltiplos pontos). Contate o administrador.");
+        }
+        return;
+      }
       if (msg.includes("op_crbm") || msg.includes("op_unit")) {
           if (currentUser?.role === 'admin') {
               setSqlError(`
@@ -907,15 +969,24 @@ ALTER TABLE public.operations ALTER COLUMN flight_hours TYPE float USING flight_
           ? new Date(op.end_time) 
           : new Date(startTime.getTime() + 2 * 60 * 60 * 1000); 
 
+      let locationText = `📍 *Ponto Principal:* ${op.latitude}, ${op.longitude}\n` +
+                         `📏 *Parâmetros:* Raio: ${op.radius}m | Altura: ${op.flight_altitude || 'N/A'}m\n`;
+
+      if (op.takeoff_points && op.takeoff_points.length > 0) {
+          locationText = `📍 *Pontos de Interesse:*\n` +
+              op.takeoff_points.map((p, i) => 
+                  `   ${i+1}: Lat ${p.lat.toFixed(5)}, Lng ${p.lng.toFixed(5)} (Alt: ${p.alt}m)`
+              ).join('\n') + `\n\n📏 *Raio Principal:* ${op.radius}m\n`;
+      }
+
       const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n` +
           `🚁 *Ocorrência:* ${op.name}\n` +
           `🔢 *Protocolo:* ${op.occurrence_number}\n` +
           `📋 *Natureza:* ${missionLabel}\n` +
           `👤 *Piloto:* ${pilot ? pilot.full_name : 'N/A'}\n` +
           `🛸 *Aeronave:* ${drone ? `${drone.model} (${drone.prefix})` : 'N/A'}\n` +
-          `📍 *Coord:* ${op.latitude}, ${op.longitude}\n` +
-          `📏 *Parâmetros:* Raio: ${op.radius}m | Altura: ${op.flight_altitude || 'N/A'}m\n` +
-          `🗺️ *Mapa:* ${mapLink}\n` +
+          `${locationText}` +
+          `🗺️ *Mapa (Ponto Principal):* ${mapLink}\n` +
           `🕒 *Início:* ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
           `🏁 *Término Previsto:* ${endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
           `${streamText}\n\n` +
@@ -1115,7 +1186,7 @@ NOTIFY pgrst, 'reload schema';
                <Marker position={[formData.latitude, formData.longitude]} icon={tempIcon}>
                   <Popup>
                      <div className="text-center">
-                        <strong className="block text-red-600">Nova Operação</strong>
+                        <strong className="block text-red-600">Ponto Principal</strong>
                         <span className="text-xs">Lat: {formData.latitude}<br/>Lng: {formData.longitude}</span>
                      </div>
                   </Popup>
@@ -1125,6 +1196,14 @@ NOTIFY pgrst, 'reload schema';
                   radius={Number(formData.radius) || 500} 
                   pathOptions={{ color: 'red', fillColor: 'red', fillOpacity: 0.1, dashArray: '5, 5' }} 
                />
+               {/* Marcadores para pontos de decolagem */}
+               {formData.takeoff_points?.map((point, index) => (
+                    isValidCoord(point.lat, point.lng) && (
+                        <Marker key={`tp-${index}`} position={[point.lat, point.lng]} icon={takeoffPointIcon}>
+                            <Popup>Ponto de Interesse #{index+1}</Popup>
+                        </Marker>
+                    )
+               ))}
              </>
           )}
 
@@ -1215,7 +1294,7 @@ NOTIFY pgrst, 'reload schema';
         {isCreating && (
             <div className="absolute bottom-8 right-8 z-[1000] flex flex-col gap-2">
                 <div className="bg-white px-3 py-1 rounded shadow text-xs font-bold text-slate-600 mb-1">
-                   Clique no mapa para posicionar
+                   {selectingPointIndex !== null ? `Selecionando Ponto #${selectingPointIndex + 1}...` : 'Clique no mapa para posicionar'}
                 </div>
             </div>
         )}
@@ -1335,7 +1414,6 @@ NOTIFY pgrst, 'reload schema';
                                             ...formData, 
                                             pilot_name: val, 
                                             pilot_id: found ? found.id : '',
-                                            // Auto-fill CRBM and Unit if pilot is found
                                             ...(found ? { op_crbm: found.crbm, op_unit: found.unit } : {})
                                         });
                                     }}
@@ -1361,82 +1439,59 @@ NOTIFY pgrst, 'reload schema';
                                     />
                                 </div>
                             </div>
-
-                            <div className="grid grid-cols-2 gap-3">
-                                <Input 
-                                   label="Latitude" 
-                                   type="number"
-                                   step="any"
-                                   value={formData.latitude} 
-                                   onChange={e => setFormData({...formData, latitude: parseFloat(e.target.value) || 0})}
-                                   className="bg-white" 
-                                />
-                                <Input 
-                                   label="Longitude" 
-                                   type="number"
-                                   step="any"
-                                   value={formData.longitude} 
-                                   onChange={e => setFormData({...formData, longitude: parseFloat(e.target.value) || 0})}
-                                   className="bg-white" 
-                                />
-                            </div>
                             
-                            <div className="grid grid-cols-2 gap-3">
-                                <Input 
-                                    label="Raio (m)" 
-                                    type="number" 
-                                    value={formData.radius} 
-                                    onChange={e => setFormData({...formData, radius: Number(e.target.value)})}
-                                />
-                                <Input 
-                                    label="Altitude Máx (m)" 
-                                    type="number" 
-                                    value={formData.flight_altitude} 
-                                    onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})}
-                                />
+                            {/* GEOLOCATION */}
+                            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-4">
+                               <h3 className="text-sm font-bold text-slate-700">Geolocalização</h3>
+                               <div className="grid grid-cols-2 gap-3">
+                                  <Input label="Latitude (Ponto Principal)" type="number" step="any" value={formData.latitude} onChange={e => setFormData({...formData, latitude: parseFloat(e.target.value) || 0})} className="bg-white" />
+                                  <Input label="Longitude (Ponto Principal)" type="number" step="any" value={formData.longitude} onChange={e => setFormData({...formData, longitude: parseFloat(e.target.value) || 0})} className="bg-white" />
+                               </div>
+                               <div className="grid grid-cols-2 gap-3">
+                                  <Input label="Raio (m)" type="number" value={formData.radius} onChange={e => setFormData({...formData, radius: Number(e.target.value)})}/>
+                                  <Input label="Altitude Máx (m)" type="number" value={formData.flight_altitude} onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})}/>
+                               </div>
+                               
+                               {/* MÚLTIPLOS PONTOS */}
+                               <div className="space-y-3 pt-3 border-t">
+                                  <h4 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
+                                     <Layers className="w-4 h-4" /> Pontos de Interesse / Decolagem
+                                  </h4>
+                                  
+                                  {formData.takeoff_points?.map((point, index) => (
+                                     <div key={index} className="grid grid-cols-12 gap-2 items-end bg-white p-2 rounded border">
+                                        <div className="col-span-1 text-center font-bold text-slate-400">#{index+1}</div>
+                                        <div className="col-span-4"><Input label="Lat" type="number" step="any" value={point.lat} onChange={e => handlePointChange(index, 'lat', e.target.value)} className="text-xs p-1" /></div>
+                                        <div className="col-span-4"><Input label="Lng" type="number" step="any" value={point.lng} onChange={e => handlePointChange(index, 'lng', e.target.value)} className="text-xs p-1" /></div>
+                                        <div className="col-span-2"><Input label="Alt(m)" type="number" value={point.alt} onChange={e => handlePointChange(index, 'alt', e.target.value)} className="text-xs p-1" /></div>
+                                        <div className="col-span-1 flex gap-1">
+                                            <Button type="button" variant="outline" size="sm" onClick={() => setSelectingPointIndex(index)} className="h-8 w-8 p-0" title="Definir no Mapa"><MapPin className="w-4 h-4"/></Button>
+                                            <Button type="button" variant="danger" size="sm" onClick={() => handleRemovePoint(index)} className="h-8 w-8 p-0 bg-red-50 text-red-600 border-red-100" title="Remover"><Trash2 className="w-4 h-4"/></Button>
+                                        </div>
+                                     </div>
+                                  ))}
+                                  <Button type="button" variant="outline" size="sm" onClick={handleAddPoint} className="w-full bg-slate-100 border-dashed">
+                                     <Plus className="w-4 h-4 mr-2" /> Adicionar Ponto de Interesse
+                                  </Button>
+                               </div>
                             </div>
+
 
                             <div className="space-y-2">
                                 <label className="text-xs font-bold text-slate-500 uppercase border-b pb-1 block">Data e Horário</label>
-                                <Input 
-                                    label="Data da Ocorrência" 
-                                    type="date"
-                                    value={formData.date}
-                                    onChange={e => setFormData({...formData, date: e.target.value})}
-                                    className="bg-white border-blue-200"
-                                />
+                                <Input label="Data da Ocorrência" type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="bg-white border-blue-200"/>
                                 <div className="grid grid-cols-2 gap-3">
-                                    <Input 
-                                        label="Início (Local)" 
-                                        type="time" 
-                                        value={formData.start_time_local} 
-                                        onChange={e => setFormData({...formData, start_time_local: e.target.value})}
-                                    />
-                                    <Input 
-                                        label="Término Previsto" 
-                                        type="time" 
-                                        value={formData.end_time_local} 
-                                        onChange={e => setFormData({...formData, end_time_local: e.target.value})}
-                                    />
+                                    <Input label="Início (Local)" type="time" value={formData.start_time_local} onChange={e => setFormData({...formData, start_time_local: e.target.value})}/>
+                                    <Input label="Término Previsto" type="time" value={formData.end_time_local} onChange={e => setFormData({...formData, end_time_local: e.target.value})}/>
                                 </div>
                             </div>
 
                             <div>
                                 <label className="text-sm font-medium text-slate-700 block mb-1">Descrição / Notas</label>
-                                <textarea 
-                                    className="w-full p-2 border border-slate-300 rounded text-sm h-24 resize-none focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                                    value={formData.description}
-                                    onChange={e => setFormData({...formData, description: e.target.value})}
-                                    placeholder="Detalhes da operação..."
-                                />
+                                <textarea className="w-full p-2 border border-slate-300 rounded text-sm h-24 resize-none focus:ring-2 focus:ring-blue-500 outline-none bg-white" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Detalhes da operação..."/>
                             </div>
 
-                            <Input 
-                                label="Link de Transmissão (Opcional)" 
-                                placeholder="RTMP / YouTube / DroneDeploy"
-                                value={formData.stream_url} 
-                                onChange={e => setFormData({...formData, stream_url: e.target.value})}
-                            />
+                            <Input label="Link de Transmissão (Opcional)" placeholder="RTMP / YouTube / DroneDeploy" value={formData.stream_url} onChange={e => setFormData({...formData, stream_url: e.target.value})}/>
 
                             <div className="space-y-4 py-2 border-t border-b border-slate-100 my-2">
                                 {/* ... SARPAS & SUMMER OPS CHECKBOXES ... */}
@@ -1450,25 +1505,12 @@ NOTIFY pgrst, 'reload schema';
                                             <Hammer className="w-3 h-3" /> Em Construção
                                         </Badge>
                                     </div>
-                                    
-                                    <Input
-                                        label="Protocolo SARPAS (Manual)"
-                                        placeholder="Ex: BR-2024-..."
-                                        value={formData.sarpas_protocol}
-                                        onChange={e => setFormData({...formData, sarpas_protocol: e.target.value})}
-                                        className="bg-white"
-                                        labelClassName="text-xs text-slate-500 font-normal"
-                                    />
+                                    <Input label="Protocolo SARPAS (Manual)" placeholder="Ex: BR-2024-..." value={formData.sarpas_protocol} onChange={e => setFormData({...formData, sarpas_protocol: e.target.value})} className="bg-white" labelClassName="text-xs text-slate-500 font-normal"/>
                                 </div>
 
                                 <div className="bg-white p-4 rounded-lg border border-slate-200">
                                     <label className="flex items-center gap-3 cursor-pointer mb-2">
-                                        <input 
-                                            type="checkbox" 
-                                            className="w-5 h-5 accent-orange-600"
-                                            checked={isSummerOp}
-                                            onChange={e => setIsSummerOp(e.target.checked)}
-                                        />
+                                        <input type="checkbox" className="w-5 h-5 accent-orange-600" checked={isSummerOp} onChange={e => setIsSummerOp(e.target.checked)}/>
                                         <div>
                                             <span className="font-bold text-slate-800 text-sm block flex items-center gap-2">
                                                 <Sun className="w-4 h-4 text-orange-600" />
@@ -1476,23 +1518,13 @@ NOTIFY pgrst, 'reload schema';
                                             </span>
                                         </div>
                                     </label>
-                                    
                                     {isSummerOp && (
                                         <div className="grid grid-cols-2 gap-2 mt-2 animate-fade-in pl-8">
-                                            <Select 
-                                                value={summerCity} 
-                                                onChange={e => { setSummerCity(e.target.value); setSummerPost(""); }}
-                                                className="text-xs"
-                                            >
+                                            <Select value={summerCity} onChange={e => { setSummerCity(e.target.value); setSummerPost(""); }} className="text-xs">
                                                 <option value="">Selecione a Cidade...</option>
                                                 {Object.keys(SUMMER_LOCATIONS).map(city => <option key={city} value={city}>{city}</option>)}
                                             </Select>
-                                            <Select 
-                                                value={summerPost} 
-                                                onChange={e => setSummerPost(e.target.value)}
-                                                className="text-xs"
-                                                disabled={!summerCity}
-                                            >
+                                            <Select value={summerPost} onChange={e => setSummerPost(e.target.value)} className="text-xs" disabled={!summerCity}>
                                                 <option value="">Selecione o Posto...</option>
                                                 {summerCity && SUMMER_LOCATIONS[summerCity as keyof typeof SUMMER_LOCATIONS]?.map(post => <option key={post} value={post}>{post}</option>)}
                                             </Select>
@@ -1502,12 +1534,7 @@ NOTIFY pgrst, 'reload schema';
 
                                 <div className="bg-white p-4 rounded-lg border border-slate-200">
                                     <label className="flex items-center gap-3 cursor-pointer">
-                                        <input 
-                                            type="checkbox" 
-                                            className="w-5 h-5 accent-blue-600"
-                                            checked={formData.is_multi_day}
-                                            onChange={e => setFormData({...formData, is_multi_day: e.target.checked})}
-                                        />
+                                        <input type="checkbox" className="w-5 h-5 accent-blue-600" checked={formData.is_multi_day} onChange={e => setFormData({...formData, is_multi_day: e.target.checked})}/>
                                         <div>
                                             <span className="font-bold text-slate-800 text-sm block">A ocorrência vai se estender por mais de um dia?</span>
                                             <span className="text-xs text-slate-500">Habilita a aba "Diário Operacional" após salvar.</span>

@@ -4,8 +4,7 @@ import { Material, MaterialType, MaterialLog, BatteryStats, PropellerStats, Heal
 const STORAGE_MAT_KEY = 'sysarp_materials';
 const STORAGE_LOG_KEY = 'sysarp_material_logs';
 
-// FIX: Made getLocal generic to return typed arrays instead of any[].
-// Helpers para LocalStorage (Modo Offline/Fallback)
+// Fix: Made getLocal generic to return typed arrays instead of any[], improving type safety.
 const getLocal = <T,>(key: string): T[] => JSON.parse(localStorage.getItem(key) || '[]');
 const setLocal = (key: string, data: any) => localStorage.setItem(key, JSON.stringify(data));
 
@@ -14,7 +13,7 @@ export const inventoryService = {
   // --- LEITURA ---
   getAllMaterials: async (): Promise<Material[]> => {
     if (!isConfigured) {
-      // FIX: Use generic type argument for getLocal.
+      // Fix: Use generic type argument for getLocal to ensure a typed return value.
       return getLocal<Material>(STORAGE_MAT_KEY);
     }
     try {
@@ -26,7 +25,7 @@ export const inventoryService = {
           propeller_stats (*)
         `);
       if (error) throw error;
-      // FIX: data can be null if no records are found, which would cause .map to fail.
+      // Fix: Handle cases where `data` is null (e.g., no records found) to prevent runtime errors on `.map`.
       return (data || []).map((m: any) => ({
         ...m,
         battery_stats: m.battery_stats?.[0] || undefined,
@@ -34,14 +33,12 @@ export const inventoryService = {
       })) as Material[];
     } catch (e) {
       console.warn("Full inventory fetch error, using local:", e);
-      // FIX: Use generic type argument for getLocal.
       return getLocal<Material>(STORAGE_MAT_KEY);
     }
   },
   
   getMaterialsByDrone: async (droneId: string): Promise<Material[]> => {
     if (!isConfigured) {
-      // FIX: Use generic type argument for getLocal.
       const all = getLocal<Material>(STORAGE_MAT_KEY);
       return all.filter((m: Material) => m.drone_id === droneId);
     }
@@ -59,8 +56,7 @@ export const inventoryService = {
 
       if (error) throw error;
       
-      // Flatten arrays returned by join to single objects
-      // FIX: data can be null if no records are found, which would cause .map to fail.
+      // Fix: Handle cases where `data` is null to prevent runtime errors and correctly flatten join results.
       return (data || []).map((m: any) => ({
         ...m,
         battery_stats: m.battery_stats?.[0] || undefined,
@@ -68,7 +64,6 @@ export const inventoryService = {
       })) as Material[];
     } catch (e) {
       console.warn("Inventory fetch error, using local:", e);
-      // FIX: Use generic type argument for getLocal.
       const all = getLocal<Material>(STORAGE_MAT_KEY);
       return all.filter((m: Material) => m.drone_id === droneId);
     }
