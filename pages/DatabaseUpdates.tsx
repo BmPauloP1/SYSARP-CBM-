@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, Button, Badge } from '../components/ui_components';
-import { Database, Copy, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Database, Copy, CheckCircle, AlertTriangle, ChevronDown, History } from 'lucide-react';
 
 // Define the structure for each SQL update script
 interface SqlUpdate {
@@ -235,8 +235,44 @@ NOTIFY pgrst, 'reload schema';
 
 const STORAGE_KEY = 'sysarp_sql_updates_applied';
 
+// @fix: Added onMark and onCopy to component props and removed incorrect 'key' prop from Card.
+const UpdateCard = ({ update, applied, onMark, onCopy }: { update: SqlUpdate; applied: boolean; onMark: (id: string) => void; onCopy: (sql: string) => void; }) => (
+  <Card className="p-0 overflow-hidden">
+    <div className={`p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${applied ? 'bg-green-50' : 'bg-slate-50'}`}>
+      <div>
+        <Badge className="mb-2 text-xs">{update.category.toUpperCase()}</Badge>
+        <h3 className="font-bold text-slate-800">{update.title}</h3>
+        <p className="text-xs text-slate-500 mt-1 max-w-2xl">{update.description}</p>
+      </div>
+      <div className="flex items-center gap-2 w-full sm:w-auto">
+        {applied ? (
+          <Badge variant="success" className="flex-1 justify-center sm:flex-initial">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Aplicado
+          </Badge>
+        ) : (
+          <Button onClick={() => onMark(update.id)} variant="outline" size="sm" className="bg-white flex-1 sm:flex-initial">
+            Marcar como Aplicado
+          </Button>
+        )}
+      </div>
+    </div>
+    <div className="relative bg-slate-900 text-green-400 p-4 font-mono text-xs overflow-x-auto">
+      <pre>{update.sql.trim()}</pre>
+      <button 
+        onClick={() => onCopy(update.sql.trim())}
+        className="absolute top-2 right-2 p-2 bg-white/10 text-white rounded-md hover:bg-white/20 transition-colors"
+        title="Copiar SQL"
+      >
+        <Copy className="w-4 h-4" />
+      </button>
+    </div>
+  </Card>
+);
+
 export default function DatabaseUpdates() {
   const [applied, setApplied] = useState<Set<string>>(new Set());
+  const [showCompleted, setShowCompleted] = useState(false);
 
   useEffect(() => {
     try {
@@ -248,6 +284,18 @@ export default function DatabaseUpdates() {
       console.error("Failed to load applied status from localStorage", e);
     }
   }, []);
+
+  const reversedUpdates = useMemo(() => [...ALL_UPDATES].reverse(), []);
+
+  const pendingUpdates = useMemo(() => 
+    reversedUpdates.filter(update => !applied.has(update.id)),
+    [reversedUpdates, applied]
+  );
+
+  const completedUpdates = useMemo(() =>
+    reversedUpdates.filter(update => applied.has(update.id)),
+    [reversedUpdates, applied]
+  );
 
   const copyToClipboard = (sql: string) => {
     navigator.clipboard.writeText(sql)
@@ -283,39 +331,58 @@ export default function DatabaseUpdates() {
       </div>
 
       <div className="space-y-4">
-        {ALL_UPDATES.sort((a,b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title)).map(update => (
-          <Card key={update.id} className="p-0 overflow-hidden">
-            <div className={`p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${applied.has(update.id) ? 'bg-green-50' : 'bg-slate-50'}`}>
-              <div>
-                 <Badge className="mb-2 text-xs">{update.category.toUpperCase()}</Badge>
-                <h3 className="font-bold text-slate-800">{update.title}</h3>
-                <p className="text-xs text-slate-500 mt-1 max-w-2xl">{update.description}</p>
-              </div>
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                 {applied.has(update.id) ? (
-                    <Badge variant="success" className="flex-1 justify-center sm:flex-initial">
-                       <CheckCircle className="w-3 h-3 mr-1" />
-                       Aplicado
-                    </Badge>
-                 ) : (
-                    <Button onClick={() => markAsApplied(update.id)} variant="outline" size="sm" className="bg-white flex-1 sm:flex-initial">
-                       Marcar como Aplicado
-                    </Button>
-                 )}
-              </div>
+        <h2 className="text-lg font-bold text-slate-800 border-b pb-2">
+          Atualizações Pendentes ({pendingUpdates.length})
+        </h2>
+        
+        {pendingUpdates.length === 0 ? (
+          <div className="bg-green-50 border border-green-200 p-6 rounded-xl text-center">
+            <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
+            <h3 className="font-bold text-green-800">Seu sistema está atualizado!</h3>
+            <p className="text-sm text-green-700">Nenhum script pendente de execução.</p>
+          </div>
+        ) : (
+          pendingUpdates.map(update => (
+            <UpdateCard 
+              key={update.id}
+              update={update} 
+              applied={false}
+              onMark={markAsApplied}
+              onCopy={copyToClipboard}
+            />
+          ))
+        )}
+      </div>
+
+      <div className="pt-6 border-t border-slate-200">
+         <button 
+            onClick={() => setShowCompleted(!showCompleted)}
+            className="w-full flex justify-between items-center p-3 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+         >
+            <div className="flex items-center gap-2 font-bold text-slate-600">
+               <History className="w-5 h-5" />
+               Histórico de Atualizações Aplicadas ({completedUpdates.length})
             </div>
-            <div className="relative bg-slate-900 text-green-400 p-4 font-mono text-xs overflow-x-auto">
-              <pre>{update.sql.trim()}</pre>
-              <button 
-                onClick={() => copyToClipboard(update.sql.trim())}
-                className="absolute top-2 right-2 p-2 bg-white/10 text-white rounded-md hover:bg-white/20 transition-colors"
-                title="Copiar SQL"
-              >
-                <Copy className="w-4 h-4" />
-              </button>
+            <ChevronDown className={`w-5 h-5 text-slate-500 transition-transform ${showCompleted ? 'rotate-180' : ''}`} />
+         </button>
+         
+         {showCompleted && (
+            <div className="mt-4 space-y-4 animate-fade-in">
+               {completedUpdates.length === 0 ? (
+                  <p className="text-sm text-slate-500 italic text-center py-4">Nenhuma atualização foi aplicada ainda.</p>
+               ) : (
+                 completedUpdates.map(update => (
+                    <UpdateCard 
+                      key={update.id}
+                      update={update} 
+                      applied={true}
+                      onMark={markAsApplied}
+                      onCopy={copyToClipboard}
+                    />
+                 ))
+               )}
             </div>
-          </Card>
-        ))}
+         )}
       </div>
     </div>
   );

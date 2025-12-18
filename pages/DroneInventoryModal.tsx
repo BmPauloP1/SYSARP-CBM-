@@ -272,15 +272,14 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
             }
             acc[key].push(item);
             return acc;
-        }, {});
+        }, {} as Record<MaterialType, Material[]>);
 
         let startY = 30;
 
-        // FIX: Replaced loop over grouped object entries to explicitly cast 'items' to Material[],
-        // resolving a TypeScript type inference issue where it was treated as 'unknown'.
-        const groupedEntries = Object.entries(grouped).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
-        for (const [type, rawItems] of groupedEntries) {
-            const items = rawItems as Material[];
+        // @fix: Changed from Object.entries to Object.keys to fix type inference issue.
+        const sortedTypes = Object.keys(grouped).sort() as MaterialType[];
+        for (const type of sortedTypes) {
+            const items = grouped[type];
             if (!items || items.length === 0) continue;
 
             if (startY > 250) {
@@ -289,7 +288,7 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
             }
 
             doc.setFontSize(12);
-            doc.text(getTabLabel(type as MaterialType), 14, startY);
+            doc.text(getTabLabel(type), 14, startY);
             startY += 2;
 
             const tableBody = items.map(item => [
