@@ -1,8 +1,20 @@
 import React, { useEffect, Suspense, lazy } from 'react';
 import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import L from 'leaflet';
 import Layout from './components/Layout';
 import { supabase } from './services/supabase';
 import { base44 } from './services/base44Client';
+
+// FIX: Default Leaflet icon path issue with bundlers
+// @ts-ignore
+delete L.Icon.Default.prototype._getIconUrl;
+
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+});
+
 
 // Lazy Load Pages para otimizar o carregamento inicial (Code Splitting)
 const Dashboard = lazy(() => import('./pages/Dashboard'));

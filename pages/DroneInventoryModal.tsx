@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { inventoryService } from '../services/inventoryService';
 import { base44 } from '../services/base44Client';
-import { Material, MaterialType, BatteryStats, PropellerStats } from '../types_inventory';
+import { Material, MaterialType, BatteryStats, PropellerStats, MaterialLog } from '../types_inventory';
 import { Drone } from '../types';
 import { Card, Button, Input, Select, Badge } from '../components/ui_components';
 import { X, Battery, Fan, Box, Plus, Trash2, History, AlertTriangle, CheckCircle, Activity, Save, Camera, Plug, Minus, Gamepad2, Pencil, Download, FileText, Search, Loader2 } from 'lucide-react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// FIX: Removed static imports for jspdf and jspdf-autotable to use dynamic imports, consistent with other files.
+// This resolves a TypeScript type inference issue causing the error.
 
 interface DroneInventoryModalProps {
   drone: Drone;
@@ -38,6 +38,11 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
   // Duplicate Scan State
   const [isScanning, setIsScanning] = useState(false);
   const [duplicates, setDuplicates] = useState<Record<string, Material[]> | null>(null);
+
+  // History Modal State
+  const [historyItem, setHistoryItem] = useState<Material | null>(null);
+  const [historyLogs, setHistoryLogs] = useState<MaterialLog[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
   useEffect(() => {
     loadMaterials();
@@ -249,21 +254,31 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
   const handleDownloadReport = async () => {
     setIsReportLoading(true);
     try {
+        const jsPDFModule = await import('jspdf');
+        const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
+        const autoTableModule = await import('jspdf-autotable');
+        const autoTable = autoTableModule.default;
+        
         const droneItems = materials; 
 
         const doc = new jsPDF();
         doc.text(`Relatório de Almoxarifado - ${drone.prefix}`, 14, 15);
         doc.text(`Gerado em: ${new Date().toLocaleDateString()}`, 14, 22);
 
-        const grouped = droneItems.reduce((acc, item) => {
-            (acc[item.type] = acc[item.type] || []).push(item);
+        const grouped = droneItems.reduce<Record<MaterialType, Material[]>>((acc, item) => {
+            const key = item.type;
+            if (!acc[key]) {
+              acc[key] = [];
+            }
+            acc[key].push(item);
             return acc;
-        }, {} as Record<string, Material[]>);
+        }, {});
 
         let startY = 30;
 
-        for (const type of Object.keys(grouped).sort()) {
-            const items = grouped[type as MaterialType];
+        const types = Object.keys(grouped).sort() as MaterialType[];
+        for (const type of types) {
+            const items = grouped[type];
             if (!items || items.length === 0) continue;
 
             if (startY > 250) {
@@ -272,7 +287,7 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
             }
 
             doc.setFontSize(12);
-            doc.text(getTabLabel(type as MaterialType), 14, startY);
+            doc.text(getTabLabel(type), 14, startY);
             startY += 2;
 
             const tableBody = items.map(item => [
@@ -319,6 +334,20 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
     if (amount && !isNaN(Number(amount))) {
       await inventoryService.registerUsage(mat.id, mat.type, Number(amount), "Registro Manual");
       loadMaterials();
+    }
+  };
+
+  const handleShowHistory = async (mat: Material) => {
+    setHistoryItem(mat);
+    setIsHistoryLoading(true);
+    try {
+      const logs = await inventoryService.getLogs(mat.id);
+      setHistoryLogs(logs);
+    } catch (e) {
+      console.error("Failed to load history", e);
+      setHistoryLogs([]);
+    } finally {
+      setIsHistoryLoading(false);
     }
   };
 
@@ -400,6 +429,52 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
                 <Button onClick={() => setDuplicates(null)}>Fechar</Button>
             </div>
           </Card>
+        </div>
+      )}
+
+      {/* HISTORY MODAL */}
+      {historyItem && (
+        <div className="fixed inset-0 bg-black/60 z-[4000] flex items-center justify-center p-4">
+           <Card className="w-full max-w-lg bg-white shadow-xl animate-fade-in">
+              <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+                 <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                    <History className="w-5 h-5 text-blue-600" />
+                    Histórico do Item
+                 </h3>
+                 <button onClick={() => setHistoryItem(null)} className="p-1 hover:bg-slate-100 rounded">
+                    <X className="w-5 h-5 text-slate-500" />
+                 </button>
+              </div>
+              <div className="p-4 bg-slate-50 border-b">
+                <p className="text-sm font-bold text-slate-900">{historyItem.name}</p>
+                <p className="text-xs text-slate-500 font-mono">SN: {historyItem.serial_number || 'N/A'}</p>
+              </div>
+              <div className="p-4 max-h-[50vh] overflow-y-auto">
+                 {isHistoryLoading ? <p>Carregando histórico...</p> : 
+                  historyLogs.length === 0 ? <p className="text-sm text-slate-500 italic">Nenhum registro encontrado.</p> :
+                  (
+                    <ul className="space-y-3">
+                       {historyLogs.map(log => (
+                         <li key={log.id} className="flex items-start gap-3 text-sm">
+                            <div className="mt-1 w-4 h-4 flex items-center justify-center">
+                               {log.action === 'create' ? <Plus className="w-3 h-3 text-green-500"/> : 
+                                log.action === 'usage' ? <Activity className="w-3 h-3 text-blue-500"/> : 
+                                <Pencil className="w-3 h-3 text-amber-500"/>}
+                            </div>
+                            <div className="flex-1">
+                               <p className="text-slate-700">{log.details}</p>
+                               <p className="text-xs text-slate-400">{new Date(log.created_at).toLocaleString()}</p>
+                            </div>
+                         </li>
+                       ))}
+                    </ul>
+                  )
+                 }
+              </div>
+              <div className="p-4 bg-slate-50 border-t flex justify-end">
+                 <Button onClick={() => setHistoryItem(null)}>Fechar</Button>
+              </div>
+           </Card>
         </div>
       )}
 
@@ -590,6 +665,7 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
                          ) : <div className="col-span-2 flex items-center justify-center text-xs text-slate-400 italic">Sem métricas</div>}
                       </div>
                       <div className="flex gap-2 justify-end w-full lg:w-auto border-t lg:border-t-0 border-slate-100 pt-2 lg:pt-0">
+                         <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => handleShowHistory(mat)} title="Ver Histórico"><History className="w-4 h-4"/></Button>
                          {(mat.type === 'battery' || mat.type === 'propeller') && <Button size="sm" variant="outline" className="h-8 text-xs bg-slate-50 w-full lg:w-auto" onClick={() => handleRegisterCycle(mat)}><Activity className="w-3 h-3 mr-1"/>{mat.type === 'battery' ? '+ Ciclo' : '+ Hora'}</Button>}
                          <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => handleStartEdit(mat)}><Pencil className="w-4 h-4"/></Button>
                          <Button size="sm" variant="outline" className="h-8 w-8 p-0 text-red-600 hover:bg-red-50 border-red-100" onClick={() => handleDelete(mat.id)}><Trash2 className="w-4 h-4"/></Button>

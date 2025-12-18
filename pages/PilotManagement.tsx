@@ -146,7 +146,6 @@ export default function PilotManagement() {
   };
 
   const prevPage = () => {
-    // FIX: Incorrect pagination logic for previous page. Was incrementing instead of decrementing.
     if (currentPage > 1) setCurrentPage(prev => prev - 1);
   };
 

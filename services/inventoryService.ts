@@ -24,7 +24,8 @@ export const inventoryService = {
           propeller_stats (*)
         `);
       if (error) throw error;
-      return data.map((m: any) => ({
+      // FIX: data can be null if no records are found, which would cause .map to fail.
+      return (data || []).map((m: any) => ({
         ...m,
         battery_stats: m.battery_stats?.[0] || undefined,
         propeller_stats: m.propeller_stats?.[0] || undefined
@@ -55,7 +56,8 @@ export const inventoryService = {
       if (error) throw error;
       
       // Flatten arrays returned by join to single objects
-      return data.map((m: any) => ({
+      // FIX: data can be null if no records are found, which would cause .map to fail.
+      return (data || []).map((m: any) => ({
         ...m,
         battery_stats: m.battery_stats?.[0] || undefined,
         propeller_stats: m.propeller_stats?.[0] || undefined

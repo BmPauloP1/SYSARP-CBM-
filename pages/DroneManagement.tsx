@@ -179,6 +179,7 @@ export default function DroneManagement() {
             return [
                 d.prefix,
                 d.model,
+                d.serial_number || 'N/A',
                 `${d.unit || 'N/A'}\n${d.crbm || ''}`,
                 d.status.replace('_', ' ').toUpperCase(),
                 d.total_flight_hours?.toFixed(1) || '0.0',
@@ -188,13 +189,13 @@ export default function DroneManagement() {
 
         autoTable(doc, {
             startY: 45,
-            head: [['Prefixo', 'Modelo', 'Lotação', 'Status', 'Horas Voo', 'Checklist']],
+            head: [['Prefixo', 'Modelo', 'Nº de Série', 'Lotação', 'Status', 'Horas Voo', 'Checklist']],
             body: tableBody,
             theme: 'grid',
             headStyles: { fillColor: [185, 28, 28], textColor: 255, fontSize: 8 },
             styles: { fontSize: 7, cellPadding: 2, valign: 'middle' },
             columnStyles: {
-                2: { cellWidth: 50 },
+                3: { cellWidth: 50 },
             }
         });
 
@@ -770,8 +771,7 @@ export default function DroneManagement() {
                        className="h-10 text-sm bg-white disabled:bg-slate-100"
                     >
                         <option value="all">Todas as Unidades</option>
-                        {/* FIX: Cast the object to any to prevent a TypeScript error when indexing with a string. */}
-                        {filterCrbm !== "all" && (ORGANIZATION_CHART as any)[filterCrbm]?.map((unit: string) => <option key={unit} value={unit}>{unit}</option>)}
+                        {filterCrbm !== "all" && ORGANIZATION_CHART[filterCrbm as keyof typeof ORGANIZATION_CHART]?.map((unit: string) => <option key={unit} value={unit}>{unit}</option>)}
                     </Select>
                 </div>
                 <div className="lg:col-span-1">
@@ -855,6 +855,10 @@ export default function DroneManagement() {
                       <div>
                         <p className="text-slate-500 text-[10px] uppercase font-bold">Validade</p>
                         <p className="font-medium text-amber-700 text-xs md:text-sm">{new Date(drone.sisant_expiry_date).toLocaleDateString()}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-slate-500 text-[10px] uppercase font-bold">Nº DE SÉRIE</p>
+                        <p className="font-medium text-slate-900 break-all text-xs md:text-sm">{drone.serial_number}</p>
                       </div>
                       <div className="col-span-2">
                         <p className="text-slate-500 text-[10px] uppercase font-bold flex items-center gap-1"><MapPin className="w-3 h-3"/> Localização / Emprego</p>
@@ -979,7 +983,6 @@ export default function DroneManagement() {
         </div>
       </div>
       
-      {/* FIX: Render Inventory Modal when inventoryDrone is set */}
       {inventoryDrone && (
         <DroneInventoryModal
           drone={inventoryDrone}
@@ -1004,7 +1007,7 @@ export default function DroneManagement() {
               <div>
                 <label className="text-sm font-medium text-slate-700 block mb-1">Motivo / Problema Identificado</label>
                 <textarea 
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm h-24 focus:ring-2 focus:ring-red-500 outline-none resize-none"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm h-24 focus:ring-2 focus:ring-red-500 outline-none resize-none bg-white"
                   placeholder="Descreva o defeito ou motivo..."
                   required
                   value={maintReason}
@@ -1079,7 +1082,7 @@ export default function DroneManagement() {
               <div className="space-y-2 pt-4 border-t border-slate-100">
                  <label className="text-sm font-medium text-slate-700">Observações / Pendências</label>
                  <textarea 
-                    className="w-full p-3 border border-slate-300 rounded-lg text-sm h-20 focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                    className="w-full p-3 border border-slate-300 rounded-lg text-sm h-20 focus:ring-2 focus:ring-blue-500 outline-none resize-none bg-white"
                     placeholder="Alguma anomalia encontrada? Descreva aqui."
                     value={checklistNotes}
                     onChange={e => setChecklistNotes(e.target.value)}
@@ -1163,7 +1166,7 @@ export default function DroneManagement() {
                       disabled={!newDroneData.crbm}
                    >
                       <option value="">Selecione...</option>
-                      {newDroneData.crbm && (ORGANIZATION_CHART as any)[newDroneData.crbm]?.map((unit: string) => (
+                      {newDroneData.crbm && ORGANIZATION_CHART[newDroneData.crbm as keyof typeof ORGANIZATION_CHART]?.map((unit: string) => (
                          <option key={unit} value={unit}>{unit}</option>
                       ))}
                    </Select>

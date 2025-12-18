@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
-// FIX: Import MISSION_COLORS from the central types file.
 import { Operation, Pilot, Drone, MISSION_LABELS, MISSION_HIERARCHY, SYSARP_LOGO, AroAssessment, ORGANIZATION_CHART, MISSION_COLORS } from "../types";
 import { Card, Input, Select, Button, Badge } from "../components/ui_components";
 import { Filter, FileText, Download, CheckSquare, Search, Map as MapIcon, PieChart as PieIcon, Navigation, Trash2, AlertTriangle } from "lucide-react";
@@ -13,8 +12,6 @@ type ExtendedOperation = Operation & {
   pilot?: Pilot;
   drone?: Drone;
 }
-
-// FIX: Removed local MISSION_COLORS constant. It is now imported from types.ts.
 
 // Gera chaves dinamicamente a partir do organograma atualizado
 const ORGANIZATION_CHART_KEYS = Object.keys(ORGANIZATION_CHART);
@@ -48,6 +45,14 @@ const getImageData = (url: string): Promise<string> => {
     };
     img.src = url;
   });
+};
+
+// Helper para formatar minutos em "Xh Ymin"
+const formatMinutes = (mins: number) => {
+    if (isNaN(mins) || mins < 0) return 'N/A';
+    const h = Math.floor(mins / 60);
+    const m = Math.round(mins % 60);
+    return `${h}h ${m}min`;
 };
 
 // Componente auxiliar para corrigir renderização do mapa
@@ -346,13 +351,11 @@ export default function Reports() {
          });
          currentY = (doc as any).lastAutoTable.finalY + 10;
 
-         // --- SEPARAÇÃO DE DESCRIÇÃO E CONCLUSÃO ---
+         // --- ESCOPO 3: DESCRITIVO DA OCORRÊNCIA ---
          const fullDesc = op.description || '';
          const parts = fullDesc.split('[CONCLUSÃO]:');
          const mainDescription = parts[0].trim();
-         const conclusion = parts.length > 1 ? parts[1].trim() : (op.status === 'completed' ? 'Operação encerrada sem notas adicionais.' : 'Operação em andamento.');
-
-         // --- ESCOPO 3: DESCRITIVO DA OCORRÊNCIA ---
+         
          doc.setFont("helvetica", "bold");
          doc.text("3. DESCRITIVO DA OCORRÊNCIA", 14, currentY);
          currentY += 5;
@@ -364,73 +367,78 @@ export default function Reports() {
          currentY += (splitDesc.length * 5) + 10;
 
          // Check page break
-         if (currentY > pageHeight - 40) { doc.addPage(); currentY = 20; }
+         if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20; }
+         
+         // --- NOVO ESCOPO 4: TEMPOS E DURAÇÕES ---
+         const startTime = new Date(op.start_time).getTime();
+         const endTime = op.end_time ? new Date(op.end_time).getTime() : new Date().getTime();
+         const totalDuration = (endTime - startTime) / 60000;
+         const pausedDuration = op.total_pause_duration || 0;
+         const effectiveFlightTime = op.flight_hours ? op.flight_hours * 60 : Math.max(0, totalDuration - pausedDuration);
 
-         // --- ESCOPO 4: HISTÓRICO MULTI-DIAS (SE HOUVER) ---
+         doc.setFont("helvetica", "bold");
+         doc.text("4. TEMPOS E DURAÇÕES", 14, currentY);
+         currentY += 5;
+
+         autoTable(doc, {
+            startY: currentY,
+            head: [['Duração Total da Missão', 'Tempo Total Pausado', 'Tempo de Voo Efetivo']],
+            body: [[
+                formatMinutes(totalDuration),
+                formatMinutes(pausedDuration),
+                formatMinutes(effectiveFlightTime)
+            ]],
+            theme: 'grid',
+            headStyles: { fillColor: [220, 220, 220], textColor: 0, fontStyle: 'bold' },
+            styles: { fontSize: 10, cellPadding: 3, halign: 'center' }
+         });
+         currentY = (doc as any).lastAutoTable.finalY + 10;
+
+         if (currentY > pageHeight - 60) { doc.addPage(); currentY = 20; }
+
+         // --- ESCOPO 5: HISTÓRICO MULTI-DIAS (SE HOUVER) ---
          if (op.is_multi_day && multiDayDetails[op.id]) {
              doc.setFont("helvetica", "bold");
              doc.setFontSize(11);
-             doc.text("4. HISTÓRICO OPERACIONAL (MULTI-DIAS)", 14, currentY);
+             doc.text("5. HISTÓRICO OPERACIONAL (MULTI-DIAS)", 14, currentY);
              currentY += 5;
 
              const details = multiDayDetails[op.id];
              const dayRows = details.days.map((day: any) => {
-                 // Assets
                  const dayAssets = details.assets.find((x: any) => x.dayId === day.id)?.assets || [];
-                 const assetNames = dayAssets.map((a: any) => {
-                     const d = drones.find(drone => drone.id === a.drone_id);
-                     return d ? d.prefix : 'Drone';
-                 }).join(', ');
-
-                 // Team
+                 const assetNames = dayAssets.map((a: any) => drones.find(drone => drone.id === a.drone_id)?.prefix || 'Drone').join(', ');
                  const dayTeam = details.pilots.find((x: any) => x.dayId === day.id)?.team || [];
-                 const teamNames = dayTeam.map((t: any) => {
-                     const p = pilots.find(pi => pi.id === t.pilot_id);
-                     return p ? p.full_name : 'N/A';
-                 }).join(', ');
-
-                 // Date format fix
+                 const teamNames = dayTeam.map((t: any) => pilots.find(pi => pi.id === t.pilot_id)?.full_name || 'N/A').join(', ');
                  const displayDate = new Date(day.date + 'T12:00:00').toLocaleDateString();
 
-                 return [
-                     displayDate,
-                     day.progress_notes || '-',
-                     assetNames || '-',
-                     teamNames || '-'
-                 ];
+                 return [ displayDate, day.progress_notes || '-', assetNames || '-', teamNames || '-' ];
              });
 
              if (dayRows.length > 0) {
                  autoTable(doc, {
                     startY: currentY,
                     head: [['Data', 'Ações Realizadas', 'Aeronaves', 'Equipe']],
-                    body: dayRows,
-                    theme: 'grid',
-                    headStyles: { fillColor: [220, 220, 220], textColor: 0 },
+                    body: dayRows, theme: 'grid', headStyles: { fillColor: [220, 220, 220], textColor: 0 },
                     styles: { fontSize: 9, cellPadding: 2 },
-                    columnStyles: { 
-                        0: { cellWidth: 25 },
-                        1: { cellWidth: 'auto' }, 
-                        2: { cellWidth: 30 },
-                        3: { cellWidth: 40 }
-                    }
+                    columnStyles: { 0: { cellWidth: 25 }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 30 }, 3: { cellWidth: 40 } }
                  });
                  currentY = (doc as any).lastAutoTable.finalY + 10;
              } else {
-                 doc.setFont("helvetica", "italic");
-                 doc.setFontSize(9);
+                 doc.setFont("helvetica", "italic"); doc.setFontSize(9);
                  doc.text("Nenhum registro diário encontrado.", 14, currentY + 5);
                  currentY += 15;
              }
          }
 
-         // Check page break again
          if (currentY > pageHeight - 40) { doc.addPage(); currentY = 20; }
 
-         // --- ESCOPO 5: CONCLUSÃO / AÇÕES FINAIS ---
+         // --- ESCOPO 6: CONCLUSÃO / AÇÕES FINAIS ---
+         const conclusionMatch = fullDesc.match(/\[CONCLUSÃO\]:\s*([\s\S]*?)(?:\[RESUMO DE TEMPO\]:|$)/);
+         const conclusion = conclusionMatch ? conclusionMatch[1].trim() : (op.status === 'completed' ? 'Operação encerrada.' : 'Operação em andamento.');
+
          doc.setFont("helvetica", "bold");
          doc.setFontSize(11);
-         doc.text("5. AÇÕES DE ENCERRAMENTO E CONCLUSÃO", 14, currentY);
+         doc.text("6. AÇÕES DE ENCERRAMENTO E CONCLUSÃO", 14, currentY);
          currentY += 5;
 
          doc.setDrawColor(0);

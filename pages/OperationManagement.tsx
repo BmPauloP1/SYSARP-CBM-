@@ -755,7 +755,6 @@ export default function OperationManagement() {
       console.error(error);
       const msg = error.message || '';
       
-      // FIX: Check for missing columns and ONLY show to admins
       if (msg.includes("op_crbm") || msg.includes("op_unit")) {
           if (currentUser?.role === 'admin') {
               setSqlError(`
@@ -1283,7 +1282,7 @@ NOTIFY pgrst, 'reload schema';
                                     onChange={e => setFormData({...formData, op_unit: e.target.value})}
                                 >
                                     <option value="">Selecione...</option>
-                                    {formData.op_crbm && ORGANIZATION_CHART[formData.op_crbm as keyof typeof ORGANIZATION_CHART]?.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                                    {formData.op_crbm && ORGANIZATION_CHART[formData.op_crbm as keyof typeof ORGANIZATION_CHART]?.map((unit: string) => <option key={unit} value={unit}>{unit}</option>)}
                                 </Select>
                                 </div>
                             </div>
@@ -1415,7 +1414,7 @@ NOTIFY pgrst, 'reload schema';
                             <div>
                                 <label className="text-sm font-medium text-slate-700 block mb-1">Descrição / Notas</label>
                                 <textarea 
-                                    className="w-full p-2 border border-slate-300 rounded text-sm h-24 resize-none focus:ring-2 focus:ring-blue-500 outline-none"
+                                    className="w-full p-2 border border-slate-300 rounded text-sm h-24 resize-none focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                                     value={formData.description}
                                     onChange={e => setFormData({...formData, description: e.target.value})}
                                     placeholder="Detalhes da operação..."

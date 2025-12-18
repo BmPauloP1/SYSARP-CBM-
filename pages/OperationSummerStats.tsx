@@ -247,7 +247,7 @@ export default function OperationSummerStats() {
             disabled={filterLocation === 'all'}
           >
              <option value="all">Todos os Postos</option>
-             {filterLocation !== 'all' && (SUMMER_LOCATIONS as any)[filterLocation]?.map((pgv: string) => (
+             {filterLocation !== 'all' && SUMMER_LOCATIONS[filterLocation as keyof typeof SUMMER_LOCATIONS]?.map((pgv: string) => (
                  <option key={pgv} value={pgv}>{pgv}</option>
              ))}
           </Select>
@@ -414,7 +414,6 @@ export default function OperationSummerStats() {
                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 max-h-40 overflow-y-auto">
                     {missionsInView.map(key => (
                        <div key={key as string} className="flex items-center gap-2">
-                          {/* FIX: Cast `key` to a string-like type (MissionType) to use it as an index for MISSION_COLORS. The type was inferred as `unknown`. */}
                           <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: MISSION_COLORS[key as MissionType] }}></div>
                           <span className="text-slate-600">{((MISSION_HIERARCHY[key as MissionType]?.label as string) || (key as string)).split('. ')[1] || key}</span>
                        </div>

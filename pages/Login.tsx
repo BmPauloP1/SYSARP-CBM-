@@ -405,7 +405,7 @@ NOTIFY pgrst, 'reload schema';
                     </Select>
                     <Select label="Unidade (BBM/CIBM/BOA)" value={regForm.unit} disabled={!regForm.crbm} onChange={e => setRegForm({...regForm, unit: e.target.value})}>
                        <option value="">Selecione a Unidade</option>
-                       {regForm.crbm && ORGANIZATION_CHART[regForm.crbm]?.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                       {regForm.crbm && ORGANIZATION_CHART[regForm.crbm as keyof typeof ORGANIZATION_CHART]?.map((unit: string) => <option key={unit} value={unit}>{unit}</option>)}
                     </Select>
                  </div>
               </div>
