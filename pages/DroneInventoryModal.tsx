@@ -4,16 +4,17 @@ import { base44 } from '../services/base44Client';
 import { Material, MaterialType, BatteryStats, PropellerStats } from '../types_inventory';
 import { Drone } from '../types';
 import { Card, Button, Input, Select, Badge } from '../components/ui_components';
-import { X, Battery, Fan, Box, Plus, Trash2, History, AlertTriangle, CheckCircle, Activity, Save, Camera, Plug, Minus, Gamepad2, Pencil, Download, FileText } from 'lucide-react';
+import { X, Battery, Fan, Box, Plus, Trash2, History, AlertTriangle, CheckCircle, Activity, Save, Camera, Plug, Minus, Gamepad2, Pencil, Download, FileText, Search, Loader2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 interface DroneInventoryModalProps {
   drone: Drone;
+  drones: Drone[];
   onClose: () => void;
 }
 
-export default function DroneInventoryModal({ drone, onClose }: DroneInventoryModalProps) {
+export default function DroneInventoryModal({ drone, drones, onClose }: DroneInventoryModalProps) {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [allMaterials, setAllMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,6 +34,10 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
     quantity: 1
   });
   const [newStats, setNewStats] = useState<any>({});
+
+  // Duplicate Scan State
+  const [isScanning, setIsScanning] = useState(false);
+  const [duplicates, setDuplicates] = useState<Record<string, Material[]> | null>(null);
 
   useEffect(() => {
     loadMaterials();
@@ -54,6 +59,34 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
     setIsBatchMode(false);
   };
 
+  const handleScanDuplicates = () => {
+    setIsScanning(true);
+    
+    // Filtra todos os materiais do sistema que possuem um número de série
+    const itemsWithSerial = allMaterials.filter(m => m.serial_number && m.serial_number.trim() !== '');
+    
+    // Agrupa os itens por número de série
+    const serialMap: Record<string, Material[]> = {};
+    itemsWithSerial.forEach(item => {
+      const sn = item.serial_number!;
+      if (!serialMap[sn]) {
+        serialMap[sn] = [];
+      }
+      serialMap[sn].push(item);
+    });
+    
+    // Filtra para encontrar apenas os seriais que aparecem mais de uma vez
+    const foundDuplicates: Record<string, Material[]> = {};
+    for (const sn in serialMap) {
+      if (serialMap[sn].length > 1) {
+        foundDuplicates[sn] = serialMap[sn];
+      }
+    }
+  
+    setDuplicates(foundDuplicates);
+    setIsScanning(false);
+  };
+
   const handleBatchModeToggle = () => {
     if (!editingItem) {
         setIsBatchMode(prev => {
@@ -64,6 +97,40 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
             }));
             return !prev;
         });
+    }
+  };
+
+  const handleSerialNumberBlur = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    if (!value.trim()) return;
+
+    if (isBatchMode) {
+        // No editing in batch mode, so no need to check editingItem.id
+        const serialsToCheck = new Set(
+            value.split(/[\n,;]+/)
+                 .map(s => s.trim())
+                 .filter(s => s.length > 0)
+        );
+
+        if (serialsToCheck.size === 0) return;
+
+        const duplicates = allMaterials.filter(m => 
+            m.serial_number && serialsToCheck.has(m.serial_number)
+        );
+        
+        if (duplicates.length > 0) {
+            const duplicatesInfo = duplicates.map(d => `${d.serial_number} (Item: ${d.name})`).join('\n- ');
+            alert(`Atenção: O(s) seguinte(s) número(s) de série já está(ão) cadastrado(s) no sistema:\n\n- ${duplicatesInfo}`);
+        }
+
+    } else {
+        const serialToCheck = value.trim();
+        // Check if a different item already has this serial number.
+        const found = allMaterials.find(m => m.serial_number === serialToCheck && m.id !== editingItem?.id);
+        
+        if (found) {
+            alert(`Atenção: O número de série "${serialToCheck}" já está cadastrado para o item "${found.name}".`);
+        }
     }
   };
 
@@ -274,8 +341,69 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
 
   return (
     <div className="fixed inset-0 bg-black/70 z-[3000] flex items-center justify-center p-4">
+      {/* DUPLICATE SCAN MODAL */}
+      {duplicates !== null && (
+        <div className="fixed inset-0 bg-black/60 z-[4000] flex items-center justify-center p-4">
+          <Card className="w-full max-w-2xl bg-white shadow-xl animate-fade-in">
+            <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <Search className="w-5 h-5 text-blue-600" />
+                Resultado da Verificação
+              </h3>
+              <button onClick={() => setDuplicates(null)} className="p-1 hover:bg-slate-100 rounded">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            <div className="p-6 max-h-[60vh] overflow-y-auto">
+              {Object.keys(duplicates).length === 0 ? (
+                <div className="text-center p-8">
+                  <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
+                  <p className="font-semibold text-green-700">Nenhuma duplicidade encontrada!</p>
+                  <p className="text-sm text-slate-500">Todos os números de série no sistema são únicos.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-red-50 border border-red-200 p-3 rounded-lg text-sm text-red-800 flex items-start gap-3">
+                     <AlertTriangle className="w-6 h-6 shrink-0 mt-0.5" />
+                     <div>
+                        <p className="font-bold">Atenção!</p>
+                        <p>Foram encontrados os seguintes números de série duplicados no inventário:</p>
+                     </div>
+                  </div>
+                  {Object.entries(duplicates).map(([serial, items]) => (
+                    <div key={serial} className="border border-slate-200 rounded-lg p-3">
+                      <p className="font-mono text-xs text-red-600 bg-red-50 px-2 py-1 rounded-full inline-block mb-2">
+                        SN: {serial}
+                      </p>
+                      <ul className="space-y-2 text-sm">
+                        {items.map(item => {
+                          const droneOwner = drones.find(d => d.id === item.drone_id);
+                          return (
+                            <li key={item.id} className="flex items-center gap-3 bg-slate-50 p-2 rounded">
+                               <Box className="w-4 h-4 text-slate-500 shrink-0"/>
+                               <div>
+                                  <span className="font-semibold text-slate-800">{item.name}</span>
+                                  <span className="text-xs text-slate-500 block">
+                                    Alocado em: <strong className="text-slate-600">{droneOwner?.prefix || 'Desconhecido'}</strong>
+                                  </span>
+                               </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-4 bg-slate-50 border-t flex justify-end">
+                <Button onClick={() => setDuplicates(null)}>Fechar</Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
       <Card className="w-full max-w-5xl h-[90vh] flex flex-col bg-white overflow-hidden animate-fade-in shadow-2xl">
-        
         {/* Header */}
         <div className="bg-slate-900 p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center shrink-0 text-white gap-3">
           <div className="flex items-center gap-3">
@@ -288,9 +416,13 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
             </div>
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Button size="sm" onClick={handleScanDuplicates} disabled={isScanning} variant="outline" className="bg-white/10 text-white hover:bg-white/20 border-white/20 flex-1 sm:flex-none">
+                {isScanning ? <Loader2 className="w-4 h-4 mr-1 animate-spin"/> : <Search className="w-4 h-4 mr-1"/>}
+                {isScanning ? 'Verificando...' : 'Verificar Duplicados'}
+            </Button>
             <Button size="sm" onClick={handleDownloadReport} disabled={isReportLoading} variant="outline" className="bg-white/10 text-white hover:bg-white/20 border-white/20 flex-1 sm:flex-none">
                 <Download className="w-4 h-4 mr-1"/>
-                {isReportLoading ? 'Gerando...' : 'Exportar Relatório (PDF)'}
+                {isReportLoading ? 'Gerando...' : 'Exportar PDF'}
             </Button>
             <button onClick={onClose} className="hover:bg-white/10 p-2 rounded"><X className="w-6 h-6"/></button>
           </div>
@@ -375,11 +507,18 @@ export default function DroneInventoryModal({ drone, onClose }: DroneInventoryMo
                                   className="w-full p-2 border border-slate-300 rounded-lg text-sm h-24"
                                   value={newItem.serial_number || ''} 
                                   onChange={e => setNewItem({...newItem, serial_number: e.target.value})}
+                                  onBlur={handleSerialNumberBlur}
                               />
                           </div>
                       ) : (
                           <>
-                              <Input label="Serial (SN)" placeholder="Opcional" value={newItem.serial_number || ''} onChange={e => setNewItem({...newItem, serial_number: e.target.value})} />
+                              <Input 
+                                label="Serial (SN)" 
+                                placeholder="Opcional" 
+                                value={newItem.serial_number || ''} 
+                                onChange={e => setNewItem({...newItem, serial_number: e.target.value})}
+                                onBlur={handleSerialNumberBlur}
+                              />
                               <Input label="Quantidade" type="number" required min="1" value={newItem.quantity} onChange={e => setNewItem({...newItem, quantity: Number(e.target.value)})} />
                           </>
                       )}

@@ -146,7 +146,8 @@ export default function PilotManagement() {
   };
 
   const prevPage = () => {
-    if (currentPage > 1) setCurrentPage(prev => prev + 1);
+    // FIX: Incorrect pagination logic for previous page. Was incrementing instead of decrementing.
+    if (currentPage > 1) setCurrentPage(prev => prev - 1);
   };
 
   // --- GERAR RELATÓRIO PDF ---
@@ -511,7 +512,7 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                        className="h-10 text-sm bg-white disabled:bg-slate-100"
                     >
                         <option value="all">Todas as Unidades</option>
-                        {filterCrbm !== "all" && ORGANIZATION_CHART[filterCrbm]?.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                        {filterCrbm !== "all" && (ORGANIZATION_CHART as any)[filterCrbm]?.map((unit: string) => <option key={unit} value={unit}>{unit}</option>)}
                     </Select>
                 </div>
                 <div className="lg:col-span-1">
@@ -852,7 +853,7 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                     onChange={e => setFormData({...formData, unit: e.target.value})}
                   >
                     <option value="">Selecione a Unidade...</option>
-                    {formData.crbm && ORGANIZATION_CHART[formData.crbm]?.map(unit => (
+                    {formData.crbm && (ORGANIZATION_CHART as any)[formData.crbm]?.map((unit: string) => (
                       <option key={unit} value={unit}>{unit}</option>
                     ))}
                   </Select>

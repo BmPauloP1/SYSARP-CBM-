@@ -770,7 +770,8 @@ export default function DroneManagement() {
                        className="h-10 text-sm bg-white disabled:bg-slate-100"
                     >
                         <option value="all">Todas as Unidades</option>
-                        {filterCrbm !== "all" && ORGANIZATION_CHART[filterCrbm]?.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                        {/* FIX: Cast the object to any to prevent a TypeScript error when indexing with a string. */}
+                        {filterCrbm !== "all" && (ORGANIZATION_CHART as any)[filterCrbm]?.map((unit: string) => <option key={unit} value={unit}>{unit}</option>)}
                     </Select>
                 </div>
                 <div className="lg:col-span-1">
@@ -982,6 +983,7 @@ export default function DroneManagement() {
       {inventoryDrone && (
         <DroneInventoryModal
           drone={inventoryDrone}
+          drones={drones}
           onClose={() => setInventoryDrone(null)}
         />
       )}
@@ -1161,7 +1163,7 @@ export default function DroneManagement() {
                       disabled={!newDroneData.crbm}
                    >
                       <option value="">Selecione...</option>
-                      {newDroneData.crbm && ORGANIZATION_CHART[newDroneData.crbm]?.map(unit => (
+                      {newDroneData.crbm && (ORGANIZATION_CHART as any)[newDroneData.crbm]?.map((unit: string) => (
                          <option key={unit} value={unit}>{unit}</option>
                       ))}
                    </Select>
