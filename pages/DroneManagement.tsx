@@ -800,7 +800,7 @@ export default function DroneManagement() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-4 md:gap-6">
             {filteredDrones.length > 0 ? filteredDrones.map((drone) => {
               const tbo = getTBOStatus(drone.total_flight_hours || 0);
               const checklist = getChecklistStatus(drone.last_30day_check);
@@ -837,6 +837,7 @@ export default function DroneManagement() {
                             className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] transition-colors
                               ${deletingId === drone.id ? 'opacity-60 cursor-not-allowed bg-red-900/30 text-red-200 border-red-900/30' : 'bg-red-950/50 border border-red-900/50 text-red-400 hover:text-red-200 hover:bg-red-900'}`}
                             title="Excluir Aeronave"
+                            aria-label="Excluir Aeronave"
                          >
                             <Trash2 className="w-3 h-3" /> 
                             {deletingId === drone.id ? '...' : 'Excluir'}
@@ -879,6 +880,7 @@ export default function DroneManagement() {
                             onClick={() => openChecklistModal(drone)}
                             className="p-1 hover:bg-white rounded-full transition-colors text-blue-600"
                             title="Realizar Checklist (Renovar)"
+                            aria-label="Realizar Checklist Semanal"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
                           </button>
@@ -945,6 +947,7 @@ export default function DroneManagement() {
                           className="px-2 h-9 border-slate-300 text-slate-600 hover:bg-slate-100 min-w-[36px]"
                           onClick={() => handleEditDrone(drone)}
                           title="Editar Informações"
+                          aria-label="Editar Informações da Aeronave"
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
@@ -976,7 +979,7 @@ export default function DroneManagement() {
                 </Card>
               );
             }) : (
-              <div className="sm:col-span-2 lg:col-span-3 2xl:col-span-4 p-8 text-center text-slate-500 italic bg-white rounded-xl border border-dashed">
+              <div className="sm:col-span-2 2xl:col-span-3 p-8 text-center text-slate-500 italic bg-white rounded-xl border border-dashed">
                   Nenhuma aeronave encontrada para os filtros selecionados.
               </div>
             )}

@@ -276,10 +276,9 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
 
         let startY = 30;
 
-        // @fix: Changed from Object.entries to Object.keys to fix type inference issue.
-        const sortedTypes = Object.keys(grouped).sort() as MaterialType[];
-        for (const type of sortedTypes) {
-            const items = grouped[type];
+        // FIX: Using Object.entries provides better type inference for 'items' inside the loop.
+        const sortedEntries = Object.entries(grouped).sort(([typeA], [typeB]) => typeA.localeCompare(typeB));
+        for (const [type, items] of sortedEntries) {
             if (!items || items.length === 0) continue;
 
             if (startY > 250) {
@@ -288,9 +287,10 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
             }
 
             doc.setFontSize(12);
-            doc.text(getTabLabel(type), 14, startY);
+            doc.text(getTabLabel(type as MaterialType), 14, startY);
             startY += 2;
 
+            // FIX: Use the correctly typed `items` variable.
             const tableBody = items.map(item => [
                 item.name,
                 item.quantity,
@@ -580,7 +580,7 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
                               <label className="text-sm font-medium text-slate-700">Números de Série</label>
                               <textarea 
                                   placeholder="Cole os seriais, um por linha ou separados por vírgula/ponto e vírgula"
-                                  className="w-full p-2 border border-slate-300 rounded-lg text-sm h-24"
+                                  className="w-full p-2 border border-slate-300 rounded-lg text-sm h-24 bg-white"
                                   value={newItem.serial_number || ''} 
                                   onChange={e => setNewItem({...newItem, serial_number: e.target.value})}
                                   onBlur={handleSerialNumberBlur}

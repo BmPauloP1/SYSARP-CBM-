@@ -4,8 +4,9 @@ import { Material, MaterialType, MaterialLog, BatteryStats, PropellerStats, Heal
 const STORAGE_MAT_KEY = 'sysarp_materials';
 const STORAGE_LOG_KEY = 'sysarp_material_logs';
 
+// FIX: Made getLocal generic to return typed arrays instead of any[].
 // Helpers para LocalStorage (Modo Offline/Fallback)
-const getLocal = (key: string) => JSON.parse(localStorage.getItem(key) || '[]');
+const getLocal = <T,>(key: string): T[] => JSON.parse(localStorage.getItem(key) || '[]');
 const setLocal = (key: string, data: any) => localStorage.setItem(key, JSON.stringify(data));
 
 export const inventoryService = {
@@ -13,7 +14,8 @@ export const inventoryService = {
   // --- LEITURA ---
   getAllMaterials: async (): Promise<Material[]> => {
     if (!isConfigured) {
-      return getLocal(STORAGE_MAT_KEY);
+      // FIX: Use generic type argument for getLocal.
+      return getLocal<Material>(STORAGE_MAT_KEY);
     }
     try {
       const { data, error } = await supabase
@@ -32,13 +34,15 @@ export const inventoryService = {
       })) as Material[];
     } catch (e) {
       console.warn("Full inventory fetch error, using local:", e);
-      return getLocal(STORAGE_MAT_KEY);
+      // FIX: Use generic type argument for getLocal.
+      return getLocal<Material>(STORAGE_MAT_KEY);
     }
   },
   
   getMaterialsByDrone: async (droneId: string): Promise<Material[]> => {
     if (!isConfigured) {
-      const all = getLocal(STORAGE_MAT_KEY);
+      // FIX: Use generic type argument for getLocal.
+      const all = getLocal<Material>(STORAGE_MAT_KEY);
       return all.filter((m: Material) => m.drone_id === droneId);
     }
 
@@ -64,7 +68,8 @@ export const inventoryService = {
       })) as Material[];
     } catch (e) {
       console.warn("Inventory fetch error, using local:", e);
-      const all = getLocal(STORAGE_MAT_KEY);
+      // FIX: Use generic type argument for getLocal.
+      const all = getLocal<Material>(STORAGE_MAT_KEY);
       return all.filter((m: Material) => m.drone_id === droneId);
     }
   },
@@ -86,12 +91,12 @@ export const inventoryService = {
     };
 
     if (!isConfigured) {
-      const current = getLocal(STORAGE_MAT_KEY);
+      const current = getLocal<Material>(STORAGE_MAT_KEY);
       current.push({ 
         ...newItem, 
         battery_stats: material.type === 'battery' ? { ...stats, material_id: newItem.id } : undefined,
         propeller_stats: material.type === 'propeller' ? { ...stats, material_id: newItem.id } : undefined
-      });
+      } as Material);
       setLocal(STORAGE_MAT_KEY, current);
       return;
     }
@@ -116,7 +121,7 @@ export const inventoryService = {
   updateMaterial: async (id: string, materialUpdates: Partial<Material>, statsUpdates?: any): Promise<void> => {
     if (!isConfigured) {
        // Simple local update logic for offline demo
-       const current = getLocal(STORAGE_MAT_KEY);
+       const current = getLocal<Material>(STORAGE_MAT_KEY);
        const index = current.findIndex((m: any) => m.id === id);
        if (index !== -1) {
          current[index] = { ...current[index], ...materialUpdates };
@@ -139,7 +144,7 @@ export const inventoryService = {
 
   deleteMaterial: async (id: string): Promise<void> => {
     if (!isConfigured) {
-      const current = getLocal(STORAGE_MAT_KEY);
+      const current = getLocal<Material>(STORAGE_MAT_KEY);
       setLocal(STORAGE_MAT_KEY, current.filter((m: any) => m.id !== id));
       return;
     }

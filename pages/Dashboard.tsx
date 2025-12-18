@@ -153,16 +153,70 @@ export default function Dashboard() {
         }
     };
     init();
-
-    const interval = setInterval(() => {
-        if (currentUser && isMounted.current) loadData(currentUser);
-    }, 30000);
     
     return () => {
         isMounted.current = false;
-        clearInterval(interval);
     };
-  }, [currentUser, loadData]);
+  }, [loadData]);
+
+  // Realtime Subscription for Dashboard Operations
+  useEffect(() => {
+    if (!isConfigured) return;
+
+    const channel = supabase
+      .channel('dashboard_ops_monitor')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'operations'
+        },
+        (payload) => {
+           console.log("Realtime Ops Update:", payload);
+           const { eventType, new: newOp, old: oldOp } = payload;
+           
+           setActiveOps(currentOps => {
+              let updatedOps = [...currentOps];
+              const opId = newOp.id || oldOp.id;
+              const opIndex = updatedOps.findIndex(op => op.id === opId);
+
+              if (eventType === 'INSERT' && newOp.status === 'active') {
+                  updatedOps.unshift(newOp as Operation);
+              } else if (eventType === 'UPDATE') {
+                  if (opIndex !== -1) {
+                      // Se mudou para inativo, remove
+                      if (newOp.status !== 'active') {
+                          updatedOps.splice(opIndex, 1);
+                      } else { // Se continua ativo, atualiza
+                          updatedOps[opIndex] = newOp as Operation;
+                      }
+                  } else if (newOp.status === 'active') { // Estava inativo e virou ativo
+                      updatedOps.unshift(newOp as Operation);
+                  }
+              } else if (eventType === 'DELETE') {
+                  if (opIndex !== -1) {
+                      updatedOps.splice(opIndex, 1);
+                  }
+              }
+              // Atualiza também streams
+              setLiveStreams(updatedOps.filter(o => o.stream_url));
+              return updatedOps;
+           });
+
+           // Recarrega lista de recentes para refletir novos itens
+           base44.entities.Operation.list('-start_time').then(ops => {
+               if(isMounted.current) setRecentOps(ops.slice(0, 5));
+           });
+        }
+      )
+      .subscribe();
+      
+      return () => {
+        supabase.removeChannel(channel);
+      }
+
+  }, []);
 
   // Realtime Subscription for Dashboard Conflicts
   useEffect(() => {

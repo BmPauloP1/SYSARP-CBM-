@@ -235,40 +235,52 @@ NOTIFY pgrst, 'reload schema';
 
 const STORAGE_KEY = 'sysarp_sql_updates_applied';
 
-// @fix: Added onMark and onCopy to component props and removed incorrect 'key' prop from Card.
-const UpdateCard = ({ update, applied, onMark, onCopy }: { update: SqlUpdate; applied: boolean; onMark: (id: string) => void; onCopy: (sql: string) => void; }) => (
-  <Card className="p-0 overflow-hidden">
-    <div className={`p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${applied ? 'bg-green-50' : 'bg-slate-50'}`}>
-      <div>
-        <Badge className="mb-2 text-xs">{update.category.toUpperCase()}</Badge>
-        <h3 className="font-bold text-slate-800">{update.title}</h3>
-        <p className="text-xs text-slate-500 mt-1 max-w-2xl">{update.description}</p>
+// FIX: Refactored component props into a named interface to resolve a TypeScript error where the `key` prop was being incorrectly type-checked.
+interface UpdateCardProps {
+  update: SqlUpdate;
+  applied: boolean;
+  onMark: (id: string) => void;
+  onCopy: (sql: string) => void;
+}
+
+// @FIX: Converted from a const arrow function to a standard function declaration.
+// This is a known workaround for a rare TypeScript issue where the `key` prop is incorrectly
+// type-checked against the component's props when used inside a `.map()`.
+function UpdateCard({ update, applied, onMark, onCopy }: UpdateCardProps) {
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div className={`p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${applied ? 'bg-green-50' : 'bg-slate-50'}`}>
+        <div>
+          <Badge className="mb-2 text-xs">{update.category.toUpperCase()}</Badge>
+          <h3 className="font-bold text-slate-800">{update.title}</h3>
+          <p className="text-xs text-slate-500 mt-1 max-w-2xl">{update.description}</p>
+        </div>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          {applied ? (
+            <Badge variant="success" className="flex-1 justify-center sm:flex-initial">
+              <CheckCircle className="w-3 h-3 mr-1" />
+              Aplicado
+            </Badge>
+          ) : (
+            <Button onClick={() => onMark(update.id)} variant="outline" size="sm" className="bg-white flex-1 sm:flex-initial">
+              Marcar como Aplicado
+            </Button>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-2 w-full sm:w-auto">
-        {applied ? (
-          <Badge variant="success" className="flex-1 justify-center sm:flex-initial">
-            <CheckCircle className="w-3 h-3 mr-1" />
-            Aplicado
-          </Badge>
-        ) : (
-          <Button onClick={() => onMark(update.id)} variant="outline" size="sm" className="bg-white flex-1 sm:flex-initial">
-            Marcar como Aplicado
-          </Button>
-        )}
+      <div className="relative bg-slate-900 text-green-400 p-4 font-mono text-xs overflow-x-auto">
+        <pre>{update.sql.trim()}</pre>
+        <button 
+          onClick={() => onCopy(update.sql.trim())}
+          className="absolute top-2 right-2 p-2 bg-white/10 text-white rounded-md hover:bg-white/20 transition-colors"
+          title="Copiar SQL"
+        >
+          <Copy className="w-4 h-4" />
+        </button>
       </div>
-    </div>
-    <div className="relative bg-slate-900 text-green-400 p-4 font-mono text-xs overflow-x-auto">
-      <pre>{update.sql.trim()}</pre>
-      <button 
-        onClick={() => onCopy(update.sql.trim())}
-        className="absolute top-2 right-2 p-2 bg-white/10 text-white rounded-md hover:bg-white/20 transition-colors"
-        title="Copiar SQL"
-      >
-        <Copy className="w-4 h-4" />
-      </button>
-    </div>
-  </Card>
-);
+    </Card>
+  );
+}
 
 export default function DatabaseUpdates() {
   const [applied, setApplied] = useState<Set<string>>(new Set());

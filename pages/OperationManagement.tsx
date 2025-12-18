@@ -1072,7 +1072,7 @@ NOTIFY pgrst, 'reload schema';
                     <div>
                         <label className="text-sm font-medium text-slate-700">Relatório Final / Observações</label>
                         <textarea
-                            className="w-full p-3 border border-slate-300 rounded-lg text-sm h-32 resize-none focus:ring-2 focus:ring-green-500 outline-none"
+                            className="w-full p-3 border border-slate-300 rounded-lg text-sm h-32 resize-none focus:ring-2 focus:ring-green-500 outline-none bg-white"
                             value={finishData.description}
                             onChange={e => setFinishData({...finishData, description: e.target.value})}
                             placeholder="Descreva o desfecho da operação..."
@@ -1178,6 +1178,7 @@ NOTIFY pgrst, 'reload schema';
                 onClick={() => setIsPanelCollapsed(!isPanelCollapsed)}
                 className="bg-white p-2 rounded-md shadow-md border border-slate-200 text-slate-600 hover:text-slate-900 transition-colors"
                 title={isPanelCollapsed ? "Expandir Painel" : "Minimizar Painel"}
+                aria-label={isPanelCollapsed ? "Expandir Painel" : "Minimizar Painel"}
             >
                 {isPanelCollapsed ? <ChevronsLeft className="w-6 h-6" /> : <ChevronsRight className="w-6 h-6" />}
             </button>
@@ -1329,7 +1330,13 @@ NOTIFY pgrst, 'reload schema';
                                     onChange={e => {
                                         const val = e.target.value;
                                         const found = pilots.find(p => p.full_name === val);
-                                        setFormData({...formData, pilot_name: val, pilot_id: found ? found.id : ''});
+                                        setFormData({
+                                            ...formData, 
+                                            pilot_name: val, 
+                                            pilot_id: found ? found.id : '',
+                                            // Auto-fill CRBM and Unit if pilot is found
+                                            ...(found ? { op_crbm: found.crbm, op_unit: found.unit } : {})
+                                        });
                                     }}
                                     placeholder="Digite para buscar..."
                                 />

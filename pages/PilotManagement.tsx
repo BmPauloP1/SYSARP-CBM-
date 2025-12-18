@@ -177,7 +177,7 @@ export default function PilotManagement() {
         doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 35);
         doc.text(`Filtros: ${filterCrbm !== 'all' ? filterCrbm : 'Todos CRBMs'} | Status: ${filterStatus !== 'all' ? (filterStatus === 'active' ? 'Ativos' : 'Inativos') : 'Todos'}`, 14, 40);
 
-        const tableBody = filteredPilots.map(p => [
+        const tableData = filteredPilots.map(p => [
             p.full_name,
             p.sarpas_code || '-',
             p.unit || '-',
@@ -189,7 +189,7 @@ export default function PilotManagement() {
         autoTable(doc, {
             startY: 45,
             head: [['Nome Completo', 'SARPAS', 'Unidade', 'Telefone', 'Status', 'Perfil']],
-            body: tableBody,
+            body: tableData,
             theme: 'grid',
             headStyles: { fillColor: [185, 28, 28], textColor: 255, fontSize: 8 },
             styles: { fontSize: 7, cellPadding: 2 },
@@ -793,16 +793,16 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                 
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-slate-700">E-mail Institucional</label>
-                  <div className={`flex items-center border border-slate-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-red-500 focus-within:border-red-500 transition-all ${editingPilotId ? 'bg-slate-100 opacity-70' : ''}`}>
+                  <div className={`flex items-center border border-slate-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-red-500 focus-within:border-red-500 transition-all ${editingPilotId ? 'opacity-70' : ''}`}>
                     <input 
-                      className="w-full px-3 py-2 outline-none text-right"
+                      className="w-full px-3 py-2 outline-none text-right bg-white lowercase"
                       placeholder="nome.sobrenome"
                       required 
                       value={emailPrefix} 
                       onChange={e => setEmailPrefix(e.target.value)}
                       disabled={!!editingPilotId}
                     />
-                    <span className="bg-white px-3 py-2 text-slate-500 text-sm font-medium border-l border-slate-300">
+                    <span className="bg-slate-50 px-3 py-2 text-slate-500 text-sm font-medium border-l border-slate-300">
                       @cbm.pr.gov.br
                     </span>
                   </div>

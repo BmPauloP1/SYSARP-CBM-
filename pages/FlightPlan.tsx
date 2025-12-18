@@ -258,7 +258,7 @@ export default function FlightPlan() {
                     label="Piloto em Comando" 
                     value={formData.pilot_id} 
                     onChange={(e) => handleChange('pilot_id', e.target.value)}
-                    className="bg-slate-50"
+                    className="bg-white"
                   >
                     <option value="">Selecione...</option>
                     {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
@@ -268,7 +268,7 @@ export default function FlightPlan() {
                     label="Vincular Operação (Opcional)" 
                     value={selectedOpId} 
                     onChange={(e) => handleOperationSelect(e.target.value)}
-                    className="bg-blue-50 border-blue-200 text-blue-900"
+                    className="bg-white border-blue-200 text-blue-900"
                   >
                      <option value="">Selecione para preencher...</option>
                      {activeOps.map(op => (
@@ -282,7 +282,7 @@ export default function FlightPlan() {
                     label="Aeronave (RPA)" 
                     value={formData.drone_id} 
                     onChange={handleDroneChange}
-                    className="bg-slate-50"
+                    className="bg-white"
                   >
                     <option value="">Selecione...</option>
                     {drones.map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
