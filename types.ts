@@ -218,6 +218,7 @@ export interface Operation {
   pause_logs?: { start: string; end?: string; reason: string; duration?: number }[];
   op_crbm?: string;
   op_unit?: string;
+  takeoff_points?: { lat: number; lng: number; alt: number; }[];
 }
 
 // --- NEW MULTI-DAY OPERATION TYPES ---

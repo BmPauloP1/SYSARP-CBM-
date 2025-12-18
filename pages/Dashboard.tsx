@@ -228,8 +228,18 @@ export default function Dashboard() {
       const startTime = new Date(op.start_time);
       const endTime = op.end_time 
           ? new Date(op.end_time) 
-          : new Date(startTime.getTime() + 2 * 60 * 60 * 1000); 
+          : new Date(startTime.getTime() + 2 * 60 * 60 * 1000);
 
+      let locationText = `📍 *Coord:* ${op.latitude}, ${op.longitude}\n` +
+                         `📏 *Parâmetros:* Raio: ${op.radius}m | Altura: ${op.flight_altitude || 'N/A'}m\n`;
+
+      if (op.takeoff_points && op.takeoff_points.length > 0) {
+          locationText = `📍 *Pontos de Interesse:*\n` +
+              op.takeoff_points.map((p, i) => 
+                  `   ${i+1}: Lat ${p.lat.toFixed(5)}, Lng ${p.lng.toFixed(5)} (Alt: ${p.alt}m)`
+              ).join('\n') + `\n📏 *Raio Principal:* ${op.radius}m\n`;
+      }
+      
       const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n` +
           `🚁 *Ocorrência:* ${op.name}\n` +
           `🔢 *Protocolo:* ${op.occurrence_number}\n` +
@@ -237,9 +247,8 @@ export default function Dashboard() {
           `👤 *Piloto:* ${pilot ? pilot.full_name : 'N/A'}\n` +
           `📞 *Contato:* ${pilot ? pilot.phone : 'N/A'}\n` +
           `🛸 *Aeronave:* ${drone ? `${drone.model} (${drone.prefix})` : 'N/A'}\n` +
-          `📍 *Coord:* ${op.latitude}, ${op.longitude}\n` +
-          `📏 *Parâmetros:* Raio: ${op.radius}m | Altura: ${op.flight_altitude || 'N/A'}m\n` +
-          `🗺️ *Mapa:* ${mapLink}\n` +
+          `${locationText}` +
+          `🗺️ *Mapa (Ponto Principal):* ${mapLink}\n` +
           `🕒 *Início:* ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
           `🏁 *Término Previsto:* ${endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
           `${streamText}\n\n` +

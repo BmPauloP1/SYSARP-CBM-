@@ -276,9 +276,11 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
 
         let startY = 30;
 
-        // FIX: Use Object.entries to ensure `items` is correctly typed as an array, resolving a type inference issue.
+        // FIX: Replaced loop over grouped object entries to explicitly cast 'items' to Material[],
+        // resolving a TypeScript type inference issue where it was treated as 'unknown'.
         const groupedEntries = Object.entries(grouped).sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
-        for (const [type, items] of groupedEntries) {
+        for (const [type, rawItems] of groupedEntries) {
+            const items = rawItems as Material[];
             if (!items || items.length === 0) continue;
 
             if (startY > 250) {

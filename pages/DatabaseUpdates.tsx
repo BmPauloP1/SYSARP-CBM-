@@ -116,6 +116,17 @@ NOTIFY pgrst, 'reload schema';
 `
   },
   {
+    id: 'operations_add_takeoff_points',
+    title: 'Habilitar Múltiplos Pontos de Decolagem',
+    description: 'Adiciona a coluna `takeoff_points` (do tipo JSONB) à tabela de operações. Isso permite salvar múltiplos pontos geolocalizados, cada um com sua própria altitude, para uma única missão.',
+    category: 'operations',
+    sql: `
+ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS takeoff_points jsonb;
+
+NOTIFY pgrst, 'reload schema';
+`
+  },
+  {
     id: 'operations_add_fields_1',
     title: 'Adicionar Campos de Operação (v1)',
     description: 'Adiciona as colunas `op_crbm` e `op_unit` à tabela de operações para permitir o registro da área da ocorrência, independente da lotação do piloto.',
@@ -272,10 +283,11 @@ export default function DatabaseUpdates() {
       </div>
 
       <div className="space-y-4">
-        {ALL_UPDATES.map(update => (
+        {ALL_UPDATES.sort((a,b) => a.category.localeCompare(b.category) || a.title.localeCompare(b.title)).map(update => (
           <Card key={update.id} className="p-0 overflow-hidden">
             <div className={`p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${applied.has(update.id) ? 'bg-green-50' : 'bg-slate-50'}`}>
               <div>
+                 <Badge className="mb-2 text-xs">{update.category.toUpperCase()}</Badge>
                 <h3 className="font-bold text-slate-800">{update.title}</h3>
                 <p className="text-xs text-slate-500 mt-1 max-w-2xl">{update.description}</p>
               </div>
