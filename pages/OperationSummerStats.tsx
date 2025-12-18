@@ -33,6 +33,13 @@ const MapController = () => {
   return null;
 };
 
+// Helper for valid coordinates
+const isValidCoord = (lat: any, lng: any) => {
+  const nLat = Number(lat);
+  const nLng = Number(lng);
+  return !isNaN(nLat) && !isNaN(nLng) && nLat !== 0 && nLng !== 0;
+};
+
 // Helper to generate jitter for overlapping points
 const jitter = (coord: number) => coord + (Math.random() - 0.5) * 0.02;
 
@@ -129,12 +136,22 @@ export default function OperationSummerStats() {
   // Markers for Map
   const mapMarkers = useMemo(() => {
     return filteredFlights.map(f => {
-      // Try to find a matching city in the location string
+      // Prioritize exact coordinates from the operation
+      if (f.latitude && f.longitude && isValidCoord(f.latitude, f.longitude)) {
+        return {
+          id: f.id,
+          lat: jitter(f.latitude),
+          lng: jitter(f.longitude),
+          title: f.location,
+          type: f.mission_type,
+          info: `${new Date(f.date).toLocaleDateString()} - ${MISSION_HIERARCHY[f.mission_type as MissionType]?.label || f.mission_type}`
+        };
+      }
+
+      // Fallback to old city-based logic for legacy data
       const cityKey = Object.keys(CITY_COORDS).find(city => f.location.includes(city));
-      
       if (cityKey) {
         const [baseLat, baseLng] = CITY_COORDS[cityKey];
-        // Safety Check for coordinates
         if (isNaN(baseLat) || isNaN(baseLng)) return null;
 
         return {

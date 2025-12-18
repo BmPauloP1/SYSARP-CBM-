@@ -39,6 +39,7 @@ export const SUMMER_LOCATIONS: Record<string, string[]> = {
 
 export interface SummerFlight {
   id: string;
+  operation_id?: string;
   pilot_id: string;
   drone_id: string;
   mission_type: MissionType;
@@ -51,6 +52,8 @@ export interface SummerFlight {
   evidence_photos: string[];
   evidence_videos: string[];
   created_at: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface SummerAuditLog {

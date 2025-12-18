@@ -277,7 +277,8 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
         let startY = 30;
 
         // FIX: Using Object.entries provides better type inference for 'items' inside the loop.
-        const sortedEntries = Object.entries(grouped).sort(([typeA], [typeB]) => typeA.localeCompare(typeB));
+        // By explicitly typing sortedEntries, TypeScript correctly infers `items` as Material[] inside the loop.
+        const sortedEntries: [string, Material[]][] = Object.entries(grouped).sort(([typeA], [typeB]) => typeA.localeCompare(typeB));
         for (const [type, items] of sortedEntries) {
             if (!items || items.length === 0) continue;
 
@@ -368,6 +369,9 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
   };
 
   const filteredMaterials = materials.filter(m => m.type === activeTab);
+  
+  // FIX: Extracted array generation to a strongly typed variable to help TypeScript inference.
+  const uniqueMaterialNames: string[] = Array.from(new Set(allMaterials.filter(m => m.type === activeTab).map(m => m.name)));
 
   return (
     <div className="fixed inset-0 bg-black/70 z-[3000] flex items-center justify-center p-4">
@@ -569,7 +573,7 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
                       <div className={isBatchMode ? "sm:col-span-4" : "sm:col-span-2"}>
                          <Input label="Nome / Modelo" required placeholder="Ex: Bateria TB30..." value={newItem.name || ''} onChange={handleNameChange} />
                          <datalist id="material-names">
-                           {Array.from(new Set(allMaterials.filter(m => m.type === activeTab).map(m => m.name))).map(name => (
+                           {uniqueMaterialNames.map(name => (
                              <option key={name} value={name} />
                            ))}
                          </datalist>

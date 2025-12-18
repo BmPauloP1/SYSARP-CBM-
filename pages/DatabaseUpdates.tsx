@@ -116,6 +116,24 @@ NOTIFY pgrst, 'reload schema';
 `
   },
   {
+    id: 'summer_op_link',
+    title: 'Vincular Op. Verão à Operação Principal',
+    description: 'Adiciona a coluna `operation_id` à tabela `op_summer_flights` e cria uma chave estrangeira para a tabela `operations`. Isso garante a integridade dos dados e permite buscar coordenadas exatas para o mapa de calor.',
+    category: 'operations',
+    sql: `
+-- VINCULA OCORRÊNCIAS DE VERÃO À OPERAÇÃO PRINCIPAL
+ALTER TABLE public.op_summer_flights ADD COLUMN IF NOT EXISTS operation_id uuid;
+
+ALTER TABLE public.op_summer_flights
+ADD CONSTRAINT op_summer_flights_operation_id_fkey
+FOREIGN KEY (operation_id)
+REFERENCES public.operations(id)
+ON DELETE SET NULL; -- Mantém o log de verão mesmo se a operação principal for deletada
+
+NOTIFY pgrst, 'reload schema';
+`
+  },
+  {
     id: 'operations_add_takeoff_points',
     title: 'Habilitar Múltiplos Pontos de Decolagem',
     description: 'Adiciona a coluna `takeoff_points` (do tipo JSONB) à tabela de operações. Isso permite salvar múltiplos pontos geolocalizados, cada um com sua própria altitude, para uma única missão.',
@@ -243,10 +261,10 @@ interface UpdateCardProps {
   onCopy: (sql: string) => void;
 }
 
-// @FIX: Converted from a const arrow function to a standard function declaration.
-// This is a known workaround for a rare TypeScript issue where the `key` prop is incorrectly
-// type-checked against the component's props when used inside a `.map()`.
-function UpdateCard({ update, applied, onMark, onCopy }: UpdateCardProps) {
+// @FIX: Converted to a const arrow function component with React.FC.
+// This is a robust method for typing functional components that correctly handles
+// React's special props like `key`, preventing them from being checked against UpdateCardProps.
+const UpdateCard: React.FC<UpdateCardProps> = ({ update, applied, onMark, onCopy }) => {
   return (
     <Card className="p-0 overflow-hidden">
       <div className={`p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${applied ? 'bg-green-50' : 'bg-slate-50'}`}>

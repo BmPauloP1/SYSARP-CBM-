@@ -20,11 +20,21 @@ export const operationSummerService = {
     try {
       const { data, error } = await supabase
         .from(TABLE)
-        .select('*')
+        .select('*, operation:operations(latitude, longitude)')
         .order('date', { ascending: false });
         
       if (error) throw error;
-      return data as SummerFlight[];
+      
+      // Flatten the join result to attach coordinates directly
+      const flattenedData = data.map((f: any) => {
+        const { operation, ...rest } = f;
+        if (operation) {
+          return { ...rest, latitude: operation.latitude, longitude: operation.longitude };
+        }
+        return rest;
+      });
+
+      return flattenedData as SummerFlight[];
     } catch (e) {
       return getLocal(STORAGE_KEY);
     }

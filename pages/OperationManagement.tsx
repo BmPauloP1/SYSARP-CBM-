@@ -731,11 +731,12 @@ export default function OperationManagement() {
       if (isSummerOp && !isEditing) {
          try {
             await operationSummerService.create({
+               operation_id: savedOp.id,
                pilot_id: savedOp.pilot_id,
                drone_id: savedOp.drone_id,
-               mission_type: 'public_security', 
+               mission_type: savedOp.mission_type, 
                location: `${summerCity} - ${summerPost}`,
-               date: formData.date, // Usa a data do formulário
+               date: formData.date,
                start_time: formData.start_time_local,
                end_time: formData.end_time_local,
                flight_duration: 0, 
