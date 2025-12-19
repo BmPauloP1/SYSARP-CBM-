@@ -676,20 +676,27 @@ export default function OperationManagement() {
         });
         alert("Ocorrência atualizada!"); 
       } else {
-        // --- GERAÇÃO DE PROTOCOLO AUTOMÁTICO ---
+        // --- GERAÇÃO DE PROTOCOLO AUTOMÁTICO (AJUSTADO) ---
         const currentYear = new Date().getFullYear();
-        
-        let unitCode = "GRL";
-        if (isSummerOp) {
-            unitCode = "8BBM";
-        } else if (formData.op_unit) {
+        let unitCode = "GRL"; // Código Geral/Padrão
+
+        // Prioridade 1: Unidade da área da ocorrência, se preenchida.
+        if (formData.op_unit) {
             const unitPart = formData.op_unit.split(' - ')[0];
             unitCode = unitPart.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
         } else {
-            const selectedPilot = pilots.find(p => p.id === formData.pilot_id);
-            if (selectedPilot?.unit) {
-                const unitPart = selectedPilot.unit.split(' - ')[0];
+            // Prioridade 2 (Fallback): Unidade de lotação do DRONE selecionado.
+            const selectedDrone = drones.find(d => d.id === formData.drone_id);
+            if (selectedDrone?.unit) {
+                const unitPart = selectedDrone.unit.split(' - ')[0];
                 unitCode = unitPart.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+            } else {
+                // Prioridade 3 (Fallback): Unidade de lotação do PILOTO.
+                const selectedPilot = pilots.find(p => p.id === formData.pilot_id);
+                if (selectedPilot?.unit) {
+                    const unitPart = selectedPilot.unit.split(' - ')[0];
+                    unitCode = unitPart.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+                }
             }
         }
         
@@ -1348,14 +1355,14 @@ NOTIFY pgrst, 'reload schema';
 
                             <div className="space-y-3 p-3 bg-white rounded border border-slate-200">
                                 <h3 className="text-xs font-bold text-slate-500 uppercase border-b pb-1 mb-2">Área da Ocorrência (Protocolo)</h3>
-                                <p className="text-[11px] text-slate-500 -mt-2 mb-2">Define a unidade no número do protocolo. Deixe em branco para usar a unidade do piloto.</p>
+                                <p className="text-[11px] text-slate-500 -mt-2 mb-2">Define a unidade no protocolo. Se não preenchido, usará a unidade da aeronave, e por último, a do piloto.</p>
                                 <div className="grid grid-cols-2 gap-3">
                                 <Select 
                                     label="CRBM da Área" 
                                     value={formData.op_crbm} 
                                     onChange={e => setFormData({...formData, op_crbm: e.target.value, op_unit: ''})}
                                 >
-                                    <option value="">(Padrão: Unidade do Piloto)</option>
+                                    <option value="">(Padrão: Unidade do Drone)</option>
                                     {Object.keys(ORGANIZATION_CHART).map(crbm => <option key={crbm} value={crbm}>{crbm}</option>)}
                                 </Select>
                                 <Select 

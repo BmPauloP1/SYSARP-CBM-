@@ -34,6 +34,12 @@ export const SUMMER_LOCATIONS: Record<string, string[]> = {
     "Prainha II", 
     "Prainha III", 
     "Prainha IV"
+  ],
+  "Paranavaí": [
+    "Porto Rico",
+    "São Pedro do Paraná (Porto São José)",
+    "Marilena (Porto Maringá)",
+    "Querência do Norte (Porto Brasílio)"
   ]
 };
 

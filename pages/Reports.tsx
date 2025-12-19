@@ -247,10 +247,8 @@ export default function Reports() {
     }
     setGenerating(true);
     try {
-      const jsPDFModule = await import('jspdf');
-      const jsPDF = jsPDFModule.default || (jsPDFModule as any).jsPDF;
-      const autoTableModule = await import('jspdf-autotable');
-      const autoTable = autoTableModule.default;
+      const { default: jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
 
       // Usar modo retrato (portrait) para ficha técnica
       const doc = new jsPDF('p', 'mm', 'a4');

@@ -4,7 +4,6 @@ import { base44 } from '../services/base44Client';
 import { Card, Button, Input } from '../components/ui_components';
 import { FileText, Download, Sun, Calendar } from 'lucide-react';
 import { MISSION_HIERARCHY, MissionType, SYSARP_LOGO } from '../types';
-import { jsPDF } from 'jspdf';
 
 // Helper to load image data for PDF
 const getImageData = (url: string): Promise<string> => {

@@ -275,8 +275,8 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
 
         let startY = 30;
 
-        // FIX: Replaced Object.entries with Object.keys to resolve a TypeScript type inference issue.
-        // Reverting to Object.entries as it is safer for iterating key-value pairs and ensures `items` is correctly typed as an array.
+        // FIX: The loop was using Object.entries which returns a [key, value] pair, but the loop variable `type` was being used as just the key. Changed to Object.keys to iterate correctly.
+        // FIX: Reverting to Object.entries with proper destructuring to resolve type inference issue.
         for (const [type, items] of Object.entries(grouped)) {
             if (!items || items.length === 0) continue;
 
@@ -367,7 +367,6 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
 
   const filteredMaterials = materials.filter(m => m.type === activeTab);
   
-  // FIX: Wrap the derivation of uniqueMaterialNames in useMemo to prevent re-computation on every render and potentially resolve type inference issues.
   const uniqueMaterialNames: string[] = useMemo(() => Array.from(new Set(allMaterials.filter(m => m.type === activeTab).map(m => m.name))), [allMaterials, activeTab]);
 
   return (

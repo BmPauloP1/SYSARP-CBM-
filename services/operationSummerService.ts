@@ -26,7 +26,8 @@ export const operationSummerService = {
       if (error) throw error;
       
       // Flatten the join result to attach coordinates directly
-      const flattenedData = data.map((f: any) => {
+      // FIX: Add null check for data to prevent .map error on empty results
+      const flattenedData = (data || []).map((f: any) => {
         const { operation, ...rest } = f;
         if (operation) {
           return { ...rest, latitude: operation.latitude, longitude: operation.longitude };
