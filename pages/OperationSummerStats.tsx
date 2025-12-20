@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { operationSummerService } from '../services/operationSummerService';
 import { base44 } from '../services/base44Client';
+import { supabase, isConfigured } from '../services/supabase';
 import { SummerStats, SummerFlight, SUMMER_LOCATIONS } from '../types_summer';
 import { Pilot, Drone, MISSION_HIERARCHY, MissionType, MISSION_COLORS } from '../types';
 import { Card, Select, Input, Button } from '../components/ui_components';
@@ -61,6 +62,26 @@ export default function OperationSummerStats() {
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (!isConfigured) return;
+
+    const channel = supabase
+      .channel('summer_stats_monitor')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'op_summer_flights' },
+        (payload) => {
+           console.log("Realtime event on summer flights table. Refreshing stats.", payload);
+           loadData(true); // Pass true to use the small search loader
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []); // Should run only once
 
   const loadData = async (isRefresh = false) => {
     if (!isRefresh) setLoading(true);

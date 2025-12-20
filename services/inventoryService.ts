@@ -25,7 +25,7 @@ export const inventoryService = {
           propeller_stats (*)
         `);
       if (error) throw error;
-      // Fix: Handle cases where `data` is null (e.g., no records found) to prevent runtime errors on `.map`.
+      // FIX: Handle cases where `data` is null (e.g., no records found) to prevent runtime errors on `.map`.
       return (data || []).map((m: any) => ({
         ...m,
         battery_stats: m.battery_stats?.[0] || undefined,
@@ -56,7 +56,7 @@ export const inventoryService = {
 
       if (error) throw error;
       
-      // Fix: Handle cases where `data` is null to prevent runtime errors and correctly flatten join results.
+      // FIX: Handle cases where `data` is null to prevent runtime errors and correctly flatten join results.
       return (data || []).map((m: any) => ({
         ...m,
         battery_stats: m.battery_stats?.[0] || undefined,

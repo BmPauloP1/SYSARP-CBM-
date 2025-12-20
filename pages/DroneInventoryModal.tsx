@@ -275,9 +275,8 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
 
         let startY = 30;
 
-        // FIX: The loop was using Object.entries which returns a [key, value] pair, but the loop variable `type` was being used as just the key. Changed to Object.keys to iterate correctly.
-        // FIX: Reverting to Object.entries with proper destructuring to resolve type inference issue.
-        for (const [type, items] of Object.entries(grouped)) {
+        // FIX: Explicitly cast the result of Object.entries to resolve a type inference issue where `items` was of type `unknown`.
+        for (const [type, items] of Object.entries(grouped) as [string, Material[]][]) {
             if (!items || items.length === 0) continue;
 
             if (startY > 250) {
@@ -367,7 +366,8 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
 
   const filteredMaterials = materials.filter(m => m.type === activeTab);
   
-  const uniqueMaterialNames: string[] = useMemo(() => Array.from(new Set(allMaterials.filter(m => m.type === activeTab).map(m => m.name))), [allMaterials, activeTab]);
+  // Fix: Explicitly provide generic type to useMemo to ensure correct type inference for complex return values.
+  const uniqueMaterialNames = useMemo<string[]>(() => Array.from(new Set(allMaterials.filter(m => m.type === activeTab).map(m => m.name))), [allMaterials, activeTab]);
 
   return (
     <div className="fixed inset-0 bg-black/70 z-[3000] flex items-center justify-center p-4">

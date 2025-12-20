@@ -15,6 +15,20 @@ interface SqlUpdate {
 // Array of all SQL updates needed for the application
 const ALL_UPDATES: SqlUpdate[] = [
   {
+    id: 'operations_align_created_at_with_start_time',
+    title: 'Alinhar Data de Criação com Data de Início da Missão',
+    description: 'Atualiza a data de criação (`created_at`) de todas as operações para ser igual à data de início (`start_time`), garantindo consistência nos relatórios e históricos, mesmo para missões cadastradas antecipadamente.',
+    category: 'operations',
+    sql: `
+-- Alinha a data de criação ('created_at') com a data de início ('start_time')
+-- para todas as operações existentes. Isso corrige inconsistências em relatórios
+-- onde uma operação era cadastrada em um dia para iniciar em outro.
+UPDATE public.operations
+SET created_at = start_time
+WHERE DATE(created_at) != DATE(start_time);
+`
+  },
+  {
     id: 'system_create_migrations_table',
     title: 'Habilitar Controle de Versão do Banco',
     description: 'Cria a tabela `schema_migrations` para rastrear quais atualizações SQL já foram aplicadas. Este é o script mais importante e deve ser o primeiro a ser executado para habilitar o novo sistema de controle.',

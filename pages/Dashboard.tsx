@@ -98,24 +98,23 @@ export default function Dashboard() {
   const [pilots, setPilots] = useState<Pilot[]>([]);
   const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   
-  // Ref para controle de montagem e evitar updates em componente desmontado
   const isMounted = useRef(true);
 
-  const loadData = useCallback(async (user?: Pilot) => {
+  const loadData = useCallback(async () => {
     try {
-      // Paraleliza as requisições para performance
-      const [ops, maints, drn, pils] = await Promise.all([
+      const [ops, maints, drn, pils, me] = await Promise.all([
         base44.entities.Operation.list('-start_time'),
         base44.entities.Maintenance.filter(m => m.status !== 'completed'),
         base44.entities.Drone.list(),
-        base44.entities.Pilot.list()
+        base44.entities.Pilot.list(),
+        base44.auth.me()
       ]);
 
       if (!isMounted.current) return;
 
       const active = ops.filter(o => o.status === 'active');
       
-      // Batch updates to reduce renders
+      setCurrentUser(me);
       setActiveOps(active);
       setRecentOps(ops.slice(0, 5));
       setMaintenanceAlerts(maints);
@@ -123,13 +122,11 @@ export default function Dashboard() {
       setDrones(drn);
       setPilots(pils);
 
-      // Load Conflict Notifications for current user
-      if (user) {
-          const conflicts = await base44.entities.ConflictNotification.filter({ target_pilot_id: user.id, acknowledged: false });
+      if (me) {
+          const conflicts = await base44.entities.ConflictNotification.filter({ target_pilot_id: me.id, acknowledged: false });
           if(isMounted.current) setConflictAlerts(conflicts);
       }
     } catch (e: any) {
-      // Suppress "Failed to fetch" console noise
       if (e.message && e.message.includes("Failed to fetch")) {
          // Silent fail
       } else {
@@ -140,119 +137,54 @@ export default function Dashboard() {
 
   useEffect(() => {
     isMounted.current = true;
-    
-    const init = async () => {
-        try {
-            const user = await base44.auth.me();
-            if(isMounted.current) {
-                setCurrentUser(user);
-                loadData(user);
-            }
-        } catch (e) {
-            console.debug("Dashboard init auth check", e);
-        }
-    };
-    init();
-    
+    loadData();
     return () => {
         isMounted.current = false;
     };
   }, [loadData]);
 
-  // Realtime Subscription for Dashboard Operations
+  // Realtime Subscriptions
   useEffect(() => {
-    if (!isConfigured) return;
+    if (!isConfigured || !currentUser) return;
 
-    const channel = supabase
+    const opsChannel = supabase
       .channel('dashboard_ops_monitor')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'operations' },
+        (payload) => {
+           console.log("Realtime Ops Update: reloading dashboard data.", payload);
+           loadData();
+        }
+      )
+      .subscribe();
+      
+    const conflictsChannel = supabase
+      .channel('dashboard_conflicts_monitor')
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'operations'
-        },
-        (payload) => {
-           console.log("Realtime Ops Update:", payload);
-           const { eventType, new: newOp, old: oldOp } = payload;
-           
-           setActiveOps(currentOps => {
-              let updatedOps = [...currentOps];
-              const opId = newOp.id || oldOp.id;
-              const opIndex = updatedOps.findIndex(op => op.id === opId);
-
-              if (eventType === 'INSERT' && newOp.status === 'active') {
-                  updatedOps.unshift(newOp as Operation);
-              } else if (eventType === 'UPDATE') {
-                  if (opIndex !== -1) {
-                      // Se mudou para inativo, remove
-                      if (newOp.status !== 'active') {
-                          updatedOps.splice(opIndex, 1);
-                      } else { // Se continua ativo, atualiza
-                          updatedOps[opIndex] = newOp as Operation;
-                      }
-                  } else if (newOp.status === 'active') { // Estava inativo e virou ativo
-                      updatedOps.unshift(newOp as Operation);
-                  }
-              } else if (eventType === 'DELETE') {
-                  if (opIndex !== -1) {
-                      updatedOps.splice(opIndex, 1);
-                  }
-              }
-              // Atualiza também streams
-              setLiveStreams(updatedOps.filter(o => o.stream_url));
-              return updatedOps;
-           });
-
-           // Recarrega lista de recentes para refletir novos itens
-           base44.entities.Operation.list('-start_time').then(ops => {
-               if(isMounted.current) setRecentOps(ops.slice(0, 5));
-           });
-        }
-      )
-      .subscribe();
-      
-      return () => {
-        supabase.removeChannel(channel);
-      }
-
-  }, []);
-
-  // Realtime Subscription for Dashboard Conflicts
-  useEffect(() => {
-    if (!currentUser || !isConfigured) return;
-
-    const channel = supabase
-      .channel('dashboard_conflicts_monitor')
-      .on(
-        'postgres_changes',
-        {
-          event: '*', // INSERT (new conflict) or UPDATE (ack status changed)
-          schema: 'public',
           table: 'conflict_notifications',
           filter: `target_pilot_id=eq.${currentUser.id}`
         },
         (payload) => {
-           console.log("Realtime Conflict Update in Dashboard:", payload);
-           // Otimização: Recarregar apenas os conflitos em vez de todos os dados do dashboard
-           base44.entities.ConflictNotification.filter({ target_pilot_id: currentUser.id, acknowledged: false })
-             .then(conflicts => {
-                if(isMounted.current) setConflictAlerts(conflicts);
-             })
-             .catch(console.error);
+           console.log("Realtime Conflict Update: reloading dashboard data.", payload);
+           loadData();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(opsChannel);
+      supabase.removeChannel(conflictsChannel);
     };
-  }, [currentUser]);
+  }, [currentUser, loadData]);
 
   const handleAckConflict = async (id: string) => {
      try {
          await base44.entities.ConflictNotification.update(id, { acknowledged: true });
-         // Realtime should handle the update, but optimistic update is faster
          setConflictAlerts(prev => prev.filter(c => c.id !== id));
      } catch (e) {
          console.error(e);
@@ -312,10 +244,8 @@ export default function Dashboard() {
       window.open(`https://wa.me/?text=${encodedText}`, '_blank');
   };
 
-  // MEMOIZED MARKERS: Rich Markers with Pilot, Drone, Unit info
   const mapMarkers = useMemo(() => {
     return activeOps.map(op => {
-      // Safety check for valid coordinates
       const lat = Number(op.latitude);
       const lng = Number(op.longitude);
       if (!isValidCoord(lat, lng)) return null;

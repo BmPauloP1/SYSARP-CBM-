@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
@@ -82,7 +80,7 @@ const createCustomIcon = (type: 'pilot' | 'drone' | 'unit', count: number = 1) =
   } else {
     // Icone de Drone (Quadricóptero)
     bgColor = 'bg-orange-600';
-    iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" stroke-width="0" fill="none"/><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M4.5 9m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0"/><path d="M19.5 9m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0"/><path d="M4.5 15m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0"/><path d="M19.5 15m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0"/><path d="M12 12v-3.5"/><path d="M12 12v3.5"/><path d="M12 12h-3.5"/><path d="M12 12h3.5"/></svg>`;
+    iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" stroke-width="0" fill="none"/><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M12 12v-3.5"/><path d="M12 12v3.5"/><path d="M12 12h-3.5"/><path d="M12 12h3.5"/></svg>`;
   }
 
   const html = `
@@ -721,6 +719,7 @@ export default function OperationManagement() {
           occurrence_number: occurrenceNumber,
           status: 'active',
           start_time: startTimeISO,
+          created_at: startTimeISO, // Garante que a data de criação é a mesma do início
           end_time: endTimeISO,
           photos: [],
           aro: null,
@@ -1533,7 +1532,7 @@ NOTIFY pgrst, 'reload schema';
                                             </Select>
                                             <Select value={summerPost} onChange={e => setSummerPost(e.target.value)} className="text-xs" disabled={!summerCity}>
                                                 <option value="">Selecione o Posto...</option>
-                                                {summerCity && SUMMER_LOCATIONS[summerCity as keyof typeof SUMMER_LOCATIONS]?.map(post => <option key={post} value={post}>{post}</option>)}
+                                                {summerCity && SUMMER_LOCATIONS[summerCity as keyof typeof SUMMER_LOCATIONS]?.map(post => <option key={post} value={post}></option>)}
                                             </Select>
                                         </div>
                                     )}

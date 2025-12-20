@@ -390,12 +390,12 @@ export const MISSION_HIERARCHY: Record<MissionType, { label: string; subtypes: s
     label: "8. Monitoramento e Inspeção",
     subtypes: [
       "Inspeção de Estruturas",
-      "Inspeção de Fachadas / Telhados",
-      "Inspeção de Torres e Antenas",
+      "Patrulhamento",
+      "Prevenção",
       "Monitoramento de Eventos / Grandes Multidões",
       "Monitoramento de Áreas de Preservação",
       "Mapeamento de Terreno",
-      "Termografia"
+      "Ronda Diária"
     ]
   },
   air_support: {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
+import { supabase, isConfigured } from "../services/supabase";
 import { Operation, Pilot, Drone, MISSION_LABELS, MISSION_HIERARCHY, SYSARP_LOGO, AroAssessment, ORGANIZATION_CHART, MISSION_COLORS } from "../types";
 import { Card, Input, Select, Button, Badge } from "../components/ui_components";
 import { Filter, FileText, Download, CheckSquare, Search, Map as MapIcon, PieChart as PieIcon, Navigation, Trash2, AlertTriangle } from "lucide-react";
@@ -91,6 +92,27 @@ export default function Reports() {
     loadData();
   }, []);
 
+  // Real-time listener for operations table changes
+  useEffect(() => {
+    if (!isConfigured) return;
+
+    const channel = supabase
+      .channel('reports_ops_monitor')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'operations' },
+        (payload) => {
+           console.log("Realtime event on operations table. Refreshing reports data.", payload);
+           loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []); // Should only run once
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -108,7 +130,8 @@ export default function Reports() {
       }));
 
       setOperations(extended);
-      setFilteredOps(extended);
+      // Re-apply filters after loading data
+      handleSearch(extended);
       setDrones(dronesData);
       setPilots(pilotsData); // Set pilots state
       setCurrentUser(me);
@@ -119,8 +142,8 @@ export default function Reports() {
     }
   };
 
-  const handleSearch = () => {
-    let result = operations;
+  const handleSearch = (sourceData?: ExtendedOperation[]) => {
+    let result = sourceData || operations;
 
     if (dateStart) {
       result = result.filter(op => new Date(op.start_time) >= new Date(dateStart));
@@ -149,7 +172,10 @@ export default function Reports() {
     }
 
     setFilteredOps(result);
-    setSelectedIds(new Set());
+    // Do not reset selection on auto-refresh
+    if (!sourceData) {
+        setSelectedIds(new Set());
+    }
   };
 
   const toggleSelection = (id: string) => {
@@ -698,7 +724,7 @@ export default function Reports() {
                     {drones.map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
                  </Select>
                  <div className="col-span-1 sm:col-span-2 md:col-span-3 lg:col-span-1 pt-2">
-                    <Button onClick={handleSearch} className="w-full bg-slate-900 hover:bg-black h-9 text-xs">
+                    <Button onClick={() => handleSearch()} className="w-full bg-slate-900 hover:bg-black h-9 text-xs">
                         <Search className="w-3.5 h-3.5 mr-2" /> Pesquisar
                     </Button>
                  </div>
