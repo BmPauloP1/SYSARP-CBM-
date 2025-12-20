@@ -192,7 +192,7 @@ export default function OperationSummerFlights() {
                                  )}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
-                                <div className="font-bold text-slate-700">{new Date(f.date).toLocaleDateString()}</div>
+                                <div className="font-bold text-slate-700">{new Date(f.date + 'T12:00:00').toLocaleDateString()}</div>
                                 <div className="text-xs text-slate-500">{f.start_time} - {f.end_time}</div>
                               </td>
                               <td className="px-4 py-3 font-medium text-orange-700 whitespace-nowrap">{f.location}</td>
@@ -244,7 +244,7 @@ export default function OperationSummerFlights() {
                                  <div className="flex flex-col">
                                     <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
                                        <Clock className="w-3.5 h-3.5 text-orange-500" />
-                                       {new Date(f.date).toLocaleDateString()}
+                                       {new Date(f.date + 'T12:00:00').toLocaleDateString()}
                                     </div>
                                     <span className="text-xs text-slate-400 ml-5">{f.start_time} - {f.end_time}</span>
                                  </div>

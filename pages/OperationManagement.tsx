@@ -674,28 +674,38 @@ export default function OperationManagement() {
         });
         alert("Ocorrência atualizada!"); 
       } else {
-        // --- GERAÇÃO DE PROTOCOLO AUTOMÁTICO (AJUSTADO) ---
+        // --- GERAÇÃO DE PROTOCOLO AUTOMÁTICO (REATORADO) ---
         const currentYear = new Date().getFullYear();
-        let unitCode = "GRL"; // Código Geral/Padrão
+        let unitCode = "GRL"; // Default code
 
-        // Prioridade 1: Unidade da área da ocorrência, se preenchida.
-        if (formData.op_unit) {
-            const unitPart = formData.op_unit.split(' - ')[0];
-            unitCode = unitPart.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-        } else {
-            // Prioridade 2 (Fallback): Unidade de lotação do DRONE selecionado.
+        const getCodeFromString = (str: string | undefined | null): string | null => {
+            if (!str || str.trim() === '') return null;
+            const part = str.split(' - ')[0];
+            return part.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+        };
+
+        // Prioridade 1: Unidade da Área (op_unit)
+        let code = getCodeFromString(formData.op_unit);
+
+        // Prioridade 2: CRBM da Área (op_crbm)
+        if (!code) {
+            code = getCodeFromString(formData.op_crbm);
+        }
+
+        // Prioridade 3: Unidade da Aeronave
+        if (!code) {
             const selectedDrone = drones.find(d => d.id === formData.drone_id);
-            if (selectedDrone?.unit) {
-                const unitPart = selectedDrone.unit.split(' - ')[0];
-                unitCode = unitPart.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-            } else {
-                // Prioridade 3 (Fallback): Unidade de lotação do PILOTO.
-                const selectedPilot = pilots.find(p => p.id === formData.pilot_id);
-                if (selectedPilot?.unit) {
-                    const unitPart = selectedPilot.unit.split(' - ')[0];
-                    unitCode = unitPart.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-                }
-            }
+            code = getCodeFromString(selectedDrone?.unit);
+        }
+
+        // Prioridade 4: Unidade do Piloto
+        if (!code) {
+            const selectedPilot = pilots.find(p => p.id === formData.pilot_id);
+            code = getCodeFromString(selectedPilot?.unit);
+        }
+
+        if (code) {
+            unitCode = code;
         }
         
         const allOps = await base44.entities.Operation.list('-created_at');
@@ -1532,7 +1542,7 @@ NOTIFY pgrst, 'reload schema';
                                             </Select>
                                             <Select value={summerPost} onChange={e => setSummerPost(e.target.value)} className="text-xs" disabled={!summerCity}>
                                                 <option value="">Selecione o Posto...</option>
-                                                {summerCity && SUMMER_LOCATIONS[summerCity as keyof typeof SUMMER_LOCATIONS]?.map(post => <option key={post} value={post}></option>)}
+                                                {summerCity && SUMMER_LOCATIONS[summerCity as keyof typeof SUMMER_LOCATIONS]?.map(post => <option key={post} value={post}>{post}</option>)}
                                             </Select>
                                         </div>
                                     )}
