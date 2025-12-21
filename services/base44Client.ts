@@ -596,39 +596,59 @@ const authHandler = {
        if (error) throw error;
        if (!data.user) throw new Error("Erro ao criar usuário no Auth.");
  
+       const profilePayload = {
+           id: data.user.id,
+           email: pilotData.email,
+           full_name: metaData.full_name,
+           role: metaData.role,
+           status: 'active',
+           phone: metaData.phone,
+           sarpas_code: metaData.sarpas_code,
+           crbm: metaData.crbm,
+           unit: metaData.unit,
+           license: metaData.license,
+           terms_accepted: metaData.terms_accepted,
+           terms_accepted_at: new Date().toISOString()
+       };
+       
+       const { data: newProfile, error: upsertError } = await supabase
+         .from('profiles')
+         .upsert(profilePayload)
+         .select()
+         .single();
+
+       if (upsertError) {
+         console.error("CRITICAL: Profile upsert failed after auth user creation:", upsertError.message);
+         throw new Error(`PROFILE_UPSERT_FAILED: ${upsertError.message}`);
+       }
+       if (!newProfile) {
+         throw new Error("PROFILE_UPSERT_FAILED: A criação do perfil não retornou dados.");
+       }
+
+       // Manually update local cache to prevent stale data on network failure
        try {
-         const profilePayload = {
-             id: data.user.id,
-             email: pilotData.email,
-             full_name: metaData.full_name,
-             role: metaData.role,
-             status: 'active',
-             phone: metaData.phone,
-             sarpas_code: metaData.sarpas_code,
-             crbm: metaData.crbm,
-             unit: metaData.unit,
-             license: metaData.license,
-             terms_accepted: metaData.terms_accepted,
-             terms_accepted_at: new Date().toISOString()
-         };
-         await supabase.from('profiles').upsert(profilePayload);
-
-         // Audit
-         base44.entities.SystemAudit.create({
-              user_id: data.user.id,
-              action: 'CREATE',
-              entity: 'Pilot',
-              details: `Novo cadastro: ${pilotData.email}`,
-              timestamp: new Date().toISOString()
-         });
-
-       } catch (upsertError: any) {
-          console.error("CRITICAL: Profile upsert failed after auth user creation:", upsertError.message);
-          // Re-throw the error so the UI layer can handle it, adding a specific marker.
-          throw new Error(`PROFILE_UPSERT_FAILED: ${upsertError.message}`);
+         const pilotsCache = getLocal<Pilot>('sysarp_pilots');
+         const existingIndex = pilotsCache.findIndex(p => p.id === newProfile.id);
+         if (existingIndex > -1) {
+             pilotsCache[existingIndex] = newProfile as Pilot;
+         } else {
+             pilotsCache.unshift(newProfile as Pilot);
+         }
+         setLocal('sysarp_pilots', pilotsCache);
+       } catch (cacheError) {
+         console.warn("Falha ao atualizar o cache de pilotos após o cadastro.", cacheError);
        }
  
-       return { id: data.user.id, ...pilotData } as Pilot;
+       // Audit
+       base44.entities.SystemAudit.create({
+            user_id: data.user.id,
+            action: 'CREATE',
+            entity: 'Pilot',
+            details: `Novo cadastro: ${pilotData.email}`,
+            timestamp: new Date().toISOString()
+       });
+ 
+       return newProfile as Pilot;
  
      } catch (e: any) {
        const msg = e.message || '';
