@@ -217,7 +217,8 @@ export default function OperationSummerReport() {
       
       // Footer
       // @FIX: Correctly call `doc.internal.getNumberOfPages()` to get the page count.
-      const pageCount = doc.internal.getNumberOfPages();
+      // FIX: The `getNumberOfPages` method is on the `doc` object itself, not on `doc.internal`.
+      const pageCount = doc.getNumberOfPages();
       for(let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
         doc.setFontSize(8);

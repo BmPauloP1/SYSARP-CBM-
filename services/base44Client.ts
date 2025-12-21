@@ -623,7 +623,9 @@ const authHandler = {
          });
 
        } catch (upsertError: any) {
-         console.warn("Aviso: Upsert manual de perfil falhou:", upsertError.message);
+          console.error("CRITICAL: Profile upsert failed after auth user creation:", upsertError.message);
+          // Re-throw the error so the UI layer can handle it, adding a specific marker.
+          throw new Error(`PROFILE_UPSERT_FAILED: ${upsertError.message}`);
        }
  
        return { id: data.user.id, ...pilotData } as Pilot;

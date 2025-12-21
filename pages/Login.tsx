@@ -127,9 +127,47 @@ CREATE TRIGGER on_auth_user_created_confirm
       setRegEmailPrefix('');
 
     } catch (err: any) {
-      // Check for the specific database error that requires SQL fix
-      if (err.message && err.message.includes("SQL FIX REQUIRED")) {
-      
+      // NEW: Check for profile creation failure due to RLS
+      if (err.message && err.message.includes("PROFILE_UPSERT_FAILED")) {
+         const fixSql = `
+-- CORREÇÃO DE PERMISSÕES (RLS) PARA CADASTRO DE PILOTO
+-- A criação do perfil está falhando por falta de permissão na tabela 'profiles'.
+-- Execute este script no SQL Editor do Supabase para corrigir.
+
+-- 1. Garante que RLS está habilitado
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- 2. Remove políticas antigas de INSERT para evitar conflitos
+DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
+DROP POLICY IF EXISTS "Permitir inserção pública em perfis" ON public.profiles;
+
+-- 3. Política de Inserção: Permite que um usuário recém-autenticado crie seu PRÓPRIO perfil.
+-- A condição 'auth.uid() = id' é a chave de segurança aqui.
+CREATE POLICY "Users can insert their own profile."
+    ON public.profiles FOR INSERT
+    WITH CHECK (auth.uid() = id);
+
+-- 4. Garante que as outras permissões essenciais existam
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
+CREATE POLICY "Public profiles are viewable by everyone."
+    ON public.profiles FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Users can update own profile." ON public.profiles;
+CREATE POLICY "Users can update own profile."
+    ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Admins can update any profile." ON public.profiles;
+CREATE POLICY "Admins can update any profile."
+    ON public.profiles FOR UPDATE USING ( (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' );
+
+DROP POLICY IF EXISTS "Admins can delete any profile." ON public.profiles;
+CREATE POLICY "Admins can delete any profile."
+    ON public.profiles FOR DELETE USING ( (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' );
+
+NOTIFY pgrst, 'reload schema';
+`;
+         setSqlError(fixSql);
+      } else if (err.message && err.message.includes("SQL FIX REQUIRED")) {
          const fixSql = `
 -- COPIE E RODE NO SUPABASE SQL EDITOR PARA DESTRAVAR O CADASTRO:
 
@@ -204,14 +242,14 @@ NOTIFY pgrst, 'reload schema';
               <div className="p-4 bg-red-600 text-white flex justify-between items-center">
                  <h3 className="font-bold text-lg flex items-center gap-2">
                    <Database className="w-6 h-6" />
-                   Ação Necessária: Desbloqueio de Banco de Dados
+                   Ação Necessária: Corrigir Permissões de Cadastro
                  </h3>
                  <button onClick={() => setSqlError(null)} className="hover:bg-red-700 p-1 rounded"><X className="w-5 h-5" /></button>
               </div>
               <div className="p-6 space-y-4">
                  <p className="text-slate-700 font-medium">
-                    O Banco de Dados está bloqueando o cadastro devido a um Gatilho (Trigger) conflitante.
-                    A solução é <strong>remover o gatilho</strong> e deixar a aplicação gerenciar o cadastro.
+                    O Banco de Dados está bloqueando a criação do perfil do usuário por falta de permissão (RLS).
+                    A solução é <strong>aplicar as políticas de segurança corretas</strong> para permitir o cadastro.
                  </p>
                  <div className="relative">
                     <pre className="bg-slate-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto font-mono border border-slate-700 max-h-64">

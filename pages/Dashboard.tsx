@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useCallback, memo, useRef, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -203,10 +202,20 @@ export default function Dashboard() {
       );
   };
 
-  const handleShareOp = (op: Operation) => {
-      const pilot = pilots.find(p => p.id === op.pilot_id);
-      const drone = drones.find(d => d.id === op.drone_id);
+  const handleShareOp = async (op: Operation) => {
+      let pilot = pilots.find(p => p.id === op.pilot_id);
 
+      if (!pilot && op.pilot_id) {
+          try {
+              const fetchedPilots = await base44.entities.Pilot.filter({ id: op.pilot_id });
+              if (fetchedPilots && fetchedPilots.length > 0) pilot = fetchedPilots[0];
+          } catch (e) {
+              console.error(`Fallback fetch for pilot ${op.pilot_id} failed:`, e);
+          }
+      }
+
+      const drone = drones.find(d => d.id === op.drone_id);
+      const operationalUnit = op.op_unit || op.op_crbm || drone?.unit || pilot?.unit || 'N/A';
       const mapLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
       const streamText = op.stream_url ? `\n📡 *Transmissão:* ${op.stream_url}` : '';
       const missionLabel = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
@@ -226,12 +235,16 @@ export default function Dashboard() {
               ).join('\n') + `\n📏 *Raio Principal:* ${op.radius}m\n`;
       }
       
+      const pilotName = pilot ? pilot.full_name : op.pilot_name || 'N/A';
+      const pilotPhone = pilot ? pilot.phone : 'N/A';
+      
       const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n` +
           `🚁 *Ocorrência:* ${op.name}\n` +
           `🔢 *Protocolo:* ${op.occurrence_number}\n` +
           `📋 *Natureza:* ${missionLabel}\n` +
-          `👤 *Piloto:* ${pilot ? pilot.full_name : 'N/A'}\n` +
-          `📞 *Contato:* ${pilot ? pilot.phone : 'N/A'}\n` +
+          `👤 *Piloto:* ${pilotName}\n` +
+          `📞 *Contato:* ${pilotPhone}\n` +
+          `🏢 *Unidade (Área):* ${operationalUnit}\n` +
           `🛸 *Aeronave:* ${drone ? `${drone.model} (${drone.prefix})` : 'N/A'}\n` +
           `${locationText}` +
           `🗺️ *Mapa (Ponto Principal):* ${mapLink}\n` +
@@ -252,6 +265,9 @@ export default function Dashboard() {
 
       const pilot = pilots.find(p => p.id === op.pilot_id);
       const drone = drones.find(d => d.id === op.drone_id);
+
+      const displayUnit = op.op_unit || op.op_crbm || pilot?.unit || 'N/A';
+      const displayCrbm = (op.op_unit && op.op_crbm) ? op.op_crbm : null;
 
       return (
           <Marker 
@@ -279,10 +295,10 @@ export default function Dashboard() {
                     </div>
                     <div className="flex items-center gap-1">
                         <Building2 className="w-3 h-3 text-slate-400" />
-                        <span className="font-bold">Unidade:</span> {pilot?.unit || 'N/A'}
+                        <span className="font-bold">Área/Unidade:</span> {displayUnit}
                     </div>
-                    {pilot?.crbm && (
-                        <div className="text-[10px] text-slate-500 pl-4">{pilot.crbm}</div>
+                    {displayCrbm && (
+                        <div className="text-[10px] text-slate-500 pl-4">{displayCrbm}</div>
                     )}
                 </div>
 
@@ -376,7 +392,7 @@ export default function Dashboard() {
                         <div className="min-w-0 pr-2">
                            <h4 className="font-bold text-sm text-slate-800 leading-tight break-words">{op.name}</h4>
                            <p className="text-[10px] text-red-600 font-medium mt-1 uppercase">
-                              {MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}
+                              {MISSION_HIERARCHY[op.mission_type as "fire"]?.label || op.mission_type}
                            </p>
                         </div>
                         <a href="#/transmissions" className="p-2 bg-white rounded-full text-red-600 hover:bg-red-600 hover:text-white border border-red-200 transition-colors shadow-sm">
