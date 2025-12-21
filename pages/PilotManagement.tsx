@@ -192,7 +192,7 @@ export default function PilotManagement() {
             body: tableData,
             theme: 'grid',
             headStyles: { fillColor: [185, 28, 28], textColor: 255, fontSize: 8 },
-            styles: { fontSize: 7, cellPadding: 2 },
+            styles: { fontSize: 7, cellPadding: 2, valign: 'middle' },
             columnStyles: {
                 0: { cellWidth: 50 },
                 2: { cellWidth: 40 }
@@ -610,7 +610,7 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                                <Pencil className="w-4 h-4 mr-1" /> Editar
                              </Button>
                            )}
-                           {currentUser?.role === 'admin' && (
+                           {currentUser?.role === 'admin' && currentUser.id !== pilot.id && (
                              <Button 
                                variant="outline"
                                onClick={(e) => handleDelete(e, pilot.id)}
@@ -703,7 +703,7 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                                       </button>
                                   )}
                                   
-                                  {currentUser?.role === 'admin' && (
+                                  {currentUser?.role === 'admin' && currentUser.id !== pilot.id && (
                                       <button 
                                         onClick={(e) => handleDelete(e, pilot.id)}
                                         className="p-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"

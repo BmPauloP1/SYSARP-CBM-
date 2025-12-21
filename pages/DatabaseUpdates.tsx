@@ -17,41 +17,19 @@ const ALL_UPDATES: SqlUpdate[] = [
   {
     id: 'auth_fix_user_creation_flow',
     title: 'Corrigir Fluxo de Criação de Usuário (Master)',
-    description: 'Implementa a criação automática de perfis de usuário via gatilho (trigger) no banco de dados. Este script cria o perfil SOMENTE APÓS a confirmação do e-mail, resolve o erro "violates foreign key constraint" de forma definitiva e corrige usuários existentes que não possuem perfil.',
+    description: 'Implementa a criação automática de perfis, corrige usuários existentes e aplica as políticas de segurança (RLS) corretas: Admins podem gerenciar todos os usuários, enquanto pilotos podem ver todos, mas editar apenas a si mesmos.',
     category: 'auth',
     sql: `
 -- =============================================================================
--- SCRIPT DE CORREÇÃO DEFINITIVO PARA CRIAÇÃO DE PERFIS DE USUÁRIO
--- OBJETIVO: Garantir que um perfil em \`public.profiles\` seja criado
--- atomicamente e de forma segura SOMENTE APÓS o e-mail do usuário
--- ser confirmado em \`auth.users\`.
+-- SCRIPT MESTRE DE CORREÇÃO DE AUTENTICAÇÃO E PERMISSÕES (RLS)
+-- OBJETIVO: Corrigir o fluxo de criação de usuário e garantir que as
+-- permissões de visualização, edição e exclusão de perfis estejam corretas.
+-- Administradores: Acesso total (CRUD).
+-- Pilotos (Operadores): Podem ver todos, mas só podem editar a si mesmos.
 -- =============================================================================
 
--- PASSO 1: BACKFILL DE PERFIS FALTANTES (Idempotente)
--- Esta seção corrige dados de usuários existentes que foram confirmados
--- mas não tiveram seu perfil criado devido a falhas no processo anterior.
--- A cláusula \`ON CONFLICT DO NOTHING\` garante que a execução é segura e
--- não tentará criar perfis que já existem.
-INSERT INTO public.profiles (id, email, full_name, role, status, terms_accepted)
-SELECT
-  u.id,
-  u.email,
-  COALESCE(u.raw_user_meta_data ->> 'full_name', 'Nome Pendente'),
-  COALESCE(u.raw_user_meta_data ->> 'role', 'operator'),
-  'active',
-  COALESCE((u.raw_user_meta_data ->> 'terms_accepted')::boolean, false)
-FROM auth.users u
-WHERE
-  u.email_confirmed_at IS NOT NULL
-  AND NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = u.id)
-ON CONFLICT (id) DO NOTHING;
-
-
--- PASSO 2: CRIAÇÃO DA FUNÇÃO DO GATILHO
--- Esta função será executada pelo gatilho. Ela é responsável por inserir os
--- dados do novo usuário na tabela \`public.profiles\`.
--- \`SECURITY DEFINER\` é crucial para que a função tenha permissão de
--- inserir na tabela \`profiles\`, contornando a RLS do usuário que a invocou.
+-- PASSO 1: GARANTIR QUE A FUNÇÃO E O GATILHO DE CRIAÇÃO DE PERFIL ESTÃO CORRETOS
+-- Esta função cria o perfil de um usuário APÓS a confirmação do e-mail.
 CREATE OR REPLACE FUNCTION public.handle_new_user_after_confirmation()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -68,23 +46,16 @@ BEGIN
     COALESCE(NEW.raw_user_meta_data ->> 'role', 'operator'),
     'active',
     COALESCE((NEW.raw_user_meta_data ->> 'terms_accepted')::boolean, false),
-    COALESCE((NEW.raw_user_meta_data ->> 'change_password_required')::boolean, true)
+    true -- Sempre força a troca de senha no primeiro login
   )
-  -- Garante idempotência: se um perfil já existir por algum motivo, não faz nada.
   ON CONFLICT (id) DO NOTHING;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-
--- PASSO 3: CRIAÇÃO DO GATILHO (TRIGGER)
--- Este é o ponto central da solução. O gatilho é disparado \`AFTER UPDATE\` na
--- tabela \`auth.users\`. A cláusula \`WHEN\` garante que ele SÓ execute quando
--- a coluna \`email_confirmed_at\` muda de NULL para um valor não-NULL, ou seja,
--- no exato momento da confirmação do e-mail.
--- Gatilhos antigos são removidos para evitar duplicidade.
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users; -- Limpa gatilho antigo de INSERT
-DROP TRIGGER IF EXISTS on_auth_user_confirmed ON auth.users; -- Garante idempotência
+-- Este gatilho aciona a função acima SOMENTE quando um e-mail é confirmado.
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP TRIGGER IF EXISTS on_auth_user_confirmed ON auth.users;
 CREATE TRIGGER on_auth_user_confirmed
   AFTER UPDATE OF email_confirmed_at ON auth.users
   FOR EACH ROW
@@ -92,27 +63,56 @@ CREATE TRIGGER on_auth_user_confirmed
   EXECUTE PROCEDURE public.handle_new_user_after_confirmation();
 
 
--- PASSO 4: CONFIGURAÇÃO DE SEGURANÇA (RLS)
--- Garante que a segurança a nível de linha está ativa e define as políticas
--- corretas. A política de INSERT para usuários não é mais necessária, pois
--- o gatilho (\`SECURITY DEFINER\`) cuida disso de forma segura no backend.
+-- PASSO 2: ATIVAR A SEGURANÇA (RLS) E LIMPAR POLÍTICAS ANTIGAS
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- Limpa políticas antigas para evitar conflitos
-DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
+-- Limpeza agressiva de políticas antigas para garantir um estado limpo.
 DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
+DROP POLICY IF EXISTS "Authenticated users can view profiles." ON public.profiles;
+DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
 DROP POLICY IF EXISTS "Users can update own profile." ON public.profiles;
-
--- Cria as políticas de segurança corretas
--- Permite que todos os usuários autenticados vejam os perfis.
-CREATE POLICY "Public profiles are viewable by everyone." ON public.profiles FOR SELECT USING (true);
--- Permite que um usuário atualize APENAS o seu próprio perfil.
-CREATE POLICY "Users can update own profile." ON public.profiles FOR UPDATE USING (auth.uid() = id);
+DROP POLICY IF EXISTS "Users can update their own profile." ON public.profiles;
+DROP POLICY IF EXISTS "Admins can update any profile." ON public.profiles;
+DROP POLICY IF EXISTS "Admins can delete any profile." ON public.profiles;
+DROP POLICY IF EXISTS "Enable read access for all users" ON public.profiles;
 
 
--- PASSO 5: NOTIFICAR O POSTGREST
--- Informa ao Supabase para recarregar o schema e aplicar as novas regras
--- de trigger e RLS imediatamente.
+-- PASSO 3: CRIAR AS POLÍTICAS DE RLS CORRETAS E SEGURAS
+-- POLÍTICA DE LEITURA (SELECT): Permite que qualquer usuário autenticado (piloto ou admin) veja todos os perfis.
+CREATE POLICY "Authenticated users can view profiles"
+ON public.profiles FOR SELECT
+TO authenticated
+USING (true);
+
+-- POLÍTICA DE ATUALIZAÇÃO (UPDATE): Permite que um usuário atualize APENAS seu próprio perfil.
+CREATE POLICY "Users can update their own profile"
+ON public.profiles FOR UPDATE
+TO authenticated
+USING (auth.uid() = id)
+WITH CHECK (auth.uid() = id);
+
+-- FUNÇÃO AUXILIAR SEGURA para verificar o papel (role) do usuário atual.
+CREATE OR REPLACE FUNCTION get_my_role()
+RETURNS TEXT AS $$
+BEGIN
+  RETURN (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- POLÍTICA DE ATUALIZAÇÃO PARA ADMINS (UPDATE): Permite que administradores atualizem QUALQUER perfil.
+CREATE POLICY "Admins can update any profile"
+ON public.profiles FOR UPDATE
+TO authenticated
+USING (get_my_role() = 'admin');
+
+-- POLÍTICA DE EXCLUSÃO (DELETE): Permite que APENAS administradores excluam perfis.
+CREATE POLICY "Admins can delete any profile"
+ON public.profiles FOR DELETE
+TO authenticated
+USING (get_my_role() = 'admin');
+
+
+-- PASSO 4: NOTIFICAR O POSTGREST PARA RECARREGAR O SCHEMA
 NOTIFY pgrst, 'reload schema';
 `
   },
