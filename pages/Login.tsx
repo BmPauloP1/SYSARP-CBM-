@@ -127,74 +127,60 @@ CREATE TRIGGER on_auth_user_created_confirm
       setRegEmailPrefix('');
 
     } catch (err: any) {
-      // NEW: Check for profile creation failure due to RLS
-      if (err.message && err.message.includes("PROFILE_UPSERT_FAILED")) {
+      const msg = err.message || '';
+      
+      // NOVO: Tratamento robusto para falhas de cadastro, incluindo o erro de foreign key
+      if (msg.includes("PROFILE_UPSERT_FAILED")) {
          const fixSql = `
--- CORREÇÃO DE PERMISSÕES (RLS) PARA CADASTRO DE PILOTO
--- A criação do perfil está falhando por falta de permissão na tabela 'profiles'.
--- Execute este script no SQL Editor do Supabase para corrigir.
+-- CORREÇÃO DEFINITIVA PARA CADASTRO DE USUÁRIO (MASTER SCRIPT)
+-- Este script remove um gatilho (trigger) antigo que causa a falha no cadastro
+-- e configura as permissões corretas para o aplicativo funcionar.
+-- Execute-o UMA VEZ no Editor SQL do Supabase.
 
--- 1. Garante que RLS está habilitado
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-
--- 2. Remove políticas antigas de INSERT para evitar conflitos
-DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
-DROP POLICY IF EXISTS "Permitir inserção pública em perfis" ON public.profiles;
-
--- 3. Política de Inserção: Permite que um usuário recém-autenticado crie seu PRÓPRIO perfil.
--- A condição 'auth.uid() = id' é a chave de segurança aqui.
-CREATE POLICY "Users can insert their own profile."
-    ON public.profiles FOR INSERT
-    WITH CHECK (auth.uid() = id);
-
--- 4. Garante que as outras permissões essenciais existam
-DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
-CREATE POLICY "Public profiles are viewable by everyone."
-    ON public.profiles FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Users can update own profile." ON public.profiles;
-CREATE POLICY "Users can update own profile."
-    ON public.profiles FOR UPDATE USING (auth.uid() = id);
-
-DROP POLICY IF EXISTS "Admins can update any profile." ON public.profiles;
-CREATE POLICY "Admins can update any profile."
-    ON public.profiles FOR UPDATE USING ( (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' );
-
-DROP POLICY IF EXISTS "Admins can delete any profile." ON public.profiles;
-CREATE POLICY "Admins can delete any profile."
-    ON public.profiles FOR DELETE USING ( (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' );
-
-NOTIFY pgrst, 'reload schema';
-`;
-         setSqlError(fixSql);
-      } else if (err.message && err.message.includes("SQL FIX REQUIRED")) {
-         const fixSql = `
--- COPIE E RODE NO SUPABASE SQL EDITOR PARA DESTRAVAR O CADASTRO:
-
--- 1. REMOVE O GATILHO DE BANCO DE DADOS (Causa do erro "Database error saving new user")
+-- Passo 1: Remover o gatilho e a função antigos.
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 DROP FUNCTION IF EXISTS public.handle_new_user();
 
--- 2. GARANTE QUE A TABELA DE PERFIS ACEITE DADOS
+-- Passo 2: Garantir que a segurança (RLS) está ativa na tabela de perfis.
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- Passo 3: Limpar políticas antigas para evitar conflitos.
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
+DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
+DROP POLICY IF EXISTS "Users can update own profile." ON public.profiles;
+
+-- Passo 4: Criar as políticas corretas que permitem ao app criar o perfil.
+CREATE POLICY "Public profiles are viewable by everyone." ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Users can insert their own profile." ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "Users can update own profile." ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
+-- Passo 5: Recarregar o schema do banco de dados.
+NOTIFY pgrst, 'reload schema';
+`;
+         setSqlError(fixSql);
+      } else if (msg.includes("SQL FIX REQUIRED")) {
+         // Fallback para outros erros de DB
+         const fixSql = `
+-- ATUALIZAÇÃO DE BANCO DE DADOS NECESSÁRIA
+
+-- 1. REMOVE O GATILHO ANTIGO
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();
+
+-- 2. GARANTE QUE A TABELA DE PERFIS TEM TODAS AS COLUNAS
 ALTER TABLE public.profiles 
 ADD COLUMN IF NOT EXISTS phone text,
 ADD COLUMN IF NOT EXISTS sarpas_code text,
 ADD COLUMN IF NOT EXISTS crbm text,
 ADD COLUMN IF NOT EXISTS unit text,
-ADD COLUMN IF NOT EXISTS license text,
-ADD COLUMN IF NOT EXISTS terms_accepted boolean DEFAULT false,
-ADD COLUMN IF NOT EXISTS terms_accepted_at timestamp with time zone;
+ADD COLUMN IF NOT EXISTS license text;
 
--- 3. PERMISSÕES PARA O APP CRIAR O PERFIL DIRETAMENTE
-GRANT ALL ON public.profiles TO authenticated;
-GRANT ALL ON public.profiles TO service_role;
-
--- 4. ATUALIZA SCHEMA
+-- 3. ATUALIZA SCHEMA
 NOTIFY pgrst, 'reload schema';
 `;
          setSqlError(fixSql);
       } else {
-         alert(`Erro no cadastro: ${err.message}`);
+         alert(`Erro no cadastro: ${msg}`);
       }
     } finally {
       setLoading(false);
@@ -242,14 +228,14 @@ NOTIFY pgrst, 'reload schema';
               <div className="p-4 bg-red-600 text-white flex justify-between items-center">
                  <h3 className="font-bold text-lg flex items-center gap-2">
                    <Database className="w-6 h-6" />
-                   Ação Necessária: Corrigir Permissões de Cadastro
+                   Ação Necessária: Corrigir Fluxo de Cadastro
                  </h3>
                  <button onClick={() => setSqlError(null)} className="hover:bg-red-700 p-1 rounded"><X className="w-5 h-5" /></button>
               </div>
               <div className="p-6 space-y-4">
                  <p className="text-slate-700 font-medium">
-                    O Banco de Dados está bloqueando a criação do perfil do usuário por falta de permissão (RLS).
-                    A solução é <strong>aplicar as políticas de segurança corretas</strong> para permitir o cadastro.
+                    O cadastro falhou devido a uma configuração antiga no banco de dados (gatilho/trigger) que entra em conflito com o novo fluxo do aplicativo.
+                    A solução é executar o script abaixo <strong>uma única vez</strong> no "SQL Editor" do Supabase para remover a automação antiga e aplicar as permissões corretas.
                  </p>
                  <div className="relative">
                     <pre className="bg-slate-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto font-mono border border-slate-700 max-h-64">
