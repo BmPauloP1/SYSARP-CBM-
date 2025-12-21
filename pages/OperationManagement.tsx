@@ -187,12 +187,7 @@ const LocationSelector = ({ onLocationSelect, isSelecting }: { onLocationSelect:
 const MapController = ({ isPanelCollapsed }: { isPanelCollapsed: boolean }) => {
   const map = useMap();
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (map?.getContainer() && document.body.contains(map.getContainer())) {
-        map.invalidateSize();
-      }
-    }, 300);
-    return () => clearTimeout(timer);
+    if (map) setTimeout(() => map.invalidateSize(), 300);
   }, [map, isPanelCollapsed]);
   return null;
 };
@@ -465,7 +460,7 @@ export default function OperationManagement() {
       ]);
       
       // Sort pilots alphabetically
-      const sortedPilots = pils.sort((a, b) => a.full_name.localeCompare(b.full_name));
+      const sortedPilots = pils.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
 
       setOperations(ops);
       setPilots(sortedPilots);

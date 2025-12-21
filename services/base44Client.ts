@@ -596,7 +596,48 @@ const authHandler = {
        if (error) throw error;
        if (!data.user) throw new Error("Erro ao criar usuário no Auth.");
  
-       // The DB trigger will handle profile creation. This function can now return early.
+       const profilePayload = {
+           id: data.user.id,
+           email: pilotData.email,
+           full_name: metaData.full_name,
+           role: metaData.role,
+           status: 'active',
+           phone: metaData.phone,
+           sarpas_code: metaData.sarpas_code,
+           crbm: metaData.crbm,
+           unit: metaData.unit,
+           license: metaData.license,
+           terms_accepted: metaData.terms_accepted,
+           terms_accepted_at: new Date().toISOString()
+       };
+       
+       const { data: newProfile, error: upsertError } = await supabase
+         .from('profiles')
+         .upsert(profilePayload)
+         .select()
+         .single();
+
+       if (upsertError) {
+         console.error("CRITICAL: Profile upsert failed after auth user creation:", upsertError.message);
+         throw new Error(`PROFILE_UPSERT_FAILED: ${upsertError.message}`);
+       }
+       if (!newProfile) {
+         throw new Error("PROFILE_UPSERT_FAILED: A criação do perfil não retornou dados.");
+       }
+
+       // Manually update local cache to prevent stale data on network failure
+       try {
+         const pilotsCache = getLocal<Pilot>('sysarp_pilots');
+         const existingIndex = pilotsCache.findIndex(p => p.id === newProfile.id);
+         if (existingIndex > -1) {
+             pilotsCache[existingIndex] = newProfile as Pilot;
+         } else {
+             pilotsCache.unshift(newProfile as Pilot);
+         }
+         setLocal('sysarp_pilots', pilotsCache);
+       } catch (cacheError) {
+         console.warn("Falha ao atualizar o cache de pilotos após o cadastro.", cacheError);
+       }
  
        // Audit
        base44.entities.SystemAudit.create({
@@ -607,23 +648,14 @@ const authHandler = {
             timestamp: new Date().toISOString()
        });
  
-       // Return a temporary profile-like object from the available data
-       return {
-         id: data.user.id,
-         email: data.user.email!,
-         ...metaData
-       } as Pilot;
+       return newProfile as Pilot;
  
      } catch (e: any) {
        const msg = e.message || '';
        if (msg.includes("Failed to fetch")) {
          throw new Error("Não foi possível conectar ao servidor Supabase.");
        }
-       if (msg.includes("User already registered")) {
-         throw new Error("Este e-mail já está cadastrado no sistema.");
-       }
-       // Pass a generic error for the UI to handle, as the trigger will be the source of truth.
-       throw new Error("Erro de banco de dados durante o cadastro. O gatilho de criação de perfil pode estar ausente ou com falha. Contate um administrador.");
+       throw new Error(msg || "Erro no cadastro.");
      }
   },
 

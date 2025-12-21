@@ -27,9 +27,7 @@ const MapController = () => {
   const map = useMap();
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (map?.getContainer() && document.body.contains(map.getContainer())) {
-        map.invalidateSize();
-      }
+      if (map && map.getContainer()) map.invalidateSize();
     }, 200);
     return () => clearTimeout(timer);
   }, [map]);
@@ -423,4 +421,46 @@ export default function OperationSummerStats() {
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                  />
                  
-                 {
+                 {mapMarkers.map(marker => (
+                    <CircleMarker 
+                      key={marker.id}
+                      center={[marker.lat, marker.lng]}
+                      pathOptions={{ 
+                          color: MISSION_COLORS[marker.type as keyof typeof MISSION_COLORS] || 'gray',
+                          fillColor: MISSION_COLORS[marker.type as keyof typeof MISSION_COLORS] || 'gray',
+                          fillOpacity: 0.6,
+                          weight: 1
+                      }}
+                      radius={10}
+                    >
+                      <Popup>
+                        <div className="text-xs font-sans">
+                           <strong className="block text-sm mb-1">{marker.title}</strong>
+                           <span className="block text-slate-500">{marker.info}</span>
+                           <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-white text-[10px] uppercase font-bold" style={{ backgroundColor: MISSION_COLORS[marker.type as keyof typeof MISSION_COLORS] }}>
+                              {MISSION_HIERARCHY[marker.type as MissionType]?.label || marker.type}
+                           </span>
+                        </div>
+                      </Popup>
+                    </CircleMarker>
+                 ))}
+              </MapContainer>
+
+              {/* Legend Overlay */}
+              <div className="absolute bottom-6 left-6 bg-white/95 backdrop-blur p-3 rounded-lg shadow-xl border border-slate-200 z-[400] text-xs">
+                 <div className="font-bold text-slate-700 mb-2 border-b pb-1">Legenda (Missões no Filtro)</div>
+                 <div className="grid grid-cols-2 gap-x-4 gap-y-2 max-h-40 overflow-y-auto">
+                    {missionsInView.map(key => (
+                       <div key={key as string} className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: MISSION_COLORS[key as MissionType] }}></div>
+                          <span className="text-slate-600">{((MISSION_HIERARCHY[key as MissionType]?.label as string) || (key as string)).split('. ')[1] || key}</span>
+                       </div>
+                    ))}
+                 </div>
+              </div>
+           </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

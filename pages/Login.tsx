@@ -116,7 +116,7 @@ CREATE TRIGGER on_auth_user_created_confirm
         email: fullEmail,
       });
 
-      alert("Solicitação de cadastro enviada! Um link de confirmação foi enviado ao seu e-mail. Após confirmar, você poderá fazer o login.");
+      alert("Solicitação de cadastro enviada! Faça o login com o e-mail e senha criados.");
       setShowRegister(false);
       
       // Limpa formulário
@@ -127,82 +127,74 @@ CREATE TRIGGER on_auth_user_created_confirm
       setRegEmailPrefix('');
 
     } catch (err: any) {
-      const msg = err.message || '';
-      
-      // Fallback para erros de banco de dados, mostrando o script de correção do trigger
-      if (msg.toLowerCase().includes("database error") || msg.includes("trigger")) {
+      // NEW: Check for profile creation failure due to RLS
+      if (err.message && err.message.includes("PROFILE_UPSERT_FAILED")) {
          const fixSql = `
--- =============================================================================
--- SCRIPT DE CORREÇÃO DEFINITIVO PARA CRIAÇÃO DE PERFIS DE USUÁRIO
--- =============================================================================
+-- CORREÇÃO DE PERMISSÕES (RLS) PARA CADASTRO DE PILOTO
+-- A criação do perfil está falhando por falta de permissão na tabela 'profiles'.
+-- Execute este script no SQL Editor do Supabase para corrigir.
 
--- PASSO 1: BACKFILL DE PERFIS FALTANTES (Idempotente)
-INSERT INTO public.profiles (id, email, full_name, role, status, terms_accepted)
-SELECT
-  u.id,
-  u.email,
-  COALESCE(u.raw_user_meta_data ->> 'full_name', 'Nome Pendente'),
-  COALESCE(u.raw_user_meta_data ->> 'role', 'operator'),
-  'active',
-  COALESCE((u.raw_user_meta_data ->> 'terms_accepted')::boolean, false)
-FROM auth.users u
-WHERE
-  u.email_confirmed_at IS NOT NULL
-  AND NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = u.id)
-ON CONFLICT (id) DO NOTHING;
-
-
--- PASSO 2: CRIAÇÃO DA FUNÇÃO DO GATILHO (\`SECURITY DEFINER\`)
-CREATE OR REPLACE FUNCTION public.handle_new_user_after_confirmation()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, email, full_name, phone, sarpas_code, crbm, unit, license, role, status, terms_accepted, change_password_required)
-  VALUES (
-    NEW.id,
-    NEW.email,
-    NEW.raw_user_meta_data ->> 'full_name',
-    NEW.raw_user_meta_data ->> 'phone',
-    NEW.raw_user_meta_data ->> 'sarpas_code',
-    NEW.raw_user_meta_data ->> 'crbm',
-    NEW.raw_user_meta_data ->> 'unit',
-    NEW.raw_user_meta_data ->> 'license',
-    COALESCE(NEW.raw_user_meta_data ->> 'role', 'operator'),
-    'active',
-    COALESCE((NEW.raw_user_meta_data ->> 'terms_accepted')::boolean, false),
-    COALESCE((NEW.raw_user_meta_data ->> 'change_password_required')::boolean, true)
-  )
-  ON CONFLICT (id) DO NOTHING;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-
--- PASSO 3: CRIAÇÃO DO GATILHO (TRIGGER) EM \`AFTER UPDATE\`
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP TRIGGER IF EXISTS on_auth_user_confirmed ON auth.users;
-CREATE TRIGGER on_auth_user_confirmed
-  AFTER UPDATE OF email_confirmed_at ON auth.users
-  FOR EACH ROW
-  WHEN (OLD.email_confirmed_at IS NULL AND NEW.email_confirmed_at IS NOT NULL)
-  EXECUTE PROCEDURE public.handle_new_user_after_confirmation();
-
-
--- PASSO 4: CONFIGURAÇÃO DE SEGURANÇA (RLS)
+-- 1. Garante que RLS está habilitado
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- 2. Remove políticas antigas de INSERT para evitar conflitos
 DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
+DROP POLICY IF EXISTS "Permitir inserção pública em perfis" ON public.profiles;
+
+-- 3. Política de Inserção: Permite que um usuário recém-autenticado crie seu PRÓPRIO perfil.
+-- A condição 'auth.uid() = id' é a chave de segurança aqui.
+CREATE POLICY "Users can insert their own profile."
+    ON public.profiles FOR INSERT
+    WITH CHECK (auth.uid() = id);
+
+-- 4. Garante que as outras permissões essenciais existam
 DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
+CREATE POLICY "Public profiles are viewable by everyone."
+    ON public.profiles FOR SELECT USING (true);
+
 DROP POLICY IF EXISTS "Users can update own profile." ON public.profiles;
+CREATE POLICY "Users can update own profile."
+    ON public.profiles FOR UPDATE USING (auth.uid() = id);
 
-CREATE POLICY "Public profiles are viewable by everyone." ON public.profiles FOR SELECT USING (true);
-CREATE POLICY "Users can update own profile." ON public.profiles FOR UPDATE USING (auth.uid() = id);
+DROP POLICY IF EXISTS "Admins can update any profile." ON public.profiles;
+CREATE POLICY "Admins can update any profile."
+    ON public.profiles FOR UPDATE USING ( (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' );
 
+DROP POLICY IF EXISTS "Admins can delete any profile." ON public.profiles;
+CREATE POLICY "Admins can delete any profile."
+    ON public.profiles FOR DELETE USING ( (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' );
 
--- PASSO 5: NOTIFICAR O POSTGREST
+NOTIFY pgrst, 'reload schema';
+`;
+         setSqlError(fixSql);
+      } else if (err.message && err.message.includes("SQL FIX REQUIRED")) {
+         const fixSql = `
+-- COPIE E RODE NO SUPABASE SQL EDITOR PARA DESTRAVAR O CADASTRO:
+
+-- 1. REMOVE O GATILHO DE BANCO DE DADOS (Causa do erro "Database error saving new user")
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();
+
+-- 2. GARANTE QUE A TABELA DE PERFIS ACEITE DADOS
+ALTER TABLE public.profiles 
+ADD COLUMN IF NOT EXISTS phone text,
+ADD COLUMN IF NOT EXISTS sarpas_code text,
+ADD COLUMN IF NOT EXISTS crbm text,
+ADD COLUMN IF NOT EXISTS unit text,
+ADD COLUMN IF NOT EXISTS license text,
+ADD COLUMN IF NOT EXISTS terms_accepted boolean DEFAULT false,
+ADD COLUMN IF NOT EXISTS terms_accepted_at timestamp with time zone;
+
+-- 3. PERMISSÕES PARA O APP CRIAR O PERFIL DIRETAMENTE
+GRANT ALL ON public.profiles TO authenticated;
+GRANT ALL ON public.profiles TO service_role;
+
+-- 4. ATUALIZA SCHEMA
 NOTIFY pgrst, 'reload schema';
 `;
          setSqlError(fixSql);
       } else {
-         alert(`Erro no cadastro: ${msg}`);
+         alert(`Erro no cadastro: ${err.message}`);
       }
     } finally {
       setLoading(false);
@@ -250,14 +242,14 @@ NOTIFY pgrst, 'reload schema';
               <div className="p-4 bg-red-600 text-white flex justify-between items-center">
                  <h3 className="font-bold text-lg flex items-center gap-2">
                    <Database className="w-6 h-6" />
-                   Ação Necessária: Corrigir Fluxo de Cadastro
+                   Ação Necessária: Corrigir Permissões de Cadastro
                  </h3>
                  <button onClick={() => setSqlError(null)} className="hover:bg-red-700 p-1 rounded"><X className="w-5 h-5" /></button>
               </div>
               <div className="p-6 space-y-4">
                  <p className="text-slate-700 font-medium">
-                    O cadastro falhou devido a uma configuração ausente ou incorreta no banco de dados. Para garantir a criação automática e segura de perfis, o sistema depende de um gatilho (trigger) no banco de dados.
-                    Execute o script abaixo <strong>uma única vez</strong> no "SQL Editor" do Supabase para configurar a automação.
+                    O Banco de Dados está bloqueando a criação do perfil do usuário por falta de permissão (RLS).
+                    A solução é <strong>aplicar as políticas de segurança corretas</strong> para permitir o cadastro.
                  </p>
                  <div className="relative">
                     <pre className="bg-slate-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto font-mono border border-slate-700 max-h-64">

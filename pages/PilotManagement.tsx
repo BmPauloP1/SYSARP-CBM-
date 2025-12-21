@@ -71,7 +71,7 @@ export default function PilotManagement() {
       ]);
       
       // Sort alphabetically by full_name
-      const sortedData = data.sort((a, b) => a.full_name.localeCompare(b.full_name));
+      const sortedData = data.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
       
       setPilots(sortedData);
       setCurrentUser(me);
@@ -192,7 +192,7 @@ export default function PilotManagement() {
             body: tableData,
             theme: 'grid',
             headStyles: { fillColor: [185, 28, 28], textColor: 255, fontSize: 8 },
-            styles: { fontSize: 7, cellPadding: 2, valign: 'middle' },
+            styles: { fontSize: 7, cellPadding: 2 },
             columnStyles: {
                 0: { cellWidth: 50 },
                 2: { cellWidth: 40 }
@@ -610,7 +610,7 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                                <Pencil className="w-4 h-4 mr-1" /> Editar
                              </Button>
                            )}
-                           {currentUser?.role === 'admin' && currentUser.id !== pilot.id && (
+                           {currentUser?.role === 'admin' && (
                              <Button 
                                variant="outline"
                                onClick={(e) => handleDelete(e, pilot.id)}
@@ -703,7 +703,7 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                                       </button>
                                   )}
                                   
-                                  {currentUser?.role === 'admin' && currentUser.id !== pilot.id && (
+                                  {currentUser?.role === 'admin' && (
                                       <button 
                                         onClick={(e) => handleDelete(e, pilot.id)}
                                         className="p-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
