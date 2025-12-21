@@ -17,36 +17,102 @@ const ALL_UPDATES: SqlUpdate[] = [
   {
     id: 'auth_fix_user_creation_flow',
     title: 'Corrigir Fluxo de Criação de Usuário (Master)',
-    description: 'Resolve o erro "violates foreign key constraint" durante o cadastro. Remove o gatilho antigo `handle_new_user` e configura as permissões (RLS) corretas para que o aplicativo possa criar perfis de usuário de forma segura.',
+    description: 'Implementa a criação automática de perfis de usuário via gatilho (trigger) no banco de dados. Este script cria o perfil SOMENTE APÓS a confirmação do e-mail, resolve o erro "violates foreign key constraint" de forma definitiva e corrige usuários existentes que não possuem perfil.',
     category: 'auth',
     sql: `
--- Passo 1: Remover o gatilho e a função antigos que causam o problema.
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP FUNCTION IF EXISTS public.handle_new_user();
+-- =============================================================================
+-- SCRIPT DE CORREÇÃO DEFINITIVO PARA CRIAÇÃO DE PERFIS DE USUÁRIO
+-- OBJETIVO: Garantir que um perfil em \`public.profiles\` seja criado
+-- atomicamente e de forma segura SOMENTE APÓS o e-mail do usuário
+-- ser confirmado em \`auth.users\`.
+-- =============================================================================
 
--- Passo 2: Garantir que a segurança a nível de linha (RLS) está ativa na tabela de perfis.
+-- PASSO 1: BACKFILL DE PERFIS FALTANTES (Idempotente)
+-- Esta seção corrige dados de usuários existentes que foram confirmados
+-- mas não tiveram seu perfil criado devido a falhas no processo anterior.
+-- A cláusula \`ON CONFLICT DO NOTHING\` garante que a execução é segura e
+-- não tentará criar perfis que já existem.
+INSERT INTO public.profiles (id, email, full_name, role, status, terms_accepted)
+SELECT
+  u.id,
+  u.email,
+  COALESCE(u.raw_user_meta_data ->> 'full_name', 'Nome Pendente'),
+  COALESCE(u.raw_user_meta_data ->> 'role', 'operator'),
+  'active',
+  COALESCE((u.raw_user_meta_data ->> 'terms_accepted')::boolean, false)
+FROM auth.users u
+WHERE
+  u.email_confirmed_at IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = u.id)
+ON CONFLICT (id) DO NOTHING;
+
+
+-- PASSO 2: CRIAÇÃO DA FUNÇÃO DO GATILHO
+-- Esta função será executada pelo gatilho. Ela é responsável por inserir os
+-- dados do novo usuário na tabela \`public.profiles\`.
+-- \`SECURITY DEFINER\` é crucial para que a função tenha permissão de
+-- inserir na tabela \`profiles\`, contornando a RLS do usuário que a invocou.
+CREATE OR REPLACE FUNCTION public.handle_new_user_after_confirmation()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name, phone, sarpas_code, crbm, unit, license, role, status, terms_accepted, change_password_required)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    NEW.raw_user_meta_data ->> 'full_name',
+    NEW.raw_user_meta_data ->> 'phone',
+    NEW.raw_user_meta_data ->> 'sarpas_code',
+    NEW.raw_user_meta_data ->> 'crbm',
+    NEW.raw_user_meta_data ->> 'unit',
+    NEW.raw_user_meta_data ->> 'license',
+    COALESCE(NEW.raw_user_meta_data ->> 'role', 'operator'),
+    'active',
+    COALESCE((NEW.raw_user_meta_data ->> 'terms_accepted')::boolean, false),
+    COALESCE((NEW.raw_user_meta_data ->> 'change_password_required')::boolean, true)
+  )
+  -- Garante idempotência: se um perfil já existir por algum motivo, não faz nada.
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- PASSO 3: CRIAÇÃO DO GATILHO (TRIGGER)
+-- Este é o ponto central da solução. O gatilho é disparado \`AFTER UPDATE\` na
+-- tabela \`auth.users\`. A cláusula \`WHEN\` garante que ele SÓ execute quando
+-- a coluna \`email_confirmed_at\` muda de NULL para um valor não-NULL, ou seja,
+-- no exato momento da confirmação do e-mail.
+-- Gatilhos antigos são removidos para evitar duplicidade.
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users; -- Limpa gatilho antigo de INSERT
+DROP TRIGGER IF EXISTS on_auth_user_confirmed ON auth.users; -- Garante idempotência
+CREATE TRIGGER on_auth_user_confirmed
+  AFTER UPDATE OF email_confirmed_at ON auth.users
+  FOR EACH ROW
+  WHEN (OLD.email_confirmed_at IS NULL AND NEW.email_confirmed_at IS NOT NULL)
+  EXECUTE PROCEDURE public.handle_new_user_after_confirmation();
+
+
+-- PASSO 4: CONFIGURAÇÃO DE SEGURANÇA (RLS)
+-- Garante que a segurança a nível de linha está ativa e define as políticas
+-- corretas. A política de INSERT para usuários não é mais necessária, pois
+-- o gatilho (\`SECURITY DEFINER\`) cuida disso de forma segura no backend.
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
--- Passo 3: Limpar políticas antigas para evitar conflitos.
-DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
+-- Limpa políticas antigas para evitar conflitos
 DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
 DROP POLICY IF EXISTS "Users can update own profile." ON public.profiles;
-DROP POLICY IF EXISTS "Admins can do anything." ON public.profiles;
 
--- Passo 4: Criar as políticas de RLS corretas.
+-- Cria as políticas de segurança corretas
+-- Permite que todos os usuários autenticados vejam os perfis.
 CREATE POLICY "Public profiles are viewable by everyone." ON public.profiles FOR SELECT USING (true);
-CREATE POLICY "Users can insert their own profile." ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+-- Permite que um usuário atualize APENAS o seu próprio perfil.
 CREATE POLICY "Users can update own profile." ON public.profiles FOR UPDATE USING (auth.uid() = id);
 
--- Passo 5: Recriar a chave estrangeira para garantir que está correta.
-ALTER TABLE public.profiles
-DROP CONSTRAINT IF EXISTS profiles_id_fkey;
 
-ALTER TABLE public.profiles
-ADD CONSTRAINT profiles_id_fkey
-FOREIGN KEY (id) REFERENCES auth.users (id) ON DELETE CASCADE;
-
--- Passo 6: Notificar o PostgREST para recarregar o schema.
+-- PASSO 5: NOTIFICAR O POSTGREST
+-- Informa ao Supabase para recarregar o schema e aplicar as novas regras
+-- de trigger e RLS imediatamente.
 NOTIFY pgrst, 'reload schema';
 `
   },

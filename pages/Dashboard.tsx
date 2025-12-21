@@ -23,23 +23,19 @@ const isValidCoord = (lat: number, lng: number) => {
   return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
 };
 
-// Componente para controlar o mapa (Otimizado)
-const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
+// Componente para controlar o mapa (Otimizado e Seguro)
+const MapController = ({ activeOps }: { activeOps: Operation[] }) => {
   const map = useMap();
   const [positionFound, setPositionFound] = useState(false);
 
   useEffect(() => {
     // 1. Correção de Renderização (Bug do Leaflet em Flexbox)
-    let frameId: number;
-    const resizeMap = () => {
-       if (map && map.getContainer()) {
-          try { map.invalidateSize(); } catch(e) {}
-       }
-    };
-    
     const timer = setTimeout(() => {
-       frameId = requestAnimationFrame(resizeMap);
-    }, 100);
+      // Check if map container is still in the DOM before invalidating to prevent errors on unmount
+      if (map?.getContainer() && document.body.contains(map.getContainer())) {
+        map.invalidateSize();
+      }
+    }, 150);
 
     // 2. Lógica de Foco Automático
     if (map) {
@@ -80,12 +76,11 @@ const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
 
     return () => {
       clearTimeout(timer);
-      cancelAnimationFrame(frameId);
     };
   }, [map, activeOps, positionFound]);
 
   return null;
-});
+};
 
 export default function Dashboard() {
   const [activeOps, setActiveOps] = useState<Operation[]>([]);

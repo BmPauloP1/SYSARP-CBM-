@@ -187,7 +187,12 @@ const LocationSelector = ({ onLocationSelect, isSelecting }: { onLocationSelect:
 const MapController = ({ isPanelCollapsed }: { isPanelCollapsed: boolean }) => {
   const map = useMap();
   useEffect(() => {
-    if (map) setTimeout(() => map.invalidateSize(), 300);
+    const timer = setTimeout(() => {
+      if (map?.getContainer() && document.body.contains(map.getContainer())) {
+        map.invalidateSize();
+      }
+    }, 300);
+    return () => clearTimeout(timer);
   }, [map, isPanelCollapsed]);
   return null;
 };

@@ -61,7 +61,7 @@ const MapController = () => {
   const map = useMap();
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (map && map.getContainer()) {
+      if (map?.getContainer() && document.body.contains(map.getContainer())) {
         map.invalidateSize();
       }
     }, 250);
