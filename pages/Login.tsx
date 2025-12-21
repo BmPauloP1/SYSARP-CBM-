@@ -127,72 +127,12 @@ CREATE TRIGGER on_auth_user_created_confirm
       setRegEmailPrefix('');
 
     } catch (err: any) {
-      // NEW: Check for profile creation failure due to RLS
-      if (err.message && err.message.includes("PROFILE_UPSERT_FAILED")) {
-         const fixSql = `
--- CORREÇÃO DE PERMISSÕES (RLS) PARA CADASTRO DE PILOTO
--- A criação do perfil está falhando por falta de permissão na tabela 'profiles'.
--- Execute este script no SQL Editor do Supabase para corrigir.
-
--- 1. Garante que RLS está habilitado
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-
--- 2. Remove políticas antigas de INSERT para evitar conflitos
-DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
-DROP POLICY IF EXISTS "Permitir inserção pública em perfis" ON public.profiles;
-
--- 3. Política de Inserção: Permite que um usuário recém-autenticado crie seu PRÓPRIO perfil.
--- A condição 'auth.uid() = id' é a chave de segurança aqui.
-CREATE POLICY "Users can insert their own profile."
-    ON public.profiles FOR INSERT
-    WITH CHECK (auth.uid() = id);
-
--- 4. Garante que as outras permissões essenciais existam
-DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
-CREATE POLICY "Public profiles are viewable by everyone."
-    ON public.profiles FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Users can update own profile." ON public.profiles;
-CREATE POLICY "Users can update own profile."
-    ON public.profiles FOR UPDATE USING (auth.uid() = id);
-
-DROP POLICY IF EXISTS "Admins can update any profile." ON public.profiles;
-CREATE POLICY "Admins can update any profile."
-    ON public.profiles FOR UPDATE USING ( (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' );
-
-DROP POLICY IF EXISTS "Admins can delete any profile." ON public.profiles;
-CREATE POLICY "Admins can delete any profile."
-    ON public.profiles FOR DELETE USING ( (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' );
-
-NOTIFY pgrst, 'reload schema';
-`;
-         setSqlError(fixSql);
-      } else if (err.message && err.message.includes("SQL FIX REQUIRED")) {
-         const fixSql = `
--- COPIE E RODE NO SUPABASE SQL EDITOR PARA DESTRAVAR O CADASTRO:
-
--- 1. REMOVE O GATILHO DE BANCO DE DADOS (Causa do erro "Database error saving new user")
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP FUNCTION IF EXISTS public.handle_new_user();
-
--- 2. GARANTE QUE A TABELA DE PERFIS ACEITE DADOS
-ALTER TABLE public.profiles 
-ADD COLUMN IF NOT EXISTS phone text,
-ADD COLUMN IF NOT EXISTS sarpas_code text,
-ADD COLUMN IF NOT EXISTS crbm text,
-ADD COLUMN IF NOT EXISTS unit text,
-ADD COLUMN IF NOT EXISTS license text,
-ADD COLUMN IF NOT EXISTS terms_accepted boolean DEFAULT false,
-ADD COLUMN IF NOT EXISTS terms_accepted_at timestamp with time zone;
-
--- 3. PERMISSÕES PARA O APP CRIAR O PERFIL DIRETAMENTE
-GRANT ALL ON public.profiles TO authenticated;
-GRANT ALL ON public.profiles TO service_role;
-
--- 4. ATUALIZA SCHEMA
-NOTIFY pgrst, 'reload schema';
-`;
-         setSqlError(fixSql);
+      // SECURITY FIX: Replaced SQL script modal with a user-friendly alert.
+      // Displaying raw SQL to end-users is a security risk and bad UX.
+      // The technical error is now logged to the console for administrators to debug.
+      if (err.message && (err.message.includes("PROFILE_UPSERT_FAILED") || err.message.includes("SQL FIX REQUIRED"))) {
+         console.error("Erro crítico de cadastro (PROFILE_UPSERT_FAILED or SQL_FIX_REQUIRED):", err);
+         alert("Erro no cadastro: Não foi possível finalizar a criação do perfil de usuário. Por favor, contate o administrador do sistema e informe este erro.");
       } else {
          alert(`Erro no cadastro: ${err.message}`);
       }
