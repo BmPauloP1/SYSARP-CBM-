@@ -15,6 +15,42 @@ interface SqlUpdate {
 // Array of all SQL updates needed for the application
 const ALL_UPDATES: SqlUpdate[] = [
   {
+    id: 'auth_fix_user_creation_flow',
+    title: 'Corrigir Fluxo de Criação de Usuário (Master)',
+    description: 'Resolve o erro "violates foreign key constraint" durante o cadastro. Remove o gatilho antigo `handle_new_user` e configura as permissões (RLS) corretas para que o aplicativo possa criar perfis de usuário de forma segura.',
+    category: 'auth',
+    sql: `
+-- Passo 1: Remover o gatilho e a função antigos que causam o problema.
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();
+
+-- Passo 2: Garantir que a segurança a nível de linha (RLS) está ativa na tabela de perfis.
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- Passo 3: Limpar políticas antigas para evitar conflitos.
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
+DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
+DROP POLICY IF EXISTS "Users can update own profile." ON public.profiles;
+DROP POLICY IF EXISTS "Admins can do anything." ON public.profiles;
+
+-- Passo 4: Criar as políticas de RLS corretas.
+CREATE POLICY "Public profiles are viewable by everyone." ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Users can insert their own profile." ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "Users can update own profile." ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
+-- Passo 5: Recriar a chave estrangeira para garantir que está correta.
+ALTER TABLE public.profiles
+DROP CONSTRAINT IF EXISTS profiles_id_fkey;
+
+ALTER TABLE public.profiles
+ADD CONSTRAINT profiles_id_fkey
+FOREIGN KEY (id) REFERENCES auth.users (id) ON DELETE CASCADE;
+
+-- Passo 6: Notificar o PostgREST para recarregar o schema.
+NOTIFY pgrst, 'reload schema';
+`
+  },
+  {
     id: 'operations_align_created_at_with_start_time',
     title: 'Alinhar Data de Criação com Data de Início da Missão',
     description: 'Atualiza a data de criação (`created_at`) de todas as operações para ser igual à data de início (`start_time`), garantindo consistência nos relatórios e históricos, mesmo para missões cadastradas antecipadamente.',
