@@ -627,7 +627,9 @@ export default function OperationManagement() {
     setFormData(prev => ({ ...prev, takeoff_points: newPoints }));
   };
   
-  // Função reutilizável para gerar o número da ocorrência
+  /**
+   * ROBUST GENERATION: Scan ALL operations for the highest sequence number in the current year.
+   */
   const generateOccurrenceNumber = async (
     currentFormData: typeof formData, 
     allDrones: Drone[], 
@@ -637,6 +639,7 @@ export default function OperationManagement() {
       const currentYear = new Date().getFullYear();
       let unitCode = "GRL";
 
+      // 1. Determine Unit Code
       const getCodeFromString = (str: string | undefined | null): string | null => {
           if (!str || str.trim() === '') return null;
           const part = str.split(' - ')[0];
@@ -655,13 +658,27 @@ export default function OperationManagement() {
       }
       if (code) unitCode = code;
       
-      const lastOp = allOps.length > 0 ? allOps[0] : null;
+      // 2. Scan for the MAX sequence number in the current year
       let nextSeq = 1;
-      if (lastOp && lastOp.occurrence_number) {
-          const match = lastOp.occurrence_number.match(/(\d{5})$/);
-          if (match) {
-              nextSeq = parseInt(match[1], 10) + 1;
-          }
+      
+      const yearPrefix = String(currentYear);
+      
+      // Filter ops from current year and find sequences
+      const currentYearSeqs = allOps
+        .map(op => {
+            if (!op.occurrence_number) return null;
+            // Expected format: YYYY ARP UNIT SEQ(5)
+            // We search for a numeric sequence at the end
+            const match = op.occurrence_number.match(/(\d{5})$/);
+            if (match && op.occurrence_number.startsWith(yearPrefix)) {
+                return parseInt(match[1], 10);
+            }
+            return null;
+        })
+        .filter((seq): seq is number => seq !== null);
+
+      if (currentYearSeqs.length > 0) {
+          nextSeq = Math.max(...currentYearSeqs) + 1;
       }
       
       const seqStr = String(nextSeq).padStart(5, '0');
@@ -715,7 +732,9 @@ export default function OperationManagement() {
         let finalOccurrenceNumber = originalOp.occurrence_number;
 
         if (areaChanged) {
-          finalOccurrenceNumber = await generateOccurrenceNumber(formData, drones, pilots, operations);
+          // Re-fetch all ops to ensure most recent sequences
+          const allOpsFresh = await base44.entities.Operation.list('-created_at');
+          finalOccurrenceNumber = await generateOccurrenceNumber(formData, drones, pilots, allOpsFresh);
           alert(`A área da ocorrência foi alterada. Um novo número de protocolo foi gerado: ${finalOccurrenceNumber}`);
         }
 
@@ -728,8 +747,9 @@ export default function OperationManagement() {
         alert("Ocorrência atualizada!");
 
       } else {
-        const allOps = await base44.entities.Operation.list('-created_at');
-        const occurrenceNumber = await generateOccurrenceNumber(formData, drones, pilots, allOps);
+        // ALWAYS fetch a fresh list before generating a new number to minimize collisions
+        const allOpsFresh = await base44.entities.Operation.list('-created_at');
+        const occurrenceNumber = await generateOccurrenceNumber(formData, drones, pilots, allOpsFresh);
         
         savedOp = await base44.entities.Operation.create({
           ...payloadBase,
@@ -814,9 +834,11 @@ export default function OperationManagement() {
       console.error(error);
       const msg = error.message || '';
       
-      // ... (existing error handling remains the same) ...
-
-      if (msg.includes("DB_TABLE_MISSING")) {
+      if (msg.includes("duplicate key value violates unique constraint") || msg.includes("occurrence_number_key")) {
+          alert("ERRO DE PROTOCOLO: Ocorreu um conflito ao gerar o número da ocorrência. Por favor, tente clicar em 'Salvar' novamente para gerar um novo número sequencial.");
+          // Recarregar dados para garantir que a próxima tentativa tenha a lista correta
+          loadData();
+      } else if (msg.includes("DB_TABLE_MISSING")) {
           loadData(); 
       } else {
           alert(`Erro ao salvar: ${msg}`);
@@ -1063,7 +1085,7 @@ NOTIFY pgrst, 'reload schema';
   const copySqlToClipboard = () => {
     if (sqlError) {
       navigator.clipboard.writeText(sqlError);
-      alert("Código SQL copiado!");
+      alert("Código SQL cobiado!");
     }
   };
 

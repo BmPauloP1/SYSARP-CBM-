@@ -275,9 +275,10 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
 
         let startY = 30;
 
-        // FIX: Explicitly cast the result of Object.entries to resolve a type inference issue where `items` was of type `unknown`.
-        for (const [type, items] of Object.entries(grouped) as [string, Material[]][]) {
-            if (!items || items.length === 0) continue;
+        // FIX: Explicitly cast grouped entries result to ensure 'items' is recognized as a Material array.
+        const groupedEntries = Object.entries(grouped) as unknown as [MaterialType, Material[]][];
+        for (const [type, items] of groupedEntries) {
+            if (!items || !Array.isArray(items) || items.length === 0) continue;
 
             if (startY > 250) {
                 doc.addPage();
@@ -400,7 +401,8 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
                         <p>Foram encontrados os seguintes números de série duplicados no inventário:</p>
                      </div>
                   </div>
-                  {Object.entries(duplicates).map(([serial, items]) => (
+                  {/* FIX: Casting Object.entries for duplicates to avoid 'unknown' type errors during map. */}
+                  {(Object.entries(duplicates) as [string, Material[]][]).map(([serial, items]) => (
                     <div key={serial} className="border border-slate-200 rounded-lg p-3">
                       <p className="font-mono text-xs text-red-600 bg-red-50 px-2 py-1 rounded-full inline-block mb-2">
                         SN: {serial}

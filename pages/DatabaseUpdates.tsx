@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, Button, Badge } from '../components/ui_components';
 import { Database, Copy, CheckCircle, AlertTriangle, ChevronDown, History } from 'lucide-react';
@@ -128,29 +129,75 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
   },
   {
     id: 'profiles_unlock_registration',
-    title: 'Desbloquear Cadastro de Pilotos',
-    description: 'Remove o gatilho `handle_new_user` que pode causar conflitos e garante que a tabela `profiles` tenha todas as colunas necessárias para o cadastro via app.',
+    title: 'Corrigir e Habilitar Cadastro de Pilotos',
+    description: 'Implementa a criação automática de perfis via trigger de banco de dados, a forma segura e correta no Supabase. Isso resolve o erro de "RLS violation" que impedia novos cadastros.',
     category: 'profiles',
     sql: `
--- 1. REMOVE O GATILHO DE BANCO DE DADOS (Causa do erro "Database error saving new user")
+-- 1. Garante que todas as colunas necessárias existam na tabela de perfis.
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone text;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS sarpas_code text;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS crbm text;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS unit text;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS license text;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS terms_accepted boolean DEFAULT false;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS terms_accepted_at timestamp with time zone;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS change_password_required boolean DEFAULT false;
+
+-- 2. Cria a função que será acionada para criar um perfil automaticamente.
+--    Ela usa SECURITY DEFINER para ter as permissões necessárias para inserir na tabela 'profiles'.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name, phone, sarpas_code, crbm, unit, license, role, status, terms_accepted, terms_accepted_at, change_password_required)
+  VALUES (
+    new.id,
+    new.email,
+    new.raw_user_meta_data->>'full_name',
+    new.raw_user_meta_data->>'phone',
+    new.raw_user_meta_data->>'sarpas_code',
+    new.raw_user_meta_data->>'crbm',
+    new.raw_user_meta_data->>'unit',
+    new.raw_user_meta_data->>'license',
+    COALESCE(new.raw_user_meta_data->>'role', 'operator'), -- Garante um valor padrão
+    'active',
+    COALESCE((new.raw_user_meta_data->>'terms_accepted')::boolean, false),
+    now(),
+    COALESCE((new.raw_user_meta_data->>'change_password_required')::boolean, false)
+  );
+  RETURN new;
+END;
+$$;
+
+-- 3. Remove o gatilho antigo para evitar duplicidade ou conflitos.
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP FUNCTION IF EXISTS public.handle_new_user();
 
--- 2. GARANTE QUE A TABELA DE PERFIS ACEITE DADOS
-ALTER TABLE public.profiles 
-ADD COLUMN IF NOT EXISTS phone text,
-ADD COLUMN IF NOT EXISTS sarpas_code text,
-ADD COLUMN IF NOT EXISTS crbm text,
-ADD COLUMN IF NOT EXISTS unit text,
-ADD COLUMN IF NOT EXISTS license text,
-ADD COLUMN IF NOT EXISTS terms_accepted boolean DEFAULT false,
-ADD COLUMN IF NOT EXISTS terms_accepted_at timestamp with time zone;
+-- 4. Cria o novo gatilho que aciona a função 'handle_new_user' após um novo usuário ser inserido na tabela 'auth.users'.
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
--- 3. PERMISSÕES PARA O APP CRIAR O PERFIL DIRETAMENTE
-GRANT ALL ON public.profiles TO authenticated;
-GRANT ALL ON public.profiles TO service_role;
+-- 5. Remove a política de INSERT que causava o erro, já que o trigger agora é responsável pela criação do perfil.
+DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
 
--- 4. ATUALIZA SCHEMA
+-- 6. Garante que o RLS está ativo e as outras políticas essenciais (SELECT, UPDATE, DELETE) estão corretas.
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
+CREATE POLICY "Public profiles are viewable by everyone." ON public.profiles FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Users can update own profile." ON public.profiles;
+CREATE POLICY "Users can update own profile." ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Admins can update any profile." ON public.profiles;
+CREATE POLICY "Admins can update any profile." ON public.profiles FOR UPDATE USING ( (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' );
+
+DROP POLICY IF EXISTS "Admins can delete any profile." ON public.profiles;
+CREATE POLICY "Admins can delete any profile." ON public.profiles FOR DELETE USING ( (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' );
+
+-- 7. Recarrega o schema para que as mudanças tenham efeito imediato.
 NOTIFY pgrst, 'reload schema';
 `
   },

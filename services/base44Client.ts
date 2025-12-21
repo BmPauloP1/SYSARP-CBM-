@@ -1,5 +1,4 @@
 
-
 import { supabase, isConfigured } from './supabase';
 import { Drone, Operation, Pilot, Maintenance, FlightLog, ConflictNotification, DroneChecklist, SystemAuditLog, OperationDay, OperationDayAsset, OperationDayPilot } from '../types';
 
@@ -558,7 +557,7 @@ const authHandler = {
     }
   },
 
-  createAccount: async (pilotData: Partial<Pilot> & { password?: string, email_confirm?: boolean }): Promise<Pilot> => {
+  createAccount: async (pilotData: Partial<Pilot> & { password?: string }): Promise<void> => {
      if (!pilotData.email || !pilotData.password) throw new Error("Email e senha obrigatórios");
     
      if (!isConfigured) {
@@ -570,7 +569,7 @@ const authHandler = {
          terms_accepted_at: new Date().toISOString()
        } as Pilot;
        pilots.push(newPilot); setLocal('sysarp_pilots', pilots);
-       return newPilot;
+       return;
      }
  
      try {
@@ -584,7 +583,8 @@ const authHandler = {
          unit: pilotData.unit || '',
          license: pilotData.license || '',
          role: pilotData.role || 'operator',
-         terms_accepted: pilotData.terms_accepted || false
+         terms_accepted: pilotData.terms_accepted || false,
+         change_password_required: pilotData.change_password_required === true
        };
  
        const { data, error } = await supabase.auth.signUp({
@@ -596,59 +596,7 @@ const authHandler = {
        if (error) throw error;
        if (!data.user) throw new Error("Erro ao criar usuário no Auth.");
  
-       const profilePayload = {
-           id: data.user.id,
-           email: pilotData.email,
-           full_name: metaData.full_name,
-           role: metaData.role,
-           status: 'active',
-           phone: metaData.phone,
-           sarpas_code: metaData.sarpas_code,
-           crbm: metaData.crbm,
-           unit: metaData.unit,
-           license: metaData.license,
-           terms_accepted: metaData.terms_accepted,
-           terms_accepted_at: new Date().toISOString()
-       };
-       
-       const { data: newProfile, error: upsertError } = await supabase
-         .from('profiles')
-         .upsert(profilePayload)
-         .select()
-         .single();
-
-       if (upsertError) {
-         console.error("CRITICAL: Profile upsert failed after auth user creation:", upsertError.message);
-         throw new Error(`PROFILE_UPSERT_FAILED: ${upsertError.message}`);
-       }
-       if (!newProfile) {
-         throw new Error("PROFILE_UPSERT_FAILED: A criação do perfil não retornou dados.");
-       }
-
-       // Manually update local cache to prevent stale data on network failure
-       try {
-         const pilotsCache = getLocal<Pilot>('sysarp_pilots');
-         const existingIndex = pilotsCache.findIndex(p => p.id === newProfile.id);
-         if (existingIndex > -1) {
-             pilotsCache[existingIndex] = newProfile as Pilot;
-         } else {
-             pilotsCache.unshift(newProfile as Pilot);
-         }
-         setLocal('sysarp_pilots', pilotsCache);
-       } catch (cacheError) {
-         console.warn("Falha ao atualizar o cache de pilotos após o cadastro.", cacheError);
-       }
- 
-       // Audit
-       base44.entities.SystemAudit.create({
-            user_id: data.user.id,
-            action: 'CREATE',
-            entity: 'Pilot',
-            details: `Novo cadastro: ${pilotData.email}`,
-            timestamp: new Date().toISOString()
-       });
- 
-       return newProfile as Pilot;
+       // Perfil é criado via trigger no DB. Não é mais necessário upsert no cliente.
  
      } catch (e: any) {
        const msg = e.message || '';
