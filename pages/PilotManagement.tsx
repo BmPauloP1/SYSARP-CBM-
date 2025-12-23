@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
 import { Pilot, ORGANIZATION_CHART, SYSARP_LOGO } from "../types";
 import { Card, Button, Badge, Input, Select } from "../components/ui_components";
-import { Plus, User, X, Save, Phone, Lock, Shield, Trash2, Database, Copy, Pencil, Search, ChevronLeft, ChevronRight, Mail, Filter, FileText, RefreshCcw, Users } from "lucide-react";
+import { Plus, User, X, Save, Phone, Lock, Shield, Trash2, Database, Copy, Pencil, Search, ChevronLeft, ChevronRight, Mail, Filter, FileText, RefreshCcw, Users, ChevronDown } from "lucide-react";
 
 // Helper para carregar imagem para o PDF (Reutilizado para consistência)
 const getImageData = (url: string): Promise<string> => {
@@ -38,10 +38,11 @@ export default function PilotManagement() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // New Filters State
+  // Filters State
   const [filterCrbm, setFilterCrbm] = useState("all");
   const [filterUnit, setFilterUnit] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -479,62 +480,73 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
             </div>
         </div>
 
-        {/* FILTERS BAR */}
-        <Card className="p-4 bg-slate-50 border-slate-200">
-            <div className="flex items-center gap-2 mb-3 text-xs font-bold text-slate-500 uppercase">
-                <Filter className="w-3 h-3" /> Filtros de Consulta
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-                <div className="lg:col-span-1">
-                    <Input
-                      placeholder="Buscar por Nome ou SARPAS..."
-                      value={searchTerm}
-                      onChange={handleSearchChange}
-                      className="h-10 text-sm bg-white"
-                    />
+        {/* COLLAPSIBLE FILTERS BAR */}
+        <Card className="p-0 bg-slate-50 border-slate-200 overflow-hidden">
+            <button
+                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                className="w-full flex justify-between items-center p-4 text-left hover:bg-slate-100 transition-colors"
+                aria-expanded={isFilterOpen}
+            >
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase">
+                    <Filter className="w-3 h-3" /> Filtros de Consulta
                 </div>
-                <div className="lg:col-span-1">
-                    <Select 
-                       value={filterCrbm} 
-                       onChange={e => { setFilterCrbm(e.target.value); setFilterUnit("all"); }}
-                       className="h-10 text-sm bg-white"
-                    >
-                        <option value="all">Todos os CRBMs</option>
-                        {Object.keys(ORGANIZATION_CHART).map(crbm => <option key={crbm} value={crbm}>{crbm}</option>)}
-                    </Select>
+                <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform ${isFilterOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isFilterOpen && (
+                <div className="p-4 border-t border-slate-200 animate-fade-in">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+                        <div className="lg:col-span-1">
+                            <Input
+                              placeholder="Buscar por Nome ou SARPAS..."
+                              value={searchTerm}
+                              onChange={handleSearchChange}
+                              className="h-10 text-sm bg-white"
+                            />
+                        </div>
+                        <div className="lg:col-span-1">
+                            <Select 
+                               value={filterCrbm} 
+                               onChange={e => { setFilterCrbm(e.target.value); setFilterUnit("all"); }}
+                               className="h-10 text-sm bg-white"
+                            >
+                                <option value="all">Todos os CRBMs</option>
+                                {Object.keys(ORGANIZATION_CHART).map(crbm => <option key={crbm} value={crbm}>{crbm}</option>)}
+                            </Select>
+                        </div>
+                        <div className="lg:col-span-1">
+                            <Select 
+                               value={filterUnit} 
+                               onChange={e => setFilterUnit(e.target.value)}
+                               disabled={filterCrbm === "all"}
+                               className="h-10 text-sm bg-white disabled:bg-slate-100"
+                            >
+                                <option value="all">Todas as Unidades</option>
+                                {filterCrbm !== "all" && (ORGANIZATION_CHART as any)[filterCrbm]?.map((unit: string) => <option key={unit} value={unit}>{unit}</option>)}
+                            </Select>
+                        </div>
+                        <div className="lg:col-span-1">
+                            <Select 
+                               value={filterStatus} 
+                               onChange={e => setFilterStatus(e.target.value)}
+                               className="h-10 text-sm bg-white"
+                            >
+                                <option value="all">Todos os Status</option>
+                                <option value="active">Ativo</option>
+                                <option value="inactive">Inativo</option>
+                            </Select>
+                        </div>
+                        <div className="lg:col-span-1 flex gap-2">
+                            <Button onClick={handleResetFilters} variant="outline" className="h-10 bg-white" title="Limpar Filtros">
+                                <RefreshCcw className="w-4 h-4" />
+                            </Button>
+                            <Button onClick={handleExportReport} disabled={generatingPdf} className="h-10 flex-1 bg-slate-800 text-white hover:bg-slate-900">
+                                <FileText className="w-4 h-4 mr-2" />
+                                {generatingPdf ? 'Gerando...' : 'Relatório'}
+                            </Button>
+                        </div>
+                    </div>
                 </div>
-                <div className="lg:col-span-1">
-                    <Select 
-                       value={filterUnit} 
-                       onChange={e => setFilterUnit(e.target.value)}
-                       disabled={filterCrbm === "all"}
-                       className="h-10 text-sm bg-white disabled:bg-slate-100"
-                    >
-                        <option value="all">Todas as Unidades</option>
-                        {filterCrbm !== "all" && (ORGANIZATION_CHART as any)[filterCrbm]?.map((unit: string) => <option key={unit} value={unit}>{unit}</option>)}
-                    </Select>
-                </div>
-                <div className="lg:col-span-1">
-                    <Select 
-                       value={filterStatus} 
-                       onChange={e => setFilterStatus(e.target.value)}
-                       className="h-10 text-sm bg-white"
-                    >
-                        <option value="all">Todos os Status</option>
-                        <option value="active">Ativo</option>
-                        <option value="inactive">Inativo</option>
-                    </Select>
-                </div>
-                <div className="lg:col-span-1 flex gap-2">
-                    <Button onClick={handleResetFilters} variant="outline" className="h-10 bg-white" title="Limpar Filtros">
-                        <RefreshCcw className="w-4 h-4" />
-                    </Button>
-                    <Button onClick={handleExportReport} disabled={generatingPdf} className="h-10 flex-1 bg-slate-800 text-white hover:bg-slate-900">
-                        <FileText className="w-4 h-4 mr-2" />
-                        {generatingPdf ? 'Gerando...' : 'Relatório'}
-                    </Button>
-                </div>
-            </div>
+            )}
         </Card>
       </div>
 

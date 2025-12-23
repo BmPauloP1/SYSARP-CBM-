@@ -229,6 +229,8 @@ export default function DroneManagement() {
     setIsCreateModalOpen(true);
     setIsNewBrand(false);
     setIsNewModel(false);
+    setCustomBrand("");
+    setCustomModel("");
   };
 
   const handleDeleteDrone = async (droneId: string) => {
@@ -1007,7 +1009,7 @@ export default function DroneManagement() {
         />
       )}
 
-      {/* --- MODAL DE MANUTENÇÃO (Corrigido: Adicionado) --- */}
+      {/* --- MODAL DE MANUTENÇÃO --- */}
       {selectedDrone && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <Card className="w-full max-w-md p-6 bg-white shadow-xl animate-fade-in">
@@ -1051,7 +1053,7 @@ export default function DroneManagement() {
         </div>
       )}
 
-      {/* --- MODAL DE CHECKLIST 7 DIAS (Corrigido: Adicionado) --- */}
+      {/* --- MODAL DE CHECKLIST 7 DIAS --- */}
       {isChecklistModalOpen && currentChecklistDrone && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <Card className="w-full max-w-2xl p-0 shadow-xl animate-fade-in flex flex-col max-h-[90vh] bg-white">
@@ -1202,6 +1204,8 @@ export default function DroneManagement() {
                         onChange={e => {
                           const val = e.target.value;
                           setIsNewBrand(false);
+                          setIsNewModel(false);
+                          setCustomModel("");
                           const resetState = { model: '', weight: undefined, max_flight_time: undefined, max_range: undefined, max_altitude: undefined, payloads: [] };
                           if (val === 'NEW_BRAND') {
                             setIsNewBrand(true);
@@ -1237,53 +1241,70 @@ export default function DroneManagement() {
 
                   {/* MODEL SELECTOR */}
                   <div>
-                    <Select 
-                      label="Modelo" 
-                      required 
-                      value={newDroneData.model || ''} 
-                      disabled={(!newDroneData.brand && !isNewBrand)}
-                      onChange={e => {
-                          const val = e.target.value;
-                          setIsNewModel(false);
-                          if (val === 'NEW_MODEL') {
-                            setIsNewModel(true);
-                            setNewDroneData(prev => ({ ...prev, model: '', weight: undefined, max_flight_time: undefined, max_range: undefined, max_altitude: undefined, payloads: [] }));
-                          } else {
-                            setNewDroneData(prev => {
-                              if (!editingId) {
-                                const existingDrone = drones.find(d => d.brand === prev.brand && d.model === val);
-                                if (existingDrone) {
-                                  // Match found, populate
-                                  return {
-                                    ...prev, model: val,
-                                    weight: existingDrone.weight,
-                                    max_flight_time: existingDrone.max_flight_time,
-                                    max_range: existingDrone.max_range,
-                                    max_altitude: existingDrone.max_altitude,
-                                    payloads: existingDrone.payloads || [],
-                                  };
-                                } else {
-                                  // No match found, so clear specs
-                                  return {
-                                    ...prev, model: val,
-                                    weight: undefined, max_flight_time: undefined, max_range: undefined, max_altitude: undefined, payloads: []
-                                  };
+                    {!isNewModel ? (
+                      <Select 
+                        label="Modelo" 
+                        required 
+                        value={newDroneData.model || ''} 
+                        disabled={(!newDroneData.brand && !isNewBrand)}
+                        onChange={e => {
+                            const val = e.target.value;
+                            if (val === 'NEW_MODEL') {
+                              setIsNewModel(true);
+                              setNewDroneData(prev => ({ ...prev, model: '', weight: undefined, max_flight_time: undefined, max_range: undefined, max_altitude: undefined, payloads: [] }));
+                            } else {
+                              setIsNewModel(false);
+                              setNewDroneData(prev => {
+                                if (!editingId) {
+                                  const existingDrone = drones.find(d => d.brand === prev.brand && d.model === val);
+                                  if (existingDrone) {
+                                    // Match found, populate
+                                    return {
+                                      ...prev, model: val,
+                                      weight: existingDrone.weight,
+                                      max_flight_time: existingDrone.max_flight_time,
+                                      max_range: existingDrone.max_range,
+                                      max_altitude: existingDrone.max_altitude,
+                                      payloads: existingDrone.payloads || [],
+                                    };
+                                  } else {
+                                    // No match found, so clear specs
+                                    return {
+                                      ...prev, model: val,
+                                      weight: undefined, max_flight_time: undefined, max_range: undefined, max_altitude: undefined, payloads: []
+                                    };
+                                  }
                                 }
-                              }
-                              // Is editing, just update model
-                              return { ...prev, model: val };
-                            });
-                          }
-                      }}
-                    >
-                      <option value="">Selecione...</option>
-                      {newDroneData.brand && catalog[newDroneData.brand]?.map(model => (
-                        <option key={model} value={model}>{model}</option>
-                      ))}
-                      {(newDroneData.brand || isNewBrand) && (
-                        <option value="NEW_MODEL" className="font-bold text-yellow-400 bg-slate-800">+ Adicionar Novo...</option>
-                      )}
-                    </Select>
+                                // Is editing, just update model
+                                return { ...prev, model: val };
+                              });
+                            }
+                        }}
+                      >
+                        <option value="">Selecione...</option>
+                        {newDroneData.brand && catalog[newDroneData.brand]?.map(model => (
+                          <option key={model} value={model}>{model}</option>
+                        ))}
+                        {(newDroneData.brand || isNewBrand) && (
+                          <option value="NEW_MODEL" className="font-bold text-yellow-400 bg-slate-800">+ Adicionar Novo...</option>
+                        )}
+                      </Select>
+                    ) : (
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium text-slate-700">Novo Modelo</label>
+                        <div className="flex gap-2">
+                          <Input 
+                            value={customModel}
+                            onChange={e => setCustomModel(e.target.value)}
+                            placeholder="Digite o modelo..."
+                            className="flex-1"
+                          />
+                          <Button type="button" variant="danger" className="px-3" onClick={() => { setIsNewModel(false); setCustomModel(''); }}>
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
