@@ -10,12 +10,47 @@ interface SchemaMigration {
 
 const ALL_UPDATES = [
   {
-    id: 'cautela_system_v1.1',
-    title: 'Módulo de Termos de Cautela (v1.1)',
-    description: 'Cria as tabelas termos_cautela e termo_cautela_itens com suporte a número de patrimônio.',
+    id: 'inventory_and_cautela_system_v1.2',
+    title: 'Módulo de Almoxarifado e Cautelas (v1.2)',
+    description: 'Cria as tabelas de Materiais, Termos de Cautela e seus itens associados. Essencial para o gerenciamento de custódia.',
     category: 'system',
     sql: `
--- CRIAÇÃO DA TABELA DE TERMOS DE CAUTELA
+-- 1. TABELA DE MATERIAIS (ALMOXARIFADO)
+CREATE TABLE IF NOT EXISTS public.materials (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    drone_id uuid REFERENCES public.drones(id) ON DELETE CASCADE,
+    type text NOT NULL,
+    name text NOT NULL,
+    quantity integer DEFAULT 1,
+    serial_number text,
+    status text DEFAULT 'new',
+    purchase_date date,
+    notes text,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+-- 2. TABELAS DE ESTATÍSTICAS DE MATERIAIS
+CREATE TABLE IF NOT EXISTS public.battery_stats (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    material_id uuid REFERENCES public.materials(id) ON DELETE CASCADE,
+    cycles integer DEFAULT 0,
+    max_cycles integer DEFAULT 200,
+    capacity_mah integer,
+    voltage_v float,
+    health_percent integer DEFAULT 100
+);
+
+CREATE TABLE IF NOT EXISTS public.propeller_stats (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    material_id uuid REFERENCES public.materials(id) ON DELETE CASCADE,
+    hours_flown float DEFAULT 0,
+    max_hours float DEFAULT 100,
+    size_inch text,
+    pitch text,
+    position text
+);
+
+-- 3. TABELA DE TERMOS DE CAUTELA
 CREATE TABLE IF NOT EXISTS public.termos_cautela (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     drone_id uuid REFERENCES public.drones(id) ON DELETE CASCADE,
@@ -32,15 +67,7 @@ CREATE TABLE IF NOT EXISTS public.termos_cautela (
     updated_at timestamp with time zone DEFAULT now()
 );
 
--- ADICIONAR COLUNA CASO JÁ EXISTA A TABELA
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='termos_cautela' AND column_name='patrimonio') THEN
-        ALTER TABLE public.termos_cautela ADD COLUMN patrimonio text;
-    END IF;
-END $$;
-
--- CRIAÇÃO DA TABELA DE ITENS VINCULADOS AO TERMO
+-- 4. TABELA DE ITENS VINCULADOS AO TERMO (SNAPSHOT)
 CREATE TABLE IF NOT EXISTS public.termo_cautela_itens (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     termo_cautela_id uuid REFERENCES public.termos_cautela(id) ON DELETE CASCADE,
@@ -48,27 +75,30 @@ CREATE TABLE IF NOT EXISTS public.termo_cautela_itens (
     created_at timestamp with time zone DEFAULT now()
 );
 
--- HABILITAR RLS E CONFIGURAR PERMISSÕES
+-- 5. HABILITAR RLS E CONFIGURAR PERMISSÕES
+ALTER TABLE public.materials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.battery_stats ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.propeller_stats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.termos_cautela ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.termo_cautela_itens ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Permitir leitura total de cautelas" ON public.termos_cautela;
-CREATE POLICY "Permitir leitura total de cautelas" ON public.termos_cautela FOR SELECT TO authenticated USING (true);
+-- POLÍTICAS DE ACESSO (PERMITIR LEITURA PARA TODOS AUTENTICADOS)
+DO $$ BEGIN
+    CREATE POLICY "Acesso Leitura Materiais" ON public.materials FOR SELECT TO authenticated USING (true);
+    CREATE POLICY "Acesso Leitura Cautelas" ON public.termos_cautela FOR SELECT TO authenticated USING (true);
+    CREATE POLICY "Acesso Leitura Itens Cautela" ON public.termo_cautela_itens FOR SELECT TO authenticated USING (true);
+EXCEPTION WHEN others THEN NULL; END $$;
 
-DROP POLICY IF EXISTS "Admins podem tudo em cautelas" ON public.termos_cautela;
-CREATE POLICY "Admins podem tudo em cautelas" ON public.termos_cautela FOR ALL TO authenticated 
-USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
+-- POLÍTICAS DE ADMIN
+DO $$ BEGIN
+    CREATE POLICY "Admins Gerenciam Materiais" ON public.materials FOR ALL TO authenticated USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
+    CREATE POLICY "Admins Gerenciam Cautelas" ON public.termos_cautela FOR ALL TO authenticated USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
+EXCEPTION WHEN others THEN NULL; END $$;
 
-DROP POLICY IF EXISTS "Pilotos podem assinar suas cautelas" ON public.termos_cautela;
-CREATE POLICY "Pilotos podem assinar suas cautelas" ON public.termos_cautela FOR UPDATE TO authenticated 
-USING (pilot_id = auth.uid());
-
-DROP POLICY IF EXISTS "Leitura total de itens da cautela" ON public.termo_cautela_itens;
-CREATE POLICY "Leitura total de itens da cautela" ON public.termo_cautela_itens FOR SELECT TO authenticated USING (true);
-
-DROP POLICY IF EXISTS "Admins gerenciam itens da cautela" ON public.termo_cautela_itens;
-CREATE POLICY "Admins gerenciam itens da cautela" ON public.termo_cautela_itens FOR ALL TO authenticated 
-USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
+-- POLÍTICA PARA ASSINATURA DE PILOTOS
+DO $$ BEGIN
+    CREATE POLICY "Pilotos Assinam Suas Cautelas" ON public.termos_cautela FOR UPDATE TO authenticated USING (pilot_id = auth.uid());
+EXCEPTION WHEN others THEN NULL; END $$;
 
 NOTIFY pgrst, 'reload schema';
 `

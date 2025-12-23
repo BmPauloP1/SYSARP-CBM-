@@ -66,8 +66,10 @@ export default function CautelaManagement() {
       });
       loadData();
       alert("Termo de Cautela gerado com sucesso!");
-    } catch (e) {
-      alert("Erro ao gerar cautela. Verifique se o banco de dados foi atualizado via Scripts SQL.");
+    } catch (err: any) {
+      console.error("Erro ao gerar cautela:", err);
+      const errorMsg = err.message || "Erro desconhecido";
+      alert(`Erro ao gerar cautela: ${errorMsg}\n\nCertifique-se de que aplicou o Script SQL no Supabase.`);
     } finally {
       setLoading(false);
     }
