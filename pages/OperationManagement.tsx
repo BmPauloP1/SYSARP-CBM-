@@ -1469,25 +1469,35 @@ NOTIFY pgrst, 'reload schema';
                                   <Input label="Altitude Máx (m)" type="number" value={formData.flight_altitude} onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})}/>
                                </div>
                                
-                               {/* MÚLTIPLOS PONTOS */}
+                               {/* MÚLTIPLOS PONTOS (LAYOUT AJUSTADO) */}
                                <div className="space-y-3 pt-3 border-t">
                                   <h4 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
                                      <Layers className="w-4 h-4" /> Pontos de Interesse / Decolagem
                                   </h4>
                                   
                                   {formData.takeoff_points?.map((point, index) => (
-                                     <div key={index} className="grid grid-cols-12 gap-2 items-end bg-white p-2 rounded border">
-                                        <div className="col-span-1 text-center font-bold text-slate-400">#{index+1}</div>
-                                        <div className="col-span-4"><Input label="Lat" type="number" step="any" value={point.lat} onChange={e => handlePointChange(index, 'lat', e.target.value)} className="text-xs p-1" /></div>
-                                        <div className="col-span-4"><Input label="Lng" type="number" step="any" value={point.lng} onChange={e => handlePointChange(index, 'lng', e.target.value)} className="text-xs p-1" /></div>
-                                        <div className="col-span-2"><Input label="Alt(m)" type="number" value={point.alt} onChange={e => handlePointChange(index, 'alt', e.target.value)} className="text-xs p-1" /></div>
-                                        <div className="col-span-1 flex gap-1">
-                                            <Button type="button" variant="outline" size="sm" onClick={() => setSelectingPointIndex(index)} className="h-8 w-8 p-0" title="Definir no Mapa"><MapPin className="w-4 h-4"/></Button>
-                                            <Button type="button" variant="danger" size="sm" onClick={() => handleRemovePoint(index)} className="h-8 w-8 p-0 bg-red-50 text-red-600 border-red-100" title="Remover"><Trash2 className="w-4 h-4"/></Button>
+                                     <div key={index} className="grid grid-cols-12 gap-1 items-end bg-white p-2 rounded border shadow-sm">
+                                        <div className="col-span-1 text-center font-bold text-slate-400 mb-2">#{index+1}</div>
+                                        <div className="col-span-3">
+                                          <Input label="Lat" type="number" step="any" value={point.lat} onChange={e => handlePointChange(index, 'lat', e.target.value)} className="text-[10px] h-8 px-1" labelClassName="text-[9px]" />
+                                        </div>
+                                        <div className="col-span-3">
+                                          <Input label="Lng" type="number" step="any" value={point.lng} onChange={e => handlePointChange(index, 'lng', e.target.value)} className="text-[10px] h-8 px-1" labelClassName="text-[9px]" />
+                                        </div>
+                                        <div className="col-span-2">
+                                          <Input label="Alt(m)" type="number" value={point.alt} onChange={e => handlePointChange(index, 'alt', e.target.value)} className="text-[10px] h-8 px-1" labelClassName="text-[9px]" />
+                                        </div>
+                                        <div className="col-span-3 flex gap-1 mb-0.5">
+                                            <Button type="button" variant="outline" size="sm" onClick={() => setSelectingPointIndex(index)} className="flex-1 h-8 p-0 bg-white border-slate-200 text-blue-600 hover:bg-blue-50" title="Definir no Mapa">
+                                              <MapPin className="w-4 h-4"/>
+                                            </Button>
+                                            <Button type="button" variant="outline" size="sm" onClick={() => handleRemovePoint(index)} className="flex-1 h-8 p-0 border-red-200 text-red-500 hover:bg-red-50 hover:border-red-300" title="Remover">
+                                              <Trash2 className="w-4 h-4"/>
+                                            </Button>
                                         </div>
                                      </div>
                                   ))}
-                                  <Button type="button" variant="outline" size="sm" onClick={handleAddPoint} className="w-full bg-slate-100 border-dashed">
+                                  <Button type="button" variant="outline" size="sm" onClick={handleAddPoint} className="w-full bg-slate-100 border-dashed border-2 hover:bg-slate-200 transition-colors">
                                      <Plus className="w-4 h-4 mr-2" /> Adicionar Ponto de Interesse
                                   </Button>
                                </div>

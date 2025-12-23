@@ -2,17 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '../services/base44Client';
 import { Card, Button, Input, Select } from '../components/ui_components';
-import { Lock, UserPlus, Shield, AlertTriangle, LogIn, Mail, KeyRound, CheckSquare, X, FileText, UserCog, Database, Copy, CheckCircle } from 'lucide-react';
+import { Lock, UserPlus, Shield, AlertTriangle, LogIn, Mail, KeyRound, CheckSquare, X, FileText, UserCog, Database, Copy, CheckCircle, User } from 'lucide-react';
 import { ORGANIZATION_CHART, LGPD_TERMS, SYSARP_LOGO } from '../types';
 
 export default function Login() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   
-  // Estado para fallback de imagem da logo
   const [logoError, setLogoError] = useState(false);
 
   // States for Modals
@@ -20,9 +19,6 @@ export default function Login() {
   const [showChangePassword, setShowChangePassword] = useState<any>(null);
   const [showLgpdModal, setShowLgpdModal] = useState(false);
   
-  // State for SQL Fix Modal (Database Error)
-  const [sqlError, setSqlError] = useState<string | null>(null);
-  // State for SQL Fix Modal (Email Confirmation)
   const [emailFixSql, setEmailFixSql] = useState<string | null>(null);
   
   // Registration Form State
@@ -44,12 +40,25 @@ export default function Login() {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [changePasswordTermsAccepted, setChangePasswordTermsAccepted] = useState(false);
 
+  // Filtra o input do usuário conforme regras institucionais
+  const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    // Permite letras, números, ponto, sublinhado e hífen. Bloqueia @ e outros símbolos.
+    const filteredValue = value.replace(/[^a-z0-9._-]/gi, '').toLowerCase();
+    setUsername(filteredValue);
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setLoginError('');
+
     try {
-      const user = await base44.auth.login(email, password);
+      // Concatena o domínio institucional de forma invisível
+      const fullEmail = `${username}@cbm.pr.gov.br`;
+      
+      const user = await base44.auth.login(fullEmail, password);
+      
       if (user?.change_password_required) {
         setShowChangePassword(user);
       } else {
@@ -57,39 +66,8 @@ export default function Login() {
       }
     } catch (err: any) {
       console.error("Login error:", err);
-      const msg = err.message || "";
-      
-      // Check for generic invalid credential message to allow Portuguese translation
-      if (msg.includes("Invalid login credentials")) {
-         setLoginError("E-mail ou senha incorretos.");
-      } else if (msg.includes("E-mail não confirmado") || msg.includes("Email not confirmed")) {
-         setLoginError("E-mail pendente de confirmação.");
-         // Trigger the SQL Fix Modal for Email
-         const fixSql = `
--- COPIE E RODE NO SUPABASE SQL EDITOR PARA DESATIVAR CONFIRMAÇÃO DE EMAIL:
-
--- 1. Confirma automaticamente todos os usuários pendentes atuais
-UPDATE auth.users SET email_confirmed_at = now() WHERE email_confirmed_at IS NULL;
-
--- 2. Cria função para confirmar automaticamente novos cadastros
-CREATE OR REPLACE FUNCTION public.auto_confirm_email()
-RETURNS trigger AS $$
-BEGIN
-  NEW.email_confirmed_at = now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 3. Aplica o gatilho
-DROP TRIGGER IF EXISTS on_auth_user_created_confirm ON auth.users;
-CREATE TRIGGER on_auth_user_created_confirm
-  BEFORE INSERT ON auth.users
-  FOR EACH ROW EXECUTE PROCEDURE public.auto_confirm_email();
-`;
-         setEmailFixSql(fixSql);
-      } else {
-         setLoginError(msg || "Erro ao realizar login.");
-      }
+      // Mensagem genérica conforme regra de segurança
+      setLoginError("Usuário ou senha inválidos.");
     } finally {
       setLoading(false);
     }
@@ -116,10 +94,9 @@ CREATE TRIGGER on_auth_user_created_confirm
         email: fullEmail,
       });
 
-      alert("Solicitação de cadastro enviada! Faça o login com o e-mail e senha criados.");
+      alert("Solicitação de cadastro enviada! Faça o login com o seu usuário e senha criados.");
       setShowRegister(false);
       
-      // Limpa formulário
       setRegForm({
         full_name: '', phone: '', sarpas_code: '', crbm: '', unit: '', license: '',
         password: '', confirmPassword: '', terms_accepted: false
@@ -127,15 +104,7 @@ CREATE TRIGGER on_auth_user_created_confirm
       setRegEmailPrefix('');
 
     } catch (err: any) {
-      // SECURITY FIX: Replaced SQL script modal with a user-friendly alert.
-      // Displaying raw SQL to end-users is a security risk and bad UX.
-      // The technical error is now logged to the console for administrators to debug.
-      if (err.message && (err.message.includes("PROFILE_UPSERT_FAILED") || err.message.includes("SQL FIX REQUIRED"))) {
-         console.error("Erro crítico de cadastro (PROFILE_UPSERT_FAILED or SQL_FIX_REQUIRED):", err);
-         alert("Erro no cadastro: Não foi possível finalizar a criação do perfil de usuário. Por favor, contate o administrador do sistema e informe este erro.");
-      } else {
-         alert(`Erro no cadastro: ${err.message}`);
-      }
+      alert(`Erro no cadastro: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -175,52 +144,20 @@ CREATE TRIGGER on_auth_user_created_confirm
   return (
     <div className="min-h-screen bg-gradient-to-br from-sysarp-dark via-sysarp-primary to-sysarp-dark flex flex-col items-center justify-center p-4 py-8 overflow-y-auto">
       
-      {/* SQL FIX MODAL (Database Error) */}
-      {sqlError && (
-        <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
-           <Card className="w-full max-w-3xl flex flex-col bg-white border-4 border-red-600 shadow-2xl">
-              <div className="p-4 bg-red-600 text-white flex justify-between items-center">
-                 <h3 className="font-bold text-lg flex items-center gap-2">
-                   <Database className="w-6 h-6" />
-                   Ação Necessária: Corrigir Permissões de Cadastro
-                 </h3>
-                 <button onClick={() => setSqlError(null)} className="hover:bg-red-700 p-1 rounded"><X className="w-5 h-5" /></button>
-              </div>
-              <div className="p-6 space-y-4">
-                 <p className="text-slate-700 font-medium">
-                    O Banco de Dados está bloqueando a criação do perfil do usuário por falta de permissão (RLS).
-                    A solução é <strong>aplicar as políticas de segurança corretas</strong> para permitir o cadastro.
-                 </p>
-                 <div className="relative">
-                    <pre className="bg-slate-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto font-mono border border-slate-700 max-h-64">
-                       {sqlError}
-                    </pre>
-                    <button onClick={() => copySqlToClipboard(sqlError)} className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded transition-colors"><Copy className="w-4 h-4" /></button>
-                 </div>
-              </div>
-              <div className="p-4 bg-slate-50 border-t flex justify-end gap-3">
-                 <Button variant="outline" onClick={() => setSqlError(null)}>Fechar</Button>
-                 <Button onClick={() => copySqlToClipboard(sqlError)} className="bg-blue-600 text-white hover:bg-blue-700"><Copy className="w-4 h-4 mr-2" /> Copiar SQL</Button>
-              </div>
-           </Card>
-        </div>
-      )}
-
       {/* EMAIL FIX MODAL */}
       {emailFixSql && (
         <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
            <Card className="w-full max-w-3xl flex flex-col bg-white border-4 border-amber-500 shadow-2xl">
               <div className="p-4 bg-amber-500 text-white flex justify-between items-center">
                  <h3 className="font-bold text-lg flex items-center gap-2">
-                   <Mail className="w-6 h-6" />
-                   Ação Necessária: Auto-Confirmar E-mails
+                   <LogIn className="w-6 h-6" />
+                   Ação Administrativa Necessária
                  </h3>
                  <button onClick={() => setEmailFixSql(null)} className="hover:bg-amber-600 p-1 rounded"><X className="w-5 h-5" /></button>
               </div>
               <div className="p-6 space-y-4">
                  <p className="text-slate-700 font-medium">
-                    O Supabase está exigindo confirmação de e-mail, mas o servidor de SMTP não está configurado.
-                    Execute este SQL para <strong>aprovar todos os usuários</strong> automaticamente.
+                    Ajuste técnico de banco de dados requerido para validação de e-mails institucionais.
                  </p>
                  <div className="relative">
                     <pre className="bg-slate-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto font-mono border border-slate-700 max-h-64">
@@ -261,7 +198,6 @@ CREATE TRIGGER on_auth_user_created_confirm
       {/* Main Content */}
       <div className="w-full max-w-md">
         <div className="text-center mb-6 md:mb-8">
-           {/* Logo Container Responsivo */}
            <div className="w-24 h-24 md:w-32 md:h-32 bg-white/10 backdrop-blur-sm rounded-xl md:rounded-2xl flex items-center justify-center mx-auto mb-3 md:mb-4 shadow-lg p-2 md:p-3 border-2 border-white/20">
               {logoError ? (
                   <Shield className="w-12 h-12 md:w-16 md:h-16 text-white" />
@@ -293,15 +229,21 @@ CREATE TRIGGER on_auth_user_created_confirm
             )}
 
             <div className="space-y-3 md:space-y-4">
-              <Input 
-                label="E-mail Institucional" 
-                value={email} 
-                onChange={e => setEmail(e.target.value.toLowerCase())} 
-                placeholder="ex: nome@bm.pr.gov.br ou admin"
-                type="email"
-                required
-                className="lowercase"
-              />
+              <div className="relative">
+                <Input 
+                  label="Usuário" 
+                  value={username} 
+                  onChange={handleUsernameChange} 
+                  placeholder="nome.sobrenome"
+                  type="text"
+                  required
+                  autoComplete="username"
+                  className="lowercase pr-12"
+                />
+                <div className="absolute right-3 bottom-2.5 text-slate-300 pointer-events-none">
+                  <User className="w-5 h-5" />
+                </div>
+              </div>
               <Input 
                 label="Senha" 
                 type="password"
@@ -309,6 +251,7 @@ CREATE TRIGGER on_auth_user_created_confirm
                 onChange={e => setPassword(e.target.value)} 
                 placeholder="••••••••"
                 required
+                autoComplete="current-password"
               />
             </div>
 
@@ -356,16 +299,16 @@ CREATE TRIGGER on_auth_user_created_confirm
               </div>
 
               <div className="space-y-1">
-                <label className="text-sm font-medium text-slate-700">E-mail Institucional</label>
+                <label className="text-sm font-medium text-slate-700">Identificador de Usuário</label>
                 <div className="flex items-center border border-slate-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-red-500">
                   <Input 
                     className="flex-1 text-right !border-0 !ring-0 rounded-r-none lowercase" 
                     placeholder="nome.sobrenome"
                     value={regEmailPrefix}
-                    onChange={e => setRegEmailPrefix(e.target.value.toLowerCase())}
+                    onChange={e => setRegEmailPrefix(e.target.value.replace(/[^a-z0-9._-]/gi, '').toLowerCase())}
                     required
                   />
-                  <span className="bg-white px-3 py-2 text-slate-500 border-l text-xs md:text-sm">@cbm.pr.gov.br</span>
+                  <span className="bg-slate-50 px-3 py-2 text-slate-500 border-l text-xs md:text-sm">@cbm.pr.gov.br</span>
                 </div>
               </div>
 

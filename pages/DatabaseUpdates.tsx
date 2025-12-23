@@ -1,508 +1,169 @@
-
-import React, { useState, useEffect, useMemo } from 'react';
-import { Card, Button, Badge } from '../components/ui_components';
-import { Database, Copy, CheckCircle, AlertTriangle, ChevronDown, History } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 import { base44 } from '../services/base44Client';
+import { Card, Button, Badge } from '../components/ui_components';
+import { Database, CheckCircle, AlertCircle, Play, History, Search, Filter, Copy, Terminal } from 'lucide-react';
 
-// Define the structure for each SQL update script
-interface SqlUpdate {
+interface SchemaMigration {
   id: string;
-  title: string;
-  description: string;
-  sql: string;
-  category: 'profiles' | 'operations' | 'drones' | 'auth' | 'maintenances' | 'system';
+  applied_at: string;
 }
 
-// Array of all SQL updates needed for the application
-const ALL_UPDATES: SqlUpdate[] = [
+const ALL_UPDATES = [
   {
-    id: 'operations_align_created_at_with_start_time',
-    title: 'Alinhar Data de Criação com Data de Início da Missão',
-    description: 'Atualiza a data de criação (`created_at`) de todas as operações para ser igual à data de início (`start_time`), garantindo consistência nos relatórios e históricos, mesmo para missões cadastradas antecipadamente.',
-    category: 'operations',
-    sql: `
--- Alinha a data de criação ('created_at') com a data de início ('start_time')
--- para todas as operações existentes. Isso corrige inconsistências em relatórios
--- onde uma operação era cadastrada em um dia para iniciar em outro.
-UPDATE public.operations
-SET created_at = start_time
-WHERE DATE(created_at) != DATE(start_time);
-`
-  },
-  {
-    id: 'system_create_migrations_table',
-    title: 'Habilitar Controle de Versão do Banco',
-    description: 'Cria a tabela `schema_migrations` para rastrear quais atualizações SQL já foram aplicadas. Este é o script mais importante e deve ser o primeiro a ser executado para habilitar o novo sistema de controle.',
+    id: 'cautela_system_v1.1',
+    title: 'Módulo de Termos de Cautela (v1.1)',
+    description: 'Cria as tabelas termos_cautela e termo_cautela_itens com suporte a número de patrimônio.',
     category: 'system',
     sql: `
-CREATE TABLE IF NOT EXISTS public.schema_migrations (
-    id text PRIMARY KEY,
-    applied_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Permitir Acesso Total a Migrations" ON public.schema_migrations;
-
-CREATE POLICY "Permitir Acesso Total a Migrations"
-    ON public.schema_migrations
-    FOR ALL
-    TO authenticated
-    USING (true)
-    WITH CHECK (true);
-
-NOTIFY pgrst, 'reload schema';
-`
-  },
-  {
-    id: 'auth_admin_reset_password',
-    title: 'Habilitar Reset de Senha pelo Admin',
-    description: 'Cria a função RPC `admin_reset_user_password` que permite a um administrador resetar a senha de qualquer usuário e forçar a troca no próximo login.',
-    category: 'auth',
-    sql: `
-CREATE OR REPLACE FUNCTION admin_reset_user_password(user_id uuid, new_password text)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-  -- Atualiza a senha do usuário na tabela 'users' do schema 'auth'
-  UPDATE auth.users
-  SET
-    encrypted_password = crypt(new_password, gen_salt('bf'))
-  WHERE id = user_id;
-
-  -- Também marca que o usuário precisa mudar a senha no próximo login
-  UPDATE public.profiles
-  SET change_password_required = true
-  WHERE id = user_id;
-END;
-$$;
-
--- Garante que a função pode ser chamada pelo app
-GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authenticated;
-`
-  },
-  {
-    id: 'auth_auto_confirm_email',
-    title: 'Desativar Confirmação de E-mail',
-    description: 'Confirma todos os usuários pendentes e cria um gatilho para confirmar automaticamente novos cadastros. Útil quando o SMTP não está configurado.',
-    category: 'auth',
-    sql: `
--- 1. Confirma automaticamente todos os usuários pendentes atuais
-UPDATE auth.users SET email_confirmed_at = now() WHERE email_confirmed_at IS NULL;
-
--- 2. Cria função para confirmar automaticamente novos cadastros
-CREATE OR REPLACE FUNCTION public.auto_confirm_email()
-RETURNS trigger AS $$
-BEGIN
-  NEW.email_confirmed_at = now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 3. Aplica o gatilho
-DROP TRIGGER IF EXISTS on_auth_user_created_confirm ON auth.users;
-CREATE TRIGGER on_auth_user_created_confirm
-  BEFORE INSERT ON auth.users
-  FOR EACH ROW EXECUTE PROCEDURE public.auto_confirm_email();
-`
-  },
-  {
-    id: 'profiles_rls_update',
-    title: 'Permissões de Edição de Pilotos (RLS)',
-    description: 'Define as políticas de segurança (RLS) para a tabela de perfis, permitindo que usuários editem seus próprios dados e que administradores editem qualquer perfil.',
-    category: 'profiles',
-    sql: `
-DROP POLICY IF EXISTS "Edição de perfil" ON public.profiles;
-DROP POLICY IF EXISTS "Admins podem editar" ON public.profiles;
-DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
-DROP POLICY IF EXISTS "Admins can update any profile" ON public.profiles;
-
-CREATE POLICY "Users can update own profile"
-ON public.profiles FOR UPDATE TO authenticated
-USING (auth.uid() = id);
-
-CREATE POLICY "Admins can update any profile"
-ON public.profiles FOR UPDATE TO authenticated
-USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admin' );
-`
-  },
-  {
-    id: 'profiles_unlock_registration',
-    title: 'Corrigir e Habilitar Cadastro de Pilotos',
-    description: 'Implementa a criação automática de perfis via trigger de banco de dados, a forma segura e correta no Supabase. Isso resolve o erro de "RLS violation" que impedia novos cadastros.',
-    category: 'profiles',
-    sql: `
--- 1. Garante que todas as colunas necessárias existam na tabela de perfis.
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone text;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS sarpas_code text;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS crbm text;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS unit text;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS license text;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS terms_accepted boolean DEFAULT false;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS terms_accepted_at timestamp with time zone;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS change_password_required boolean DEFAULT false;
-
--- 2. Cria a função que será acionada para criar um perfil automaticamente.
---    Ela usa SECURITY DEFINER para ter as permissões necessárias para inserir na tabela 'profiles'.
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER SET search_path = public
-AS $$
-BEGIN
-  INSERT INTO public.profiles (id, email, full_name, phone, sarpas_code, crbm, unit, license, role, status, terms_accepted, terms_accepted_at, change_password_required)
-  VALUES (
-    new.id,
-    new.email,
-    new.raw_user_meta_data->>'full_name',
-    new.raw_user_meta_data->>'phone',
-    new.raw_user_meta_data->>'sarpas_code',
-    new.raw_user_meta_data->>'crbm',
-    new.raw_user_meta_data->>'unit',
-    new.raw_user_meta_data->>'license',
-    COALESCE(new.raw_user_meta_data->>'role', 'operator'), -- Garante um valor padrão
-    'active',
-    COALESCE((new.raw_user_meta_data->>'terms_accepted')::boolean, false),
-    now(),
-    COALESCE((new.raw_user_meta_data->>'change_password_required')::boolean, false)
-  );
-  RETURN new;
-END;
-$$;
-
--- 3. Remove o gatilho antigo para evitar duplicidade ou conflitos.
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-
--- 4. Cria o novo gatilho que aciona a função 'handle_new_user' após um novo usuário ser inserido na tabela 'auth.users'.
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
-
--- 5. Remove a política de INSERT que causava o erro, já que o trigger agora é responsável pela criação do perfil.
-DROP POLICY IF EXISTS "Users can insert their own profile." ON public.profiles;
-
--- 6. Garante que o RLS está ativo e as outras políticas essenciais (SELECT, UPDATE, DELETE) estão corretas.
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Public profiles are viewable by everyone." ON public.profiles;
-CREATE POLICY "Public profiles are viewable by everyone." ON public.profiles FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Users can update own profile." ON public.profiles;
-CREATE POLICY "Users can update own profile." ON public.profiles FOR UPDATE USING (auth.uid() = id);
-
-DROP POLICY IF EXISTS "Admins can update any profile." ON public.profiles;
-CREATE POLICY "Admins can update any profile." ON public.profiles FOR UPDATE USING ( (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' );
-
-DROP POLICY IF EXISTS "Admins can delete any profile." ON public.profiles;
-CREATE POLICY "Admins can delete any profile." ON public.profiles FOR DELETE USING ( (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin' );
-
--- 7. Recarrega o schema para que as mudanças tenham efeito imediato.
-NOTIFY pgrst, 'reload schema';
-`
-  },
-  {
-    id: 'summer_op_link',
-    title: 'Vincular Op. Verão à Operação Principal',
-    description: 'Adiciona a coluna `operation_id` e uma chave estrangeira na tabela `op_summer_flights` para vincular à `operations`. O script agora remove a constraint se ela já existir, tornando a atualização re-executável.',
-    category: 'operations',
-    sql: `
--- VINCULA OCORRÊNCIAS DE VERÃO À OPERAÇÃO PRINCIPAL
-ALTER TABLE public.op_summer_flights ADD COLUMN IF NOT EXISTS operation_id uuid;
-
--- Garante que o script possa ser re-executado removendo a constraint se ela já existir
-ALTER TABLE public.op_summer_flights
-DROP CONSTRAINT IF EXISTS op_summer_flights_operation_id_fkey;
-
-ALTER TABLE public.op_summer_flights
-ADD CONSTRAINT op_summer_flights_operation_id_fkey
-FOREIGN KEY (operation_id)
-REFERENCES public.operations(id)
-ON DELETE SET NULL; -- Mantém o log de verão mesmo se a operação principal for deletada
-
-NOTIFY pgrst, 'reload schema';
-`
-  },
-  {
-    id: 'operations_add_takeoff_points',
-    title: 'Habilitar Múltiplos Pontos de Decolagem',
-    description: 'Adiciona a coluna `takeoff_points` (do tipo JSONB) à tabela de operações. Isso permite salvar múltiplos pontos geolocalizados, cada um com sua própria altitude, para uma única missão.',
-    category: 'operations',
-    sql: `
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS takeoff_points jsonb;
-
-NOTIFY pgrst, 'reload schema';
-`
-  },
-  {
-    id: 'operations_add_fields_1',
-    title: 'Adicionar Campos de Operação (v1)',
-    description: 'Adiciona as colunas `op_crbm` e `op_unit` à tabela de operações para permitir o registro da área da ocorrência, independente da lotação do piloto.',
-    category: 'operations',
-    sql: `
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS op_crbm text;
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS op_unit text;
-
-NOTIFY pgrst, 'reload schema';
-`
-  },
-  {
-    id: 'operations_add_fields_2',
-    title: 'Adicionar Campos de Operação (v2)',
-    description: 'Adiciona as colunas `is_multi_day`, `is_summer_op`, e `sarpas_protocol` para habilitar as funcionalidades de Operação Verão e Multidias.',
-    category: 'operations',
-    sql: `
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS is_multi_day boolean DEFAULT false;
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS is_summer_op boolean DEFAULT false;
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS sarpas_protocol text;
-
-NOTIFY pgrst, 'reload schema';
-`
-  },
-  {
-    id: 'operations_add_pause_fields',
-    title: 'Habilitar Pausa em Operações',
-    description: 'Adiciona as colunas necessárias para a funcionalidade de pausar e retomar operações, incluindo `is_paused`, `last_pause_start`, `total_pause_duration`, e `pause_logs`.',
-    category: 'operations',
-    sql: `
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS is_paused boolean DEFAULT false;
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS last_pause_start timestamp with time zone;
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS total_pause_duration float DEFAULT 0;
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS pause_logs jsonb DEFAULT '[]';
-
-NOTIFY pgrst, 'reload schema';
-`
-  },
-  {
-    id: 'operations_fix_float_types',
-    title: 'Corrigir Tipos de Colunas Numéricas',
-    description: 'Altera as colunas `total_pause_duration` e `flight_hours` de inteiro para float, permitindo o registro de valores decimais (ex: 1.5 horas).',
-    category: 'operations',
-    sql: `
-ALTER TABLE public.operations ALTER COLUMN total_pause_duration TYPE float USING total_pause_duration::float;
-ALTER TABLE public.operations ALTER COLUMN flight_hours TYPE float USING flight_hours::float;
-`
-  },
-  {
-    id: 'drones_add_location_fields',
-    title: 'Adicionar Localização a Aeronaves',
-    description: 'Adiciona as colunas `crbm` e `unit` à tabela de drones para registrar a lotação fixa de cada aeronave.',
-    category: 'drones',
-    sql: `
-ALTER TABLE public.drones ADD COLUMN IF NOT EXISTS crbm text;
-ALTER TABLE public.drones ADD COLUMN IF NOT EXISTS unit text;
-`
-  },
-  {
-    id: 'drones_rls_update_status',
-    title: 'Permitir Atualização de Status de Drone',
-    description: 'Cria uma política de segurança (RLS) que permite a qualquer usuário autenticado atualizar o status de uma aeronave (ex: para "Em Operação" ou "Disponível").',
-    category: 'drones',
-    sql: `
-DROP POLICY IF EXISTS "Enable update for users based on email" ON "public"."drones";
-CREATE POLICY "Enable update for users"
-ON "public"."drones"
-FOR UPDATE
-TO authenticated
-USING (true)
-WITH CHECK (true);
-`
-  },
-  {
-    id: 'maintenances_create_table',
-    title: 'Criar Tabela de Manutenções',
-    description: 'Cria a tabela `maintenances` completa com todas as colunas e permissões RLS necessárias para o funcionamento do módulo de manutenção.',
-    category: 'maintenances',
-    sql: `
-CREATE TABLE IF NOT EXISTS public.maintenances (
+-- CRIAÇÃO DA TABELA DE TERMOS DE CAUTELA
+CREATE TABLE IF NOT EXISTS public.termos_cautela (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    created_at timestamp with time zone DEFAULT now(),
     drone_id uuid REFERENCES public.drones(id) ON DELETE CASCADE,
-    pilot_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-    maintenance_type text NOT NULL,
-    description text,
-    technician text,
-    maintenance_date date,
-    maintenance_time time,
-    next_maintenance_date date,
-    cost float DEFAULT 0,
-    status text DEFAULT 'scheduled',
-    in_flight_incident boolean DEFAULT false,
-    log_file_url text
+    pilot_id uuid REFERENCES public.profiles(id) ON DELETE CASCADE,
+    unidade_nome text NOT NULL,
+    patrimonio text,
+    data_inicio date NOT NULL,
+    tempo_dias integer,
+    tempo_indeterminado boolean DEFAULT true,
+    assinatura_eletronica text,
+    data_hora_assinatura timestamp with time zone,
+    status text DEFAULT 'GERADA' CHECK (status IN ('GERADA', 'ASSINADA', 'ENCERRADA')),
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
 );
 
--- PERMISSÕES
-ALTER TABLE public.maintenances ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Permitir Acesso Total" ON public.maintenances;
-CREATE POLICY "Permitir Acesso Total" ON public.maintenances FOR ALL TO authenticated USING (true) WITH CHECK (true);
+-- ADICIONAR COLUNA CASO JÁ EXISTA A TABELA
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='termos_cautela' AND column_name='patrimonio') THEN
+        ALTER TABLE public.termos_cautela ADD COLUMN patrimonio text;
+    END IF;
+END $$;
+
+-- CRIAÇÃO DA TABELA DE ITENS VINCULADOS AO TERMO
+CREATE TABLE IF NOT EXISTS public.termo_cautela_itens (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    termo_cautela_id uuid REFERENCES public.termos_cautela(id) ON DELETE CASCADE,
+    item_almoxarifado_id uuid REFERENCES public.materials(id) ON DELETE CASCADE,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+-- HABILITAR RLS E CONFIGURAR PERMISSÕES
+ALTER TABLE public.termos_cautela ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.termo_cautela_itens ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Permitir leitura total de cautelas" ON public.termos_cautela;
+CREATE POLICY "Permitir leitura total de cautelas" ON public.termos_cautela FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "Admins podem tudo em cautelas" ON public.termos_cautela;
+CREATE POLICY "Admins podem tudo em cautelas" ON public.termos_cautela FOR ALL TO authenticated 
+USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
+
+DROP POLICY IF EXISTS "Pilotos podem assinar suas cautelas" ON public.termos_cautela;
+CREATE POLICY "Pilotos podem assinar suas cautelas" ON public.termos_cautela FOR UPDATE TO authenticated 
+USING (pilot_id = auth.uid());
+
+DROP POLICY IF EXISTS "Leitura total de itens da cautela" ON public.termo_cautela_itens;
+CREATE POLICY "Leitura total de itens da cautela" ON public.termo_cautela_itens FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "Admins gerenciam itens da cautela" ON public.termo_cautela_itens;
+CREATE POLICY "Admins gerenciam itens da cautela" ON public.termo_cautela_itens FOR ALL TO authenticated 
+USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
 
 NOTIFY pgrst, 'reload schema';
 `
   }
 ];
 
-interface UpdateCardProps {
-  update: SqlUpdate;
-  applied: boolean;
-  onMark: (id: string) => void;
-  onCopy: (sql: string) => void;
-}
-
-const UpdateCard: React.FC<UpdateCardProps> = ({ update, applied, onMark, onCopy }) => {
-  return (
-    <Card className="p-0 overflow-hidden">
-      <div className={`p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3 ${applied ? 'bg-green-50' : 'bg-slate-50'}`}>
-        <div>
-          <Badge className="mb-2 text-xs">{update.category.toUpperCase()}</Badge>
-          <h3 className="font-bold text-slate-800">{update.title}</h3>
-          <p className="text-xs text-slate-500 mt-1 max-w-2xl">{update.description}</p>
-        </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          {applied ? (
-            <Badge variant="success" className="flex-1 justify-center sm:flex-initial">
-              <CheckCircle className="w-3 h-3 mr-1" />
-              Aplicado
-            </Badge>
-          ) : (
-            <Button onClick={() => onMark(update.id)} variant="outline" size="sm" className="bg-white flex-1 sm:flex-initial">
-              Marcar como Aplicado
-            </Button>
-          )}
-        </div>
-      </div>
-      <div className="relative bg-slate-900 text-green-400 p-4 font-mono text-xs overflow-x-auto">
-        <pre>{update.sql.trim()}</pre>
-        <button 
-          onClick={() => onCopy(update.sql.trim())}
-          className="absolute top-2 right-2 p-2 bg-white/10 text-white rounded-md hover:bg-white/20 transition-colors"
-          title="Copiar SQL"
-        >
-          <Copy className="w-4 h-4" />
-        </button>
-      </div>
-    </Card>
-  );
-}
-
 export default function DatabaseUpdates() {
-  const [applied, setApplied] = useState<Set<string>>(new Set());
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [migrations, setMigrations] = useState<SchemaMigration[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadAppliedStatus = async () => {
-      try {
-        const appliedMigrations = await base44.entities.SchemaMigration.list();
-        const appliedIds = new Set(appliedMigrations.map(m => m.id));
-        setApplied(appliedIds);
-      } catch (e) {
-        console.error("Falha ao carregar status de atualizações do banco. Verifique se a tabela 'schema_migrations' existe.", e);
-      }
-    };
-    loadAppliedStatus();
+    loadMigrations();
   }, []);
 
-  const reversedUpdates = useMemo(() => [...ALL_UPDATES].reverse(), []);
-
-  const pendingUpdates = useMemo(() => 
-    reversedUpdates.filter(update => !applied.has(update.id)),
-    [reversedUpdates, applied]
-  );
-
-  const completedUpdates = useMemo(() =>
-    reversedUpdates.filter(update => applied.has(update.id)),
-    [reversedUpdates, applied]
-  );
-
-  const copyToClipboard = (sql: string) => {
-    navigator.clipboard.writeText(sql)
-      .then(() => alert('Código SQL copiado para a área de transferência!'))
-      .catch(() => alert('Falha ao copiar.'));
-  };
-
-  const markAsApplied = async (id: string) => {
+  const loadMigrations = async () => {
     try {
-      await base44.entities.SchemaMigration.create({ id } as any);
-      const newApplied = new Set(applied);
-      newApplied.add(id);
-      setApplied(newApplied);
-    } catch (error) {
-      alert(`Erro ao marcar script como aplicado: ${error}`);
+      const data = await base44.entities.SchemaMigration.list();
+      setMigrations(data as any);
+    } catch (e) {
+      console.warn("Could not fetch migrations table, it might not exist yet.");
+    } finally {
+      setLoading(false);
     }
   };
 
+  const isApplied = (id: string) => migrations.some(m => m.id === id);
+
+  const handleCopySql = (sql: string) => {
+    navigator.clipboard.writeText(sql);
+    alert("Código SQL copiado para a área de transferência!");
+  };
+
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6 h-full overflow-y-auto pb-12">
+    <div className="p-6 max-w-5xl mx-auto space-y-6 h-full overflow-y-auto pb-20">
       <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
-        <div className="p-3 bg-slate-800 rounded-lg text-white shadow-lg">
-          <Database className="w-6 h-6" />
+        <div className="p-3 bg-slate-800 rounded-xl text-white shadow-lg">
+          <Database className="w-8 h-8" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Atualizações de Banco de Dados</h1>
-          <p className="text-sm text-slate-500">Scripts SQL para atualização manual do esquema do Supabase.</p>
+          <h1 className="text-2xl font-bold text-slate-900">Atualizações de Estrutura</h1>
+          <p className="text-sm text-slate-500">Mantenha o banco de dados sincronizado com as novas funcionalidades.</p>
         </div>
       </div>
 
-      <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl text-sm text-amber-900 flex items-start gap-3">
-         <AlertTriangle className="w-8 h-8 text-amber-500 shrink-0" />
-         <div>
-            <strong className="block">Atenção:</strong> 
-            Execute estes scripts no "SQL Editor" do seu projeto Supabase. Marque como "Aplicado" após a execução para manter o controle.
-         </div>
-      </div>
-
-      <div className="space-y-4">
-        <h2 className="text-lg font-bold text-slate-800 border-b pb-2">
-          Atualizações Pendentes ({pendingUpdates.length})
-        </h2>
-        
-        {pendingUpdates.length === 0 ? (
-          <div className="bg-green-50 border border-green-200 p-6 rounded-xl text-center">
-            <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
-            <h3 className="font-bold text-green-800">Seu sistema está atualizado!</h3>
-            <p className="text-sm text-green-700">Nenhum script pendente de execução.</p>
-          </div>
-        ) : (
-          pendingUpdates.map(update => (
-            <UpdateCard 
-              key={update.id}
-              update={update} 
-              applied={false}
-              onMark={markAsApplied}
-              onCopy={copyToClipboard}
-            />
-          ))
-        )}
-      </div>
-
-      <div className="pt-6 border-t border-slate-200">
-         <button 
-            onClick={() => setShowCompleted(!showCompleted)}
-            className="w-full flex justify-between items-center p-3 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-         >
-            <div className="flex items-center gap-2 font-bold text-slate-600">
-               <History className="w-5 h-5" />
-               Histórico de Atualizações Aplicadas ({completedUpdates.length})
-            </div>
-            <ChevronDown className={`w-5 h-5 text-slate-500 transition-transform ${showCompleted ? 'rotate-180' : ''}`} />
-         </button>
-         
-         {showCompleted && (
-            <div className="mt-4 space-y-4 animate-fade-in">
-               {completedUpdates.length === 0 ? (
-                  <p className="text-sm text-slate-500 italic text-center py-4">Nenhuma atualização foi aplicada ainda.</p>
-               ) : (
-                 completedUpdates.map(update => (
-                    <UpdateCard 
-                      key={update.id}
-                      update={update} 
-                      applied={true}
-                      onMark={markAsApplied}
-                      onCopy={copyToClipboard}
-                    />
-                 ))
-               )}
-            </div>
-         )}
+      <div className="grid gap-6">
+        {ALL_UPDATES.map(update => {
+          const applied = isApplied(update.id);
+          return (
+            <Card key={update.id} className={`p-6 border-l-4 transition-all ${applied ? 'border-l-green-500' : 'border-l-amber-500 shadow-md ring-1 ring-amber-100'}`}>
+              <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge variant={applied ? 'success' : 'warning'} className="uppercase font-bold tracking-wider">
+                      {applied ? 'Aplicado' : 'Pendente'}
+                    </Badge>
+                    <span className="text-[10px] font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded">ID: {update.id}</span>
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-800">{update.title}</h3>
+                  <p className="text-sm text-slate-600 mt-1 leading-relaxed">{update.description}</p>
+                </div>
+                
+                <div className="flex gap-2 w-full md:w-auto">
+                   <Button onClick={() => handleCopySql(update.sql)} variant="outline" className="flex-1 md:flex-none h-10">
+                      <Copy className="w-4 h-4 mr-2" /> Copiar SQL
+                   </Button>
+                </div>
+              </div>
+              
+              {!applied && (
+                <div className="mt-6">
+                  <div className="flex items-center gap-2 mb-2 text-xs font-bold text-slate-500 uppercase">
+                    <Terminal className="w-3 h-3" /> Script de Instalação
+                  </div>
+                  <div className="relative group">
+                    <pre className="bg-slate-900 text-green-400 p-5 rounded-xl text-xs overflow-x-auto font-mono border border-slate-800 max-h-80 shadow-inner">
+                      {update.sql}
+                    </pre>
+                    <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                       <Button size="sm" onClick={() => handleCopySql(update.sql)} className="bg-white/10 text-white hover:bg-white/20 border-white/10">
+                         <Copy className="w-3.5 h-3.5 mr-1.5" /> Copiar
+                       </Button>
+                    </div>
+                  </div>
+                  <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                     <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                     <p className="text-xs text-amber-800 leading-relaxed">
+                        <strong>Instrução:</strong> Copie o código acima e execute no <strong>SQL Editor</strong> do painel administrativo do Supabase. 
+                        Após executar, atualize a página do SYSARP para ativar as novas funções.
+                     </p>
+                  </div>
+                </div>
+              )}
+            </Card>
+          );
+        })}
       </div>
     </div>
   );
