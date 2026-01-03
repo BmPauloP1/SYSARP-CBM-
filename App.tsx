@@ -1,3 +1,4 @@
+
 import React, { lazy, Suspense } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
@@ -13,10 +14,7 @@ const DroneManagement = lazy(() => import('./pages/DroneManagement'));
 const MaintenanceManagement = lazy(() => import('./pages/MaintenanceManagement'));
 const Reports = lazy(() => import('./pages/Reports'));
 const Transmissions = lazy(() => import('./pages/Transmissions'));
-const OperationSummerStats = lazy(() => import('./pages/OperationSummerStats'));
-const OperationSummerFlights = lazy(() => import('./pages/OperationSummerFlights'));
-const OperationSummerAudit = lazy(() => import('./pages/OperationSummerAudit'));
-const OperationSummerReport = lazy(() => import('./pages/OperationSummerReport'));
+const SummerOperationCenter = lazy(() => import('./pages/SummerOperationCenter'));
 const FlightPlan = lazy(() => import('./pages/FlightPlan'));
 const Aro = lazy(() => import('./pages/Aro'));
 const SystemAudit = lazy(() => import('./pages/SystemAudit'));
@@ -25,7 +23,6 @@ const CautelaManagement = lazy(() => import('./pages/CautelaManagement'));
 
 /*
   The main App component handles application-wide routing and lazy loading boundaries.
-  Fixes: Cannot find name 'lazy', 'Route', 'Layout'.
 */
 export default function App() {
   return (
@@ -43,10 +40,10 @@ export default function App() {
           <Route path="/maintenance" element={<Layout><MaintenanceManagement /></Layout>} />
           <Route path="/reports" element={<Layout><Reports /></Layout>} />
           <Route path="/transmissions" element={<Layout><Transmissions /></Layout>} />
-          <Route path="/summer/stats" element={<Layout><OperationSummerStats /></Layout>} />
-          <Route path="/summer/flights" element={<Layout><OperationSummerFlights /></Layout>} />
-          <Route path="/summer/audit" element={<Layout><OperationSummerAudit /></Layout>} />
-          <Route path="/summer/report" element={<Layout><OperationSummerReport /></Layout>} />
+          
+          {/* Unified Summer Op Route */}
+          <Route path="/summer" element={<Layout><SummerOperationCenter /></Layout>} />
+          
           <Route path="/flight-plan" element={<Layout><FlightPlan /></Layout>} />
           <Route path="/aro" element={<Layout><Aro /></Layout>} />
           <Route path="/audit" element={<Layout><SystemAudit /></Layout>} />

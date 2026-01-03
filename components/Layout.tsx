@@ -45,14 +45,13 @@ export default function Layout({ children }: LayoutProps) {
     base44.auth.me().then(me => {
         setUser(me);
         if (me.role === 'admin') {
-            // Busca apenas se for admin para o contador
             base44.entities.Pilot.list().then(pils => {
                 const count = pils.filter(p => p.status === 'pending').length;
                 setPendingPilots(count);
             });
         }
     }).catch(() => navigate('/login'));
-  }, [navigate, location.pathname]); // Atualiza contador quando muda de página
+  }, [navigate, location.pathname]);
 
   const handleLogout = async () => {
     await base44.auth.logout();
@@ -77,14 +76,9 @@ export default function Layout({ children }: LayoutProps) {
     },
     { 
       title: "Op. Verão 2025/2026", 
+      url: "/summer",
       icon: Sun, 
-      adminOnly: false,
-      subItems: [
-        { title: "Diário de Voos", url: "/summer/flights", adminOnly: false },
-        { title: "Estatísticas", url: "/summer/stats", adminOnly: false },
-        { title: "Relatórios", url: "/summer/report", adminOnly: false },
-        { title: "Auditoria", url: "/summer/audit", adminOnly: true },
-      ]
+      adminOnly: false
     },
     { 
       title: "Operações", 
