@@ -11,7 +11,7 @@ import {
   Radio, Sun, Calendar, MapPin, Building2, 
   Navigation, Layers, MousePointer2, Users, 
   Pause, XCircle, Trash2, ChevronRight,
-  FileText, Send, Info, Video
+  FileText, Send, Info, Video, Plane
 } from "lucide-react";
 import OperationDailyLog from "../components/OperationDailyLog";
 
@@ -19,7 +19,6 @@ import "@geoman-io/leaflet-geoman-free";
 
 // --- HELPERS ---
 const cleanUnitString = (unit: string, crbm: string) => {
-    // Prioridade para Unidade específica, senão CRBM, senão SOARP padrão
     const target = (unit && unit !== "") ? unit : (crbm && crbm !== "" ? crbm : "SOARP");
     const base = target.split(' - ')[0];
     return base.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
@@ -30,14 +29,12 @@ const generateNextProtocol = (operations: Operation[], unit: string, crbm: strin
     const prefix = "ARP";
     const cleanedUnit = cleanUnitString(unit, crbm);
     
-    // Filtrar operações da mesma unidade/área para encontrar o último sequencial
     const unitOps = operations.filter(o => 
         o.occurrence_number && o.occurrence_number.includes(`${year}${prefix}${cleanedUnit}`)
     );
 
     let sequence = 1;
     if (unitOps.length > 0) {
-        // Ordenar para pegar o maior número
         const sorted = unitOps.sort((a, b) => b.occurrence_number.localeCompare(a.occurrence_number));
         const lastProtocol = sorted[0].occurrence_number;
         const match = lastProtocol.match(/(\d{5})$/);
@@ -152,28 +149,36 @@ export default function OperationManagement() {
   const performSave = async () => {
     setLoading(true);
     try {
-      let finalPayload = { ...formData };
-      
+      let finalPayload: any = { ...formData };
       if (formData.is_summer_op && formData.summer_city && formData.summer_pgv) {
           finalPayload.name = `VERÃO: ${formData.summer_city} - ${formData.summer_pgv}`;
       }
-
       if (!isEditing) {
           const unitToUse = formData.op_unit || pilots.find(p => p.id === formData.pilot_id)?.unit || "";
           const crbmToUse = formData.op_crbm || pilots.find(p => p.id === formData.pilot_id)?.crbm || "";
-          
-          // GERAÇÃO DO PROTOCOLO SEGUINDO PADRÃO DE PRODUÇÃO
           finalPayload.occurrence_number = generateNextProtocol(operations, unitToUse, crbmToUse);
-          finalPayload.start_time = new Date(`${formData.date}T${formData.start_time_local}`).toISOString();
+          const combinedDateTime = `${formData.date}T${formData.start_time_local}:00`;
+          finalPayload.start_time = new Date(combinedDateTime).toISOString();
       }
-
+      const uiOnlyFields = ['date', 'start_time_local', 'end_time_local', 'summer_city', 'summer_pgv'];
+      uiOnlyFields.forEach(field => delete finalPayload[field]);
+      finalPayload.latitude = Number(finalPayload.latitude);
+      finalPayload.longitude = Number(finalPayload.longitude);
+      finalPayload.radius = Number(finalPayload.radius);
+      finalPayload.flight_altitude = Number(finalPayload.flight_altitude);
+      const uuidFields = ['pilot_id', 'second_pilot_id', 'drone_id'];
+      uuidFields.forEach(field => { if (finalPayload[field] === "") finalPayload[field] = null; });
       if (isEditing) await base44.entities.Operation.update(isEditing, finalPayload);
       else {
-          await base44.entities.Operation.create(finalPayload as any);
+          await base44.entities.Operation.create(finalPayload);
           if (finalPayload.drone_id) await base44.entities.Drone.update(finalPayload.drone_id, { status: 'in_operation' });
       }
       setIsCreating(false); setIsEditing(null); loadData();
-    } catch (e) { alert("Erro ao salvar missão."); } finally { setLoading(false); }
+      alert("Missão salva com sucesso!");
+    } catch (e: any) {
+      console.error("[SYSARP] Falha ao salvar operação:", e);
+      alert(`Erro ao salvar missão: ${e.message || 'Verifique os campos obrigatórios.'}`);
+    } finally { setLoading(false); }
   };
 
   const handleFinishOperation = async (e: React.FormEvent) => {
@@ -209,6 +214,58 @@ export default function OperationManagement() {
 
   const displayedOps = activeTab === 'active' ? operations.filter(o => o.status === 'active') : operations.filter(o => o.status !== 'active');
 
+  const renderDetailedPopup = (op: Operation, pointLabel?: string) => {
+    const pilot = pilots.find(p => p.id === op.pilot_id);
+    const drone = drones.find(d => d.id === op.drone_id);
+    
+    return (
+      <Popup>
+        <div className="min-w-[280px] p-1 font-sans">
+          <h3 className="font-bold text-slate-900 text-base uppercase leading-tight border-b pb-2 mb-2">
+            {pointLabel ? `${op.name} (${pointLabel})` : op.name}
+          </h3>
+          <p className="text-[10px] text-slate-400 font-mono mb-2">#{op.occurrence_number}</p>
+          
+          <div className="mb-4">
+             <span className="bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100">
+                {MISSION_HIERARCHY[op.mission_type]?.label}
+             </span>
+          </div>
+
+          <div className="bg-slate-50 p-4 rounded-xl space-y-2.5 border border-slate-100 shadow-inner">
+             <div className="flex items-center gap-3 text-sm text-slate-600">
+                <User className="w-4 h-4 text-slate-400" />
+                <div>
+                   <span className="font-bold text-slate-800">Piloto:</span> {pilot?.full_name || 'N/A'}
+                </div>
+             </div>
+             <div className="flex items-center gap-3 text-sm text-slate-600">
+                <Plane className="w-4 h-4 text-slate-400" />
+                <div>
+                   <span className="font-bold text-slate-800">RPA:</span> {drone ? `${drone.prefix} - ${drone.model}` : 'N/A'}
+                </div>
+             </div>
+             <div className="flex items-start gap-3 text-sm text-slate-600">
+                <Building2 className="w-4 h-4 text-slate-400 mt-0.5" />
+                <div className="flex flex-col">
+                   <div className="flex items-center gap-1">
+                      <span className="font-bold text-slate-800">Área/Unidade:</span>
+                      <span className="text-slate-700 text-xs">{drone?.unit || op.op_unit || 'N/A'}</span>
+                   </div>
+                   <span className="text-[10px] text-slate-400 mt-0.5">{drone?.crbm || op.op_crbm}</span>
+                </div>
+             </div>
+          </div>
+          
+          <div className="mt-3 flex items-center justify-between text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
+             <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> {new Date(op.start_time).toLocaleTimeString()}</span>
+             <span className="flex items-center gap-1"><Navigation className="w-3 h-3"/> Raio: {op.radius}m</span>
+          </div>
+        </div>
+      </Popup>
+    );
+  };
+
   return (
     <div className="flex flex-col lg:flex-row h-full w-full relative bg-slate-100 overflow-hidden font-sans">
       
@@ -225,23 +282,19 @@ export default function OperationManagement() {
              <React.Fragment key={`map-op-${op.id}`}>
                {/* Marcador Principal */}
                <Marker position={[op.latitude, op.longitude]} icon={getIcon(opColor)}>
-                  <Popup>
-                    <div className="text-xs font-bold uppercase">{op.name}</div>
-                    <div className="text-[9px] text-slate-500 font-mono">#{op.occurrence_number}</div>
-                  </Popup>
+                  {renderDetailedPopup(op)}
                </Marker>
-               <Circle center={[op.latitude, op.longitude]} radius={op.radius || 500} pathOptions={{ color: opColor, fillOpacity: 0.1 }} />
+               {/* Raio Operacional Ponto Principal */}
+               <Circle center={[op.latitude, op.longitude]} radius={op.radius || 500} pathOptions={{ color: opColor, fillOpacity: 0.1, weight: 2 }} />
                
                {/* Renderização de Multi-pontos da mesma ocorrência */}
                {(op.takeoff_points || []).map((pt: any, i: number) => (
                  <React.Fragment key={`${op.id}-pt-${i}`}>
                     <Marker position={[pt.lat, pt.lng]} icon={getIcon(opColor)} opacity={0.8}>
-                        <Popup>
-                            <div className="text-xs font-bold uppercase">{op.name} (PT #{i+1})</div>
-                            <div className="text-[9px] text-slate-500">Alt: {pt.alt}m</div>
-                        </Popup>
+                        {renderDetailedPopup(op, `PT #${i+1}`)}
                     </Marker>
-                    <Circle center={[pt.lat, pt.lng]} radius={op.radius || 500} pathOptions={{ color: opColor, fillOpacity: 0.05, dashArray: '5, 10' }} />
+                    {/* Raio Operacional Multi-pontos */}
+                    <Circle center={[pt.lat, pt.lng]} radius={op.radius || 500} pathOptions={{ color: opColor, fillOpacity: 0.05, dashArray: '5, 10', weight: 1 }} />
                  </React.Fragment>
                ))}
              </React.Fragment>
@@ -250,7 +303,7 @@ export default function OperationManagement() {
           {isCreating && (
               <>
                 <Marker position={[formData.latitude, formData.longitude]} icon={getIcon('#dc2626')} />
-                <Circle center={[formData.latitude, formData.longitude]} radius={formData.radius} pathOptions={{ color: '#dc2626', dashArray: '5, 10' }} />
+                <Circle center={[formData.latitude, formData.longitude]} radius={formData.radius} pathOptions={{ color: '#dc2626', dashArray: '5, 10', weight: 2 }} />
                 {formData.takeoff_points.map((pt, i) => (
                     <Marker key={`new-pt-${i}`} position={[pt.lat, pt.lng]} icon={getIcon('#dc2626')} opacity={0.6} />
                 ))}
@@ -326,7 +379,7 @@ export default function OperationManagement() {
                             </Select>
                         </section>
 
-                        {/* 4. GEOLOCALIZAÇÃO (FOTO 1) */}
+                        {/* 4. GEOLOCALIZAÇÃO */}
                         <section className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
                             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Geolocalização</h3>
                             <div className="grid grid-cols-2 gap-4">
@@ -359,7 +412,7 @@ export default function OperationManagement() {
                             </div>
                         </section>
 
-                        {/* 5. DATA E HORÁRIO (FOTO 2) */}
+                        {/* 5. DATA E HORÁRIO */}
                         <section className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
                             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">DATA E HORÁRIO</h3>
                             <Input label="Data da Ocorrência" type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
