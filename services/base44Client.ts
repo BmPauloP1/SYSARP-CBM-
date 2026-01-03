@@ -441,14 +441,22 @@ const authHandler = {
       // Short timeout for auth check to prevent hanging on load
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000));
       
-      const { data: { user } } = await Promise.race([
+      const { data: authData, error: authError } = await Promise.race([
           supabase.auth.getUser(), 
           timeoutPromise
       ]) as any;
 
-      if (!user) {
-        throw new Error("Não autenticado");
+      if (authError || !authData?.user) {
+        // CORREÇÃO CRÍTICA: Se houver erro de token inválido, limpa a sessão local para evitar loop de erro
+        if (authError?.message?.includes("Refresh Token") || authError?.message?.includes("Invalid session")) {
+            console.warn("[Auth] Sessão inválida ou expirada detectada. Limpando estado local.");
+            localStorage.removeItem('sysarp_user_session');
+            localStorage.removeItem('sb-hcnlrzzwwcbhkxfcolgw-auth-token'); // Limpa token do Supabase
+        }
+        throw new Error(authError?.message || "Não autenticado");
       }
+
+      const user = authData.user;
 
       const { data: profile, error } = await supabase
         .from('profiles')
@@ -466,7 +474,7 @@ const authHandler = {
                   email: user.email,
                   full_name: user.user_metadata.full_name || 'Usuário Recuperado',
                   role: 'operator',
-                  status: 'active',
+                  status: 'pending',
                   terms_accepted: true
               }])
               .select()
@@ -506,6 +514,7 @@ const authHandler = {
       const pilots = seedPilotsIfEmpty();
       const pilot = pilots.find(p => p.email === email);
       if (pilot && pilot.password === password) {
+         if (pilot.status === 'pending') throw new Error("Cadastro aguardando validação do administrador.");
          localStorage.setItem('sysarp_user_session', JSON.stringify(pilot));
          return pilot;
       }
@@ -531,10 +540,20 @@ const authHandler = {
              email: data.user.email!, 
              full_name: 'Perfil Pendente', 
              role: 'operator', 
-             status: 'active' 
+             status: 'pending' 
          } as Pilot;
          localStorage.setItem('sysarp_user_session', JSON.stringify(tempProfile));
          return tempProfile;
+      }
+
+      if (profile.status === 'pending') {
+          await supabase.auth.signOut();
+          throw new Error("Seu cadastro está aguardando validação administrativa. Por favor, aguarde.");
+      }
+
+      if (profile.status === 'inactive') {
+          await supabase.auth.signOut();
+          throw new Error("Esta conta está desativada. Entre em contato com o suporte.");
       }
 
       localStorage.setItem('sysarp_user_session', JSON.stringify(profile));
@@ -563,7 +582,7 @@ const authHandler = {
      if (!isConfigured) {
        const pilots = getLocal<Pilot>('sysarp_pilots');
        const newPilot: Pilot = {
-         ...pilotData, id: crypto.randomUUID(), role: 'operator', status: 'active',
+         ...pilotData, id: crypto.randomUUID(), role: 'operator', status: 'pending',
          full_name: pilotData.full_name!, email: pilotData.email!, 
          password: pilotData.password, change_password_required: false,
          terms_accepted_at: new Date().toISOString()
@@ -583,6 +602,7 @@ const authHandler = {
          unit: pilotData.unit || '',
          license: pilotData.license || '',
          role: pilotData.role || 'operator',
+         status: 'pending', // Garante status pendente no metadata
          terms_accepted: pilotData.terms_accepted || false,
          change_password_required: pilotData.change_password_required === true
        };

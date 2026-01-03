@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+
+import React, { useState, useEffect, useRef, useMemo, memo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
@@ -8,125 +9,68 @@ import { operationSummerService } from "../services/operationSummerService";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, AroAssessment, MissionType, ConflictNotification, ORGANIZATION_CHART } from "../types";
 import { SUMMER_LOCATIONS } from "../types_summer";
 import { Button, Input, Select, Badge, Card } from "../components/ui_components";
-import { Plus, Map as MapIcon, Clock, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, Users, Eye, History, Activity, Pause, Play, Edit3, Database, Copy, ChevronsRight, ChevronsLeft, ChevronsDown, ChevronsUp, Maximize2, Building2, Landmark, MapPin, Phone, Calendar, Hammer, Layers, MessageCircle, Trash2 } from "lucide-react";
+import { Plus, Map as MapIcon, Clock, Crosshair, User, Plane, Share2, Pencil, X, CloudRain, Wind, CheckSquare, ShieldCheck, AlertTriangle, Radio, Send, Sun, Users, Eye, History, Activity, Pause, Play, Edit3, Database, Copy, ChevronsRight, ChevronsLeft, ChevronsDown, ChevronsUp, Maximize2, Building2, Landmark, MapPin, Phone, Calendar, Hammer, Layers, MessageCircle, Trash2, XCircle, Ban, PlayCircle } from "lucide-react";
 import OperationDailyLog from "../components/OperationDailyLog";
 
-// Imports Geoman
 import "@geoman-io/leaflet-geoman-free";
 
-// --- COORDENADAS DAS UNIDADES DO CBMPR (BASE DE DADOS GEOGRÁFICA CORRIGIDA) ---
-// Coordenadas ajustadas para o centro urbano ou endereço exato da unidade
 const UNIT_GEO: Record<string, [number, number]> = {
-  // --- 1º CRBM (CURITIBA E RMC) ---
   "1º CRBM - Curitiba (Sede Regional)": [-25.417336, -49.278911], 
   "1º BBM - Curitiba (Portão)": [-25.474580, -49.294240], 
-  "6º BBM - São José dos Pinhais": [-25.535265, -49.202396], // Centro SJP
+  "6º BBM - São José dos Pinhais": [-25.535265, -49.202396],
   "7º BBM - Colombo": [-25.292900, -49.226800],
   "8º BBM - Paranaguá": [-25.5205, -48.5095],
-  
-  // Unidades Especializadas (Curitiba)
-  "BOA - Batalhão de Operações Aéreas": [-25.5161, -49.1702], // Bacacheri/Afonso Pena
+  "BOA - Batalhão de Operações Aéreas": [-25.5161, -49.1702],
   "GOST - Grupo de Operações de Socorro Tático": [-25.42, -49.28],
   "CCB (QCGBM) - Quartel do Comando Geral": [-25.4146, -49.2720],
-
-  // --- 2º CRBM (LONDRINA / NORTE) ---
   "2º CRBM - Londrina (Sede Regional)": [-23.311580, -51.171220],
   "3º BBM - Londrina": [-23.311580, -51.171220], 
   "11º BBM - Apucarana": [-23.5510, -51.4614],
-  "1ª CIBM - Ivaiporã": [-24.23174830493947, -51.67066976419622], // Coordenadas Exatas (Rod. Celso Fumio Makita)
-  "3ª CIBM - Santo Antônio da Platina": [-23.295225, -50.078847], // Centro SAP
-  
-  // --- 3º CRBM (CASCAVEL / OESTE) ---
+  "1ª CIBM - Ivaiporã": [-24.23174830493947, -51.67066976419622],
+  "3ª CIBM - Santo Antônio da Platina": [-23.295225, -50.078847], 
   "3º CRBM - Cascavel (Sede Regional)": [-24.956700, -53.457800], 
   "4º BBM - Cascavel": [-24.956700, -53.457800], 
-  "9º BBM - Foz do Iguaçu": [-25.540498, -54.584351], // Centro Foz
-  "10º BBM - Francisco Beltrão": [-26.0779, -53.0520], // Centro Beltrão
-  "13º BBM - Pato Branco": [-26.2282, -52.6705], // Centro Pato Branco
-
-  // --- 4º CRBM (MARINGÁ / NOROESTE) ---
+  "9º BBM - Foz do Iguaçu": [-25.540498, -54.584351],
+  "10º BBM - Francisco Beltrão": [-26.0779, -53.0520],
+  "13º BBM - Pato Branco": [-26.2282, -52.6705],
   "4º CRBM - Maringá (Sede Regional)": [-23.418900, -51.938700], 
   "5º BBM - Maringá": [-23.418900, -51.938700], 
   "2ª CIBM - Umuarama": [-23.7641, -53.3246],
   "4ª CIBM - Cianorte": [-23.6528, -52.6073],
   "5ª CIBM - Paranavaí": [-23.0792, -52.4607],
-
-  // --- 5º CRBM (PONTA GROSSA / CAMPOS GERAIS) ---
   "5º CRBM - Ponta Grossa (Sede Regional)": [-25.091600, -50.160800], 
   "2º BBM - Ponta Grossa": [-25.091600, -50.160800], 
-  "12º BBM - Guarapuava": [-25.3935, -51.4566], // Centro Guarapuava
+  "12º BBM - Guarapuava": [-25.3935, -51.4566],
   "6ª CIBM - Irati": [-25.4682, -50.6511]
 };
 
-// --- ÍCONES PERSONALIZADOS ---
-const createCustomIcon = (type: 'pilot' | 'drone' | 'unit', count: number = 1) => {
+const iconCache: Record<string, L.DivIcon> = {};
+const getCachedIcon = (type: string, count: number) => {
+  const key = `${type}-${count}`;
+  if (iconCache[key]) return iconCache[key];
+
   let iconSvg = '';
   let bgColor = '';
-  let size: [number, number] = [36, 36];
-  
-  // Badge com Z-Index alto e posicionamento projetado para frente
-  let badgeHtml = count > 1 ? `
-    <div class="absolute -top-3 -right-3 z-[100] bg-red-600 text-white text-[11px] font-bold px-1.5 py-0.5 rounded-full border-2 border-white shadow-md min-w-[22px] flex items-center justify-center transform scale-110">
-        ${count}
-    </div>` : '';
-
   if (type === 'unit') {
-    // Icone de Prédio (Quartel)
     bgColor = 'bg-slate-800';
     iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M8 10h.01"/><path d="M16 10h.01"/><path d="M8 14h.01"/><path d="M16 14h.01"/></svg>`;
   } else if (type === 'pilot') {
-    // Icone de Usuário
     bgColor = 'bg-blue-600';
     iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
   } else {
-    // Icone de Drone (Quadricóptero)
     bgColor = 'bg-orange-600';
-    iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" stroke-width="0" fill="none"/><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M12 12v-3.5"/><path d="M12 12v3.5"/><path d="M12 12h-3.5"/><path d="M12 12h3.5"/></svg>`;
+    iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" stroke-width="0" fill="none"/><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M12 12v-3.5"/><path d="M12 12h-3.5"/></svg>`;
   }
 
-  const html = `
-    <div class="relative flex items-center justify-center w-full h-full shadow-lg rounded-lg border-2 border-white ${bgColor} text-white hover:scale-110 transition-transform z-10">
-      ${iconSvg}
-      ${badgeHtml}
-    </div>
-  `;
-
-  return L.divIcon({
-    html: html,
-    className: 'bg-transparent',
-    iconSize: size,
-    iconAnchor: [size[0]/2, size[1]/2],
-    popupAnchor: [0, -size[1]/2]
-  });
+  const badgeHtml = count > 1 ? `<div class="absolute -top-3 -right-3 bg-red-600 text-white text-[10px] font-bold px-1 py-0.5 rounded-full border-2 border-white shadow-md min-w-[20px] flex items-center justify-center">${count}</div>` : '';
+  const html = `<div class="relative flex items-center justify-center w-full h-full shadow-lg rounded-lg border-2 border-white ${bgColor} text-white">${iconSvg}${badgeHtml}</div>`;
+  
+  const icon = L.divIcon({ html, className: 'bg-transparent', iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -18] });
+  iconCache[key] = icon;
+  return icon;
 };
 
-// Fix Leaflet icons for Ops
-const icon = L.icon({
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-});
-
-const tempIcon = L.icon({
-  iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
-  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-});
-
-// NOVO: Ícone para pontos de decolagem secundários
-const takeoffPointIcon = L.divIcon({
-    html: `<div class="w-3 h-3 bg-blue-500 rounded-full border-2 border-white shadow-md"></div>`,
-    className: 'bg-transparent',
-    iconSize: [12, 12],
-    iconAnchor: [6, 6]
-});
-
+const defaultIcon = L.icon({ iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png", iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png", shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png", iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41] });
 
 const isValidCoord = (lat: any, lng: any) => {
   const nLat = Number(lat);
@@ -134,244 +78,48 @@ const isValidCoord = (lat: any, lng: any) => {
   return !isNaN(nLat) && !isNaN(nLng) && nLat !== 0 && nLng !== 0;
 };
 
-// Componente para sincronizar o mapa quando os inputs manuais mudam
-const MapRecenter = ({ lat, lng }: { lat: number, lng: number }) => {
-  const map = useMap();
-  useEffect(() => {
-    if (isValidCoord(lat, lng)) {
-      map.flyTo([lat, lng], 13);
-    }
-  }, [lat, lng, map]);
-  return null;
-};
-
-// ... (KEEPING GEOMAN AND MAP CONTROLLERS) ...
-const GeomanController = ({ initialShapes, onUpdate, editable, controllerKey, drawRequest }: any) => {
-  const map = useMap();
-  useEffect(() => {
-    if (!map || !(map as any).pm || !drawRequest) return;
-    if (drawRequest === 'Marker') (map as any).pm.enableDraw('Marker', { snappable: true, snapDistance: 20 });
-  }, [drawRequest, map]);
-
-  useEffect(() => {
-    if (!map || !(map as any).pm) return;
-    const pm = (map as any).pm;
-    if (editable) {
-        pm.addControls({ position: 'topleft', drawCircleMarker: false, drawText: false, rotateMode: false, cutPolygon: false });
-    } else {
-        pm.removeControls();
-    }
-    const handleUpdate = () => {
-        const layers = (map as any).pm.getGeomanLayers();
-        const geojson = { type: 'FeatureCollection', features: layers.map((l: any) => (l as any).toGeoJSON()) };
-        onUpdate(geojson);
-    };
-    map.on('pm:create', (e) => { e.layer.on('pm:edit', handleUpdate); handleUpdate(); });
-    map.on('pm:remove', handleUpdate);
-    return () => { if(map) { map.off('pm:create'); map.off('pm:remove'); } };
-  }, [map, editable]);
-  return null;
-}
-
-const LocationSelector = ({ onLocationSelect, isSelecting }: { onLocationSelect: (lat: number, lng: number) => void, isSelecting: boolean }) => {
-  useMapEvents({
-    click(e) {
-      if (isSelecting) {
-        onLocationSelect(e.latlng.lat, e.latlng.lng);
-      }
-    },
-  });
-  return null;
-};
-
 const MapController = ({ isPanelCollapsed }: { isPanelCollapsed: boolean }) => {
   const map = useMap();
-  useEffect(() => {
-    if (map) setTimeout(() => map.invalidateSize(), 300);
+  useEffect(() => { 
+    if (map) {
+      const timer = setTimeout(() => {
+        if (map.getContainer()) map.invalidateSize();
+      }, 350);
+      return () => clearTimeout(timer);
+    }
   }, [map, isPanelCollapsed]);
   return null;
 };
 
-// CAMADA DE RECURSOS (UNIDADES, PILOTOS, DRONES)
-const ResourceLayer = ({ 
-  pilots, 
-  drones, 
-  showUnits,
-  showPilots,
-  showDrones
-}: { 
-  pilots: Pilot[], 
-  drones: Drone[], 
-  showUnits: boolean,
-  showPilots: boolean,
-  showDrones: boolean
-}) => {
-  
-  const handleWhatsApp = (phone: string) => {
-    const cleanPhone = phone.replace(/\D/g, '');
-    window.open(`https://wa.me/55${cleanPhone}`, '_blank');
-  };
-
-  // Memoize para recalcular apenas quando os dados mudam (Adição/Exclusão)
-  const layerContent = useMemo(() => {
+const ResourceLayer = ({ pilots, drones, showUnits, showPilots, showDrones }: any) => {
+  return useMemo(() => {
     return Object.entries(UNIT_GEO).map(([unitName, coords]) => {
          const [lat, lng] = coords;
-         
-         // Helper: Matching que prioriza a CIDADE e Designador
-         const normalizeMatch = (resourceUnit: string | undefined, geoKey: string) => {
-             if (!resourceUnit) return false;
-             
-             const rUnit = resourceUnit.toLowerCase().trim();
-             const gKey = geoKey.toLowerCase().trim();
-             
-             // 1. Match exato
-             if (rUnit === gKey) return true;
-             
-             // 2. Extração inteligente por CIDADE
-             const parts = gKey.split(' - ');
-             
-             if (parts.length >= 2) {
-                 const mapDesignator = parts[0].trim(); // ex: "10º bbm" ou "1ª cibm"
-                 // Pega a parte da cidade, removendo detalhes entre parênteses ex: "curitiba (portão)" -> "curitiba"
-                 const mapCity = parts[1].split('(')[0].trim(); 
-                 
-                 // REGRA DE OURO: Se a unidade do piloto contém o NOME DA CIDADE da chave do mapa, é match.
-                 if (rUnit.includes(mapCity)) {
-                     return true;
-                 }
-                 
-                 // Fallback específico para CIBM/BBM se a cidade não estiver explícita no cadastro do piloto
-                 // Ex: Piloto lotado em "1ª CIBM" deve cair em "1ª CIBM - Ivaiporã"
-                 if (rUnit === mapDesignator || rUnit === mapDesignator.replace('ª', 'a').replace('º', 'o')) {
-                     return true;
-                 }
-                 
-                 // Fallback: Se for unidade de SEDE (sem cidade no nome do piloto), vincula pelo designador
-                 if (rUnit.includes(mapDesignator) && (rUnit.includes('sede') || rUnit.includes('comando') || rUnit.includes('ccb'))) {
-                     return true;
-                 }
-                 
-                 return false;
-             }
-             
-             // Fallback genérico se a chave do mapa não tiver hífen
-             return rUnit.includes(gKey);
-         };
-
-         // Filtra pilotos e drones desta unidade específica usando a lógica estrita
-         const unitPilots = pilots.filter(p => normalizeMatch(p.unit, unitName));
-         const unitDrones = drones.filter(d => normalizeMatch(d.unit, unitName) && d.status !== 'in_operation');
-         
-         const hasResources = unitPilots.length > 0 || unitDrones.length > 0;
-         
-         // Apenas renderiza se a flag correspondente estiver ativa E houver recursos para mostrar
-         // Unidades só aparecem se showUnits=true
-         // Pilotos só aparecem se showPilots=true e existem pilotos nessa unidade
-         // Etc.
-         
+         const unitPilots = pilots.filter((p: any) => p.unit === unitName);
+         const unitDrones = drones.filter((d: any) => d.unit === unitName && d.status !== 'in_operation');
          const shouldRender = (showUnits) || (showPilots && unitPilots.length > 0) || (showDrones && unitDrones.length > 0);
          if (!shouldRender) return null;
-
-         // LÓGICA DE POSICIONAMENTO EXATO (STACKING)
-         const pilotPos: [number, number] = [lat + 0.0002, lng]; // Ligeiramente acima
-         const dronePos: [number, number] = [lat - 0.0002, lng]; // Ligeiramente abaixo
-
          return (
-           <React.Fragment key={unitName}>
-             
-             {/* 1. MARCADOR DA UNIDADE (QUARTEL) - BASE */}
+           <React.Fragment key={`unit-group-${unitName}`}>
              {showUnits && (
-               <Marker position={coords} icon={createCustomIcon('unit', 1)} zIndexOffset={50}>
-                  <Popup>
-                     <div className="min-w-[200px]">
-                        <h3 className="font-bold text-slate-800 flex items-center gap-2 border-b pb-1 mb-2">
-                           <Building2 className="w-4 h-4 text-slate-600" />
-                           {unitName}
-                        </h3>
-                        <div className="text-xs text-slate-500">
-                           <p>Base Operacional / Administrativa</p>
-                           <p className="mt-1">Efetivo: {unitPilots.length} Pilotos</p>
-                           <p>Frota: {unitDrones.length} RPAs</p>
-                        </div>
-                     </div>
-                  </Popup>
-               </Marker>
+                <Marker position={coords} icon={getCachedIcon('unit', 1)} zIndexOffset={50}>
+                  <Popup><div className="min-w-[180px]"><h3 className="font-bold text-slate-800 border-b pb-1 mb-1">{unitName}</h3><p className="text-xs text-slate-500">Base Operacional</p></div></Popup>
+                </Marker>
              )}
-
-             {/* 2. MARCADOR DE PILOTOS (AGRUPADO) - CAMADA SUPERIOR */}
              {showPilots && unitPilots.length > 0 && (
-               <Marker 
-                  position={pilotPos} 
-                  icon={createCustomIcon('pilot', unitPilots.length)} 
-                  zIndexOffset={1000} // Z-index alto para ficar "encima"
-               >
-                  <Popup>
-                     <div className="min-w-[220px]">
-                        <h3 className="font-bold text-blue-800 flex items-center gap-2 border-b border-blue-100 pb-1 mb-2">
-                           <Users className="w-4 h-4" />
-                           Pilotos - {unitName.split(' - ')[0]}
-                        </h3>
-                        <div className="max-h-40 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                           {unitPilots.map(p => (
-                              <div key={p.id} className="flex justify-between items-center text-xs bg-slate-50 p-1.5 rounded border border-slate-100">
-                                 <div>
-                                    <strong className="block text-slate-700">{p.full_name.split(' ')[0]} {p.full_name.split(' ').pop()}</strong>
-                                    <span className="text-[10px] text-slate-400">{p.role === 'admin' ? 'Admin' : 'Piloto'}</span>
-                                 </div>
-                                 {p.phone && (
-                                    <button 
-                                      onClick={() => handleWhatsApp(p.phone)}
-                                      className="bg-green-50 text-green-600 p-1.5 rounded hover:bg-green-100 border border-green-200"
-                                      title="Abrir WhatsApp"
-                                    >
-                                       <MessageCircle className="w-4 h-4" />
-                                    </button>
-                                 )}
-                              </div>
-                           ))}
-                        </div>
-                     </div>
-                  </Popup>
-               </Marker>
+                <Marker position={[lat + 0.0003, lng]} icon={getCachedIcon('pilot', unitPilots.length)} zIndexOffset={1000}>
+                   <Popup><h3 className="font-bold text-blue-800 border-b mb-1">Pilotos</h3><div className="space-y-0.5">{unitPilots.map((p:any) => <div key={p.id} className="text-[10px]">{p.full_name}</div>)}</div></Popup>
+                </Marker>
              )}
-
-             {/* 3. MARCADOR DE DRONES (AGRUPADO) - CAMADA INTERMEDIÁRIA */}
              {showDrones && unitDrones.length > 0 && (
-               <Marker 
-                  position={dronePos} 
-                  icon={createCustomIcon('drone', unitDrones.length)} 
-                  zIndexOffset={900} 
-               >
-                  <Popup>
-                     <div className="min-w-[200px]">
-                        <h3 className="font-bold text-orange-800 flex items-center gap-2 border-b border-orange-100 pb-1 mb-2">
-                           <Plane className="w-4 h-4" />
-                           Frota - {unitName.split(' - ')[0]}
-                        </h3>
-                        <div className="max-h-40 overflow-y-auto space-y-1 custom-scrollbar">
-                           {unitDrones.map(d => (
-                              <div key={d.id} className="text-xs bg-slate-50 p-1.5 rounded border border-slate-100">
-                                 <strong className="block text-slate-700">{d.prefix}</strong>
-                                 <span className="text-[10px] text-slate-500">{d.model}</span>
-                                 <div className="mt-1">
-                                    <Badge variant={d.status === 'available' ? 'success' : 'warning'} className="text-[9px] px-1 py-0">
-                                       {d.status === 'available' ? 'Disp.' : 'Manut.'}
-                                    </Badge>
-                                 </div>
-                              </div>
-                           ))}
-                        </div>
-                     </div>
-                  </Popup>
-               </Marker>
+                <Marker position={[lat - 0.0003, lng]} icon={getCachedIcon('drone', unitDrones.length)} zIndexOffset={900}>
+                   <Popup><h3 className="font-bold text-orange-800 border-b mb-1">Frota</h3><div className="space-y-0.5">{unitDrones.map((d:any) => <div key={d.id} className="text-[10px]">{d.prefix} - {d.model}</div>)}</div></Popup>
+                </Marker>
              )}
-
            </React.Fragment>
          );
       });
   }, [pilots, drones, showUnits, showPilots, showDrones]);
-
-  return <>{layerContent}</>;
 };
 
 export default function OperationManagement() {
@@ -379,473 +127,67 @@ export default function OperationManagement() {
   const [pilots, setPilots] = useState<Pilot[]>([]);
   const [drones, setDrones] = useState<Drone[]>([]);
   const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
-  
   const [isCreating, setIsCreating] = useState(false);
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [isFinishing, setIsFinishing] = useState<Operation | null>(null);
-  
-  // MAP LAYER CONTROLS - PADRÃO "OCULTO" (False)
+  const [isCancelling, setIsCancelling] = useState<Operation | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
   const [showUnits, setShowUnits] = useState(false);
   const [showPilots, setShowPilots] = useState(false);
   const [showDrones, setShowDrones] = useState(false);
-
-  // TABS FOR EDIT MODE
   const [editTab, setEditTab] = useState<'details' | 'daily_log'>('details');
-
   const [loading, setLoading] = useState(false);
-  
-  // SARPAS state
-  const [sendToSarpas, setSendToSarpas] = useState(false); 
-  
   const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
-  const [isSummerOp, setIsSummerOp] = useState(false);
-  const [summerCity, setSummerCity] = useState("");
-  const [summerPost, setSummerPost] = useState("");
-
-  const [drawRequest, setDrawRequest] = useState<string | null>(null);
-  const [sqlError, setSqlError] = useState<string | null>(null);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
-  const [geoKey, setGeoKey] = useState(0);
-
-  // NOVO: State para seleção de ponto no mapa
-  const [selectingPointIndex, setSelectingPointIndex] = useState<number | null>(null);
 
   const initialFormState = {
-    name: '',
-    pilot_id: '',
-    pilot_name: '', 
-    second_pilot_id: '',
-    second_pilot_name: '', 
-    observer_id: '',
-    observer_name: '', 
-    drone_id: '',
-    mission_type: 'sar' as MissionType,
-    sub_mission_type: '',
-    latitude: -25.2521, 
-    longitude: -52.0215,
-    radius: 500,
-    flight_altitude: 60,
-    stream_url: '',
-    description: '',
-    sarpas_protocol: '', 
-    shapes: null as any,
-    is_multi_day: false,
-    date: new Date().toISOString().split('T')[0], // Novo Campo de Data
-    start_time_local: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
-    end_time_local: new Date(new Date().getTime() + 60*60*1000).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
-    op_crbm: '',
-    op_unit: '',
-    takeoff_points: [] as { lat: number; lng: number; alt: number }[],
+    name: '', pilot_id: '', drone_id: '',
+    mission_type: 'sar' as MissionType, latitude: -25.2521, longitude: -52.0215, radius: 500, flight_altitude: 60,
+    description: '', status: 'active' as any, occurrence_number: ''
   };
-
   const [formData, setFormData] = useState(initialFormState);
+  const [finishData, setFinishData] = useState({ description: '', flight_hours: 0 });
 
-  // Subtipos dinâmicos baseados na missão selecionada
-  const currentSubtypes = useMemo(() => {
-      return MISSION_HIERARCHY[formData.mission_type]?.subtypes || [];
-  }, [formData.mission_type]);
-
-  const [finishData, setFinishData] = useState({
-    description: '',
-    flight_hours: 0,
-  });
+  useEffect(() => { loadData(); const interval = setInterval(loadData, 30000); return () => clearInterval(interval); }, []);
 
   const loadData = async () => {
     try {
-      const [ops, pils, drns, me] = await Promise.all([
-        base44.entities.Operation.list('-created_at'),
-        base44.entities.Pilot.list(), // FIX: Load all pilots for correct lookup, not just active ones
-        base44.entities.Drone.list(),
-        base44.auth.me()
-      ]);
-      
-      // Sort pilots alphabetically
-      const sortedPilots = pils.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
-
-      setOperations(ops);
-      setPilots(sortedPilots);
-      setDrones(drns);
+      const [ops, pils, drns, me] = await Promise.all([base44.entities.Operation.list('-created_at'), base44.entities.Pilot.list(), base44.entities.Drone.list(), base44.auth.me()]);
+      setOperations(ops); 
+      setPilots(pils.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))); 
+      setDrones(drns); 
       setCurrentUser(me);
-    } catch(e: any) {
-      if (e.message && e.message.includes("DB_TABLE_MISSING")) {
-         const fixSql = `... (SQL omitido para brevidade) ...`;
-         // Apenas admins veem erros de SQL no load
-         if (currentUser?.role === 'admin') setSqlError(fixSql);
-      }
-    }
+    } catch(e: any) { console.error(e); }
   };
 
-  useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 30000); 
-    return () => clearInterval(interval);
-  }, []);
-
-  // Effect para calcular horas totais ao abrir modal de encerrar
-  useEffect(() => {
-    const calculateTotalHours = async () => {
-      if (isFinishing) {
-        try {
-          // Busca todos os logs de voo vinculados a essa operação
-          const logs = await base44.entities.FlightLog.filter({ operation_id: isFinishing.id });
-          let totalFromLogs = logs.reduce((acc, log) => acc + (log.flight_hours || 0), 0);
-          
-          // Se não houver logs (operação simples), tenta calcular por tempo decorrido
-          if (totalFromLogs === 0) {
-             const start = new Date(isFinishing.start_time).getTime();
-             const end = new Date().getTime();
-             
-             // Subtrair tempo de pausa se houver
-             const pauseDurationMs = (isFinishing.total_pause_duration || 0) * 60 * 1000;
-             const diffMs = end - start - pauseDurationMs;
-             const hours = diffMs / (1000 * 60 * 60);
-             
-             if (hours > 0) totalFromLogs = parseFloat(hours.toFixed(1));
-          }
-
-          setFinishData({
-            description: '',
-            flight_hours: totalFromLogs > 0 ? totalFromLogs : 0
-          });
-        } catch (e) {
-          console.error("Erro ao calcular horas automáticas", e);
-        }
-      }
-    };
-    calculateTotalHours();
-  }, [isFinishing]);
-
-  const handleLocationSelect = (lat: number, lng: number) => {
-    const roundedLat = Number(lat.toFixed(6));
-    const roundedLng = Number(lng.toFixed(6));
-  
-    if (selectingPointIndex !== null) {
-      handlePointChange(selectingPointIndex, 'lat', roundedLat);
-      handlePointChange(selectingPointIndex, 'lng', roundedLng);
-      setSelectingPointIndex(null);
-    } else {
-      setFormData(prev => ({ ...prev, latitude: roundedLat, longitude: roundedLng }));
-    }
+  const handleTogglePause = async (op: Operation) => {
+    try {
+        const isPaused = !op.is_paused;
+        await base44.entities.Operation.update(op.id, { is_paused: isPaused });
+        loadData();
+    } catch(e) { console.error(e); }
   };
 
-  const handleStartEdit = (op: Operation) => {
-    const start = new Date(op.start_time);
-    const end = op.end_time ? new Date(op.end_time) : new Date(start.getTime() + 60*60000);
-    const safeMissionType = MISSION_HIERARCHY[op.mission_type] ? op.mission_type : 'diverse';
-
-    setFormData({
-        ...initialFormState,
-        name: op.name,
-        pilot_id: op.pilot_id || '',
-        pilot_name: op.pilot_name || '',
-        second_pilot_id: op.second_pilot_id || '',
-        second_pilot_name: op.second_pilot_name || '',
-        observer_id: op.observer_id || '',
-        observer_name: op.observer_name || '',
-        drone_id: op.drone_id,
-        mission_type: safeMissionType,
-        sub_mission_type: op.sub_mission_type || '',
-        latitude: op.latitude,
-        longitude: op.longitude,
-        radius: op.radius,
-        flight_altitude: op.flight_altitude || 60,
-        stream_url: op.stream_url || '',
-        description: op.description || '',
-        sarpas_protocol: op.sarpas_protocol || '',
-        shapes: op.shapes || null, 
-        is_multi_day: op.is_multi_day || false,
-        date: start.toISOString().split('T')[0], // Extrai a data
-        start_time_local: start.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
-        end_time_local: end.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
-        op_crbm: op.op_crbm || '',
-        op_unit: op.op_unit || '',
-        takeoff_points: op.takeoff_points || [],
-    });
-    
-    // Restaurar estado da Op. Verão e SARPAS (se existente)
-    setIsSummerOp(op.is_summer_op || false);
-    setSendToSarpas(false); 
-
-    setIsEditing(op.id);
-    setIsCreating(true);
-    setIsPanelCollapsed(false);
-    setEditTab('details');
-    setGeoKey(prev => prev + 1);
+  const handleShareOp = (op: Operation) => {
+      const pilot = pilots.find(p => p.id === op.pilot_id);
+      const text = `🚨 *SYSARP - OPERAÇÃO ATIVA* 🚨\n\n🚁 *Nome:* ${op.name}\n🔢 *Protocolo:* ${op.occurrence_number}\n👤 *Piloto:* ${pilot?.full_name || 'N/A'}\n📍 *Local:* ${op.latitude}, ${op.longitude}`;
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
-  const handleCancelForm = () => {
-    setIsCreating(false);
-    setIsEditing(null);
-    setFormData(initialFormState);
-    setSendToSarpas(false);
-    setIsSummerOp(false);
-    setSummerCity("");
-    setSummerPost("");
-    setEditTab('details');
-    setGeoKey(prev => prev + 1);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleConfirmCancel = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isEditing) {
-       performSave();
-    } else {
-       if (!formData.pilot_name || !formData.drone_id) { alert("Dados obrigatórios faltando"); return; }
-       if (isSummerOp && (!summerCity || !summerPost)) { alert("Selecione a cidade e o posto para a Operação Verão."); return; }
-       performSave();
-    }
-  };
-
-  // Função atualizada para usar a data selecionada no formulário
-  const combineDateAndTime = (dateStr: string, timeStr: string): string => {
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const [hours, minutes] = timeStr.split(':').map(Number);
-    // Cria data usando componentes locais
-    const date = new Date(year, month - 1, day, hours, minutes);
-    return date.toISOString();
-  };
-  
-  // Handlers para Múltiplos Pontos
-  const handleAddPoint = () => {
-    const newPoint = { lat: formData.latitude, lng: formData.longitude, alt: formData.flight_altitude };
-    setFormData(prev => ({
-        ...prev,
-        takeoff_points: [...(prev.takeoff_points || []), newPoint]
-    }));
-  };
-
-  const handlePointChange = (index: number, field: 'lat' | 'lng' | 'alt', value: string | number) => {
-    const newPoints = [...(formData.takeoff_points || [])];
-    // @ts-ignore
-    newPoints[index][field] = Number(value);
-    setFormData(prev => ({ ...prev, takeoff_points: newPoints }));
-  };
-  
-  const handleRemovePoint = (index: number) => {
-    const newPoints = [...(formData.takeoff_points || [])];
-    newPoints.splice(index, 1);
-    setFormData(prev => ({ ...prev, takeoff_points: newPoints }));
-  };
-  
-  /**
-   * ROBUST GENERATION: Scan ALL operations for the highest sequence number in the current year.
-   */
-  const generateOccurrenceNumber = async (
-    currentFormData: typeof formData, 
-    allDrones: Drone[], 
-    allPilots: Pilot[],
-    allOps: Operation[]
-  ): Promise<string> => {
-      const currentYear = new Date().getFullYear();
-      let unitCode = "GRL";
-
-      // 1. Determine Unit Code
-      const getCodeFromString = (str: string | undefined | null): string | null => {
-          if (!str || str.trim() === '') return null;
-          const part = str.split(' - ')[0];
-          return part.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-      };
-
-      let code = getCodeFromString(currentFormData.op_unit);
-      if (!code) code = getCodeFromString(currentFormData.op_crbm);
-      if (!code) {
-          const selectedDrone = allDrones.find(d => d.id === currentFormData.drone_id);
-          code = getCodeFromString(selectedDrone?.unit);
-      }
-      if (!code) {
-          const selectedPilot = allPilots.find(p => p.id === currentFormData.pilot_id);
-          code = getCodeFromString(selectedPilot?.unit);
-      }
-      if (code) unitCode = code;
-      
-      // 2. Scan for the MAX sequence number in the current year
-      let nextSeq = 1;
-      
-      const yearPrefix = String(currentYear);
-      
-      // Filter ops from current year and find sequences
-      const currentYearSeqs = allOps
-        .map(op => {
-            if (!op.occurrence_number) return null;
-            // Expected format: YYYY ARP UNIT SEQ(5)
-            // We search for a numeric sequence at the end
-            const match = op.occurrence_number.match(/(\d{5})$/);
-            if (match && op.occurrence_number.startsWith(yearPrefix)) {
-                return parseInt(match[1], 10);
-            }
-            return null;
-        })
-        .filter((seq): seq is number => seq !== null);
-
-      if (currentYearSeqs.length > 0) {
-          nextSeq = Math.max(...currentYearSeqs) + 1;
-      }
-      
-      const seqStr = String(nextSeq).padStart(5, '0');
-      return `${currentYear}ARP${unitCode}${seqStr}`;
-  };
-
-
-  const performSave = async () => {
+    if (!isCancelling || !cancelReason.trim()) return;
     setLoading(true);
     try {
-      const startTimeISO = combineDateAndTime(formData.date, formData.start_time_local);
-      const endTimeISO = combineDateAndTime(formData.date, formData.end_time_local);
-      const sanitizeUuid = (val: string | undefined) => (!val || val === "") ? null : val;
-
-      let protocol = formData.sarpas_protocol;
-
-      // Construir objeto limpo, sem campos de controle do formulário
-      const payloadBase = {
-          name: formData.name,
-          pilot_id: sanitizeUuid(formData.pilot_id),
-          pilot_name: formData.pilot_name,
-          second_pilot_id: sanitizeUuid(formData.second_pilot_id),
-          second_pilot_name: formData.second_pilot_name,
-          observer_id: sanitizeUuid(formData.observer_id),
-          observer_name: formData.observer_name,
-          drone_id: formData.drone_id,
-          mission_type: formData.mission_type,
-          sub_mission_type: formData.sub_mission_type,
-          latitude: formData.latitude,
-          longitude: formData.longitude,
-          radius: Number(formData.radius),
-          flight_altitude: Number(formData.flight_altitude),
-          stream_url: formData.stream_url,
-          description: formData.description,
-          shapes: formData.shapes,
-          is_multi_day: formData.is_multi_day,
-          is_summer_op: isSummerOp,
-          sarpas_protocol: protocol,
-          op_crbm: formData.op_crbm,
-          op_unit: formData.op_unit,
-          takeoff_points: formData.takeoff_points,
-      };
-
-      let savedOp: Operation;
-
-      if (isEditing) {
-        const originalOp = operations.find(op => op.id === isEditing);
-        if (!originalOp) throw new Error("Operação original não encontrada.");
-        
-        const areaChanged = originalOp.op_crbm !== formData.op_crbm || originalOp.op_unit !== formData.op_unit;
-        let finalOccurrenceNumber = originalOp.occurrence_number;
-
-        if (areaChanged) {
-          // Re-fetch all ops to ensure most recent sequences
-          const allOpsFresh = await base44.entities.Operation.list('-created_at');
-          finalOccurrenceNumber = await generateOccurrenceNumber(formData, drones, pilots, allOpsFresh);
-          alert(`A área da ocorrência foi alterada. Um novo número de protocolo foi gerado: ${finalOccurrenceNumber}`);
-        }
-
-        savedOp = await base44.entities.Operation.update(isEditing, {
-          ...payloadBase,
-          occurrence_number: finalOccurrenceNumber,
-          start_time: startTimeISO,
-          end_time: endTimeISO
+        await base44.entities.Operation.update(isCancelling.id, {
+            status: 'cancelled',
+            description: `${isCancelling.description || ''}\n\n[MOTIVO CANCELAMENTO]: ${cancelReason}`,
+            end_time: new Date().toISOString()
         });
-        alert("Ocorrência atualizada!");
-
-      } else {
-        // ALWAYS fetch a fresh list before generating a new number to minimize collisions
-        const allOpsFresh = await base44.entities.Operation.list('-created_at');
-        const occurrenceNumber = await generateOccurrenceNumber(formData, drones, pilots, allOpsFresh);
-        
-        savedOp = await base44.entities.Operation.create({
-          ...payloadBase,
-          occurrence_number: occurrenceNumber,
-          status: 'active',
-          start_time: startTimeISO,
-          created_at: startTimeISO,
-          end_time: endTimeISO,
-          photos: [],
-          aro: null,
-        } as any);
-        alert(`Operação criada! Protocolo: ${occurrenceNumber}`);
-      }
-
-      // --- AUTOMAÇÃO PARA OPERAÇÃO MULTIDIAS ---
-      if (savedOp.is_multi_day) {
-          const startDate = new Date(savedOp.start_time).toISOString().split('T')[0]; 
-          try {
-              const existingDays = await base44.entities.OperationDay.filter({
-                  operation_id: savedOp.id,
-                  date: startDate
-              });
-
-              if (existingDays.length === 0) {
-                  const newDay = await base44.entities.OperationDay.create({
-                      operation_id: savedOp.id,
-                      date: startDate,
-                      responsible_pilot_id: savedOp.pilot_id,
-                      weather_summary: "Clima inicial",
-                      progress_notes: savedOp.description || "Início da operação",
-                      status: 'open'
-                  } as any);
-
-                  if (savedOp.drone_id) {
-                      await base44.entities.OperationDayAsset.create({
-                          operation_day_id: newDay.id,
-                          drone_id: savedOp.drone_id,
-                          status: 'active'
-                      } as any);
-                  }
-
-                  if (savedOp.pilot_id) {
-                      await base44.entities.OperationDayPilot.create({
-                          operation_day_id: newDay.id,
-                          pilot_id: savedOp.pilot_id,
-                          role: 'pic'
-                      } as any);
-                  }
-              }
-          } catch (dayError) {
-              console.error("Erro ao criar dia automático:", dayError);
-          }
-      }
-
-      // Summer Op Logic
-      if (isSummerOp && !isEditing) {
-         try {
-            await operationSummerService.create({
-               operation_id: savedOp.id,
-               pilot_id: savedOp.pilot_id,
-               drone_id: savedOp.drone_id,
-               mission_type: savedOp.mission_type, 
-               location: `${summerCity} - ${summerPost}`,
-               date: formData.date,
-               start_time: formData.start_time_local,
-               end_time: formData.end_time_local,
-               flight_duration: 0, 
-               evidence_photos: [],
-               evidence_videos: []
-            }, savedOp.pilot_id);
-         } catch(e) { console.error("Erro ao salvar Op Verão", e); }
-      }
-
-      // Update Drone Status
-      if (!isEditing && formData.drone_id) {
-         await base44.entities.Drone.update(formData.drone_id, { status: 'in_operation' });
-      }
-
-      handleCancelForm();
-      loadData();
-    } catch (error: any) {
-      console.error(error);
-      const msg = error.message || '';
-      
-      if (msg.includes("duplicate key value violates unique constraint") || msg.includes("occurrence_number_key")) {
-          alert("ERRO DE PROTOCOLO: Ocorreu um conflito ao gerar o número da ocorrência. Por favor, tente clicar em 'Salvar' novamente para gerar um novo número sequencial.");
-          // Recarregar dados para garantir que a próxima tentativa tenha a lista correta
-          loadData();
-      } else if (msg.includes("DB_TABLE_MISSING")) {
-          loadData(); 
-      } else {
-          alert(`Erro ao salvar: ${msg}`);
-      }
-    } finally {
-      setLoading(false);
-    }
+        if (isCancelling.drone_id) await base44.entities.Drone.update(isCancelling.drone_id, { status: 'available' });
+        alert("Operação cancelada!");
+        setIsCancelling(null); setCancelReason(""); loadData();
+    } catch (e) { alert("Erro ao cancelar."); } finally { setLoading(false); }
   };
 
   const handleFinishOperation = async (e: React.FormEvent) => {
@@ -853,798 +195,323 @@ export default function OperationManagement() {
     if (!isFinishing) return;
     setLoading(true);
     try {
-        // Se estiver pausada, finaliza a pausa antes de encerrar
-        if (isFinishing.is_paused && isFinishing.last_pause_start) {
-            const start = new Date(isFinishing.last_pause_start).getTime();
-            const end = new Date().getTime();
-            const durationMinutes = (end - start) / 60000;
-            const newLog = {
-                start: isFinishing.last_pause_start,
-                end: new Date().toISOString(),
-                reason: 'Encerramento com Pausa Ativa',
-                duration: durationMinutes
-            };
-            isFinishing.total_pause_duration = (isFinishing.total_pause_duration || 0) + durationMinutes;
-            isFinishing.pause_logs = [...(isFinishing.pause_logs || []), newLog];
-        }
-
+        const flightHours = Number(finishData.flight_hours) || 0;
+        
+        // 1. Atualiza a operação
         await base44.entities.Operation.update(isFinishing.id, {
             status: 'completed',
-            flight_hours: Number(finishData.flight_hours),
-            description: finishData.description ? (isFinishing.description + "\n\n[CONCLUSÃO]: " + finishData.description) : isFinishing.description,
-            end_time: new Date().toISOString(),
-            is_paused: false,
-            total_pause_duration: isFinishing.total_pause_duration,
-            pause_logs: isFinishing.pause_logs
+            flight_hours: flightHours,
+            description: `${isFinishing.description || ''}\n\n[CONCLUSAO]: ${finishData.description}`,
+            end_time: new Date().toISOString()
         });
-        
-        // CORREÇÃO: Libera TODAS as aeronaves vinculadas à operação (principal e de múltiplos dias)
-        const dronesToRelease = new Set<string>();
 
-        // 1. Adiciona a aeronave principal
+        // 2. Atualiza a aeronave somando o tempo efetivo de voo e liberando o status
         if (isFinishing.drone_id) {
-          dronesToRelease.add(isFinishing.drone_id);
+            const drone = drones.find(d => d.id === isFinishing.drone_id);
+            const currentTotal = drone?.total_flight_hours || 0;
+            
+            await base44.entities.Drone.update(isFinishing.drone_id, { 
+                status: 'available',
+                total_flight_hours: currentTotal + flightHours
+            });
         }
 
-        // 2. Se for operação de múltiplos dias, busca todas as aeronaves nos diários
-        if (isFinishing.is_multi_day) {
-            try {
-                const days = await base44.entities.OperationDay.filter({ operation_id: isFinishing.id });
-                const dayIds = days.map(d => d.id);
-                
-                if (dayIds.length > 0) {
-                    const assets = await base44.entities.OperationDayAsset.filter(asset => dayIds.includes(asset.operation_day_id));
-                    assets.forEach(asset => dronesToRelease.add(asset.drone_id));
-                }
-            } catch(e) {
-                console.warn("Não foi possível buscar aeronaves de múltiplos dias para liberar:", e);
-            }
-        }
-
-        // 3. Atualiza o status de todas as aeronaves encontradas para "disponível"
-        if (dronesToRelease.size > 0) {
-            const releasePromises = Array.from(dronesToRelease).map(droneId =>
-                base44.entities.Drone.update(droneId, { status: 'available' }).catch(e => {
-                    console.warn(`Falha ao liberar a aeronave ${droneId}:`, e);
-                })
-            );
-            await Promise.all(releasePromises);
-        }
-
-        alert("Operação encerrada com sucesso!");
-        setIsFinishing(null);
+        alert("Operação encerrada e horas de voo contabilizadas!"); 
+        setIsFinishing(null); 
+        setFinishData({ description: '', flight_hours: 0 });
         loadData();
-    } catch (error: any) {
-        console.error(error);
-        
-        if (error.message && error.message.includes("invalid input syntax for type integer")) {
-            if (currentUser?.role === 'admin') {
-                setSqlError(`
--- CORREÇÃO DE TIPO DE COLUNA
--- O erro indica que uma coluna numérica está configurada como INTEIRO mas recebendo DECIMAIS.
--- Execute para corrigir:
-
-ALTER TABLE public.operations ALTER COLUMN total_pause_duration TYPE float USING total_pause_duration::float;
-ALTER TABLE public.operations ALTER COLUMN flight_hours TYPE float USING flight_hours::float;
-                `);
-            } else {
-                alert("Erro de banco de dados (tipo de coluna incorreto). Contate o administrador.");
-            }
-        } else {
-            alert("Erro ao encerrar operação.");
-        }
-    } finally {
-        setLoading(false);
+    } catch (e) { 
+        alert("Erro ao encerrar."); 
+        console.error(e);
+    } finally { 
+        setLoading(false); 
     }
   };
 
-  // --- COMPARTILHAR ---
-  const handleShareOp = async (op: Operation) => {
-      let pilot = pilots.find(p => p.id === op.pilot_id);
-
-      if (!pilot && op.pilot_id) {
-          try {
-              const fetchedPilots = await base44.entities.Pilot.filter({ id: op.pilot_id });
-              if (fetchedPilots && fetchedPilots.length > 0) pilot = fetchedPilots[0];
-          } catch (e) {
-              console.error(`Fallback fetch for pilot ${op.pilot_id} failed:`, e);
-          }
+  const performSave = async () => {
+    setLoading(true);
+    try {
+      if (isEditing) {
+          await base44.entities.Operation.update(isEditing, formData);
+          alert("Operação atualizada!");
+      } else {
+          await base44.entities.Operation.create({ ...formData, start_time: new Date().toISOString(), occurrence_number: formData.occurrence_number || `OP-${Date.now()}` } as any);
+          if (formData.drone_id) await base44.entities.Drone.update(formData.drone_id, { status: 'in_operation' });
+          alert("Operação iniciada!");
       }
-
-      const drone = drones.find(d => d.id === op.drone_id);
-      const operationalUnit = op.op_unit || op.op_crbm || drone?.unit || pilot?.unit || 'N/A';
-      const mapLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
-      const streamText = op.stream_url ? `\n📡 *Transmissão:* ${op.stream_url}` : '';
-      const missionLabel = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
-      
-      const startTime = new Date(op.start_time);
-      const endTime = op.end_time 
-          ? new Date(op.end_time) 
-          : new Date(startTime.getTime() + 2 * 60 * 60 * 1000); 
-
-      let locationText = `📍 *Ponto Principal:* ${op.latitude}, ${op.longitude}\n` +
-                         `📏 *Parâmetros:* Raio: ${op.radius}m | Altura: ${op.flight_altitude || 'N/A'}m\n`;
-
-      if (op.takeoff_points && op.takeoff_points.length > 0) {
-          locationText = `📍 *Pontos de Interesse:*\n` +
-              op.takeoff_points.map((p, i) => 
-                  `   ${i+1}: Lat ${p.lat.toFixed(5)}, Lng ${p.lng.toFixed(5)} (Alt: ${p.alt}m)`
-              ).join('\n') + `\n\n📏 *Raio Principal:* ${op.radius}m\n`;
-      }
-      
-      const pilotName = pilot ? pilot.full_name : op.pilot_name || 'N/A';
-      const pilotPhone = pilot ? pilot.phone : 'N/A';
-
-      const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n` +
-          `🚁 *Ocorrência:* ${op.name}\n` +
-          `🔢 *Protocolo:* ${op.occurrence_number}\n` +
-          `📋 *Natureza:* ${missionLabel}\n` +
-          `👤 *Piloto:* ${pilotName}\n` +
-          `📞 *Contato:* ${pilotPhone}\n` +
-          `🏢 *Unidade (Área):* ${operationalUnit}\n` +
-          `🛸 *Aeronave:* ${drone ? `${drone.model} (${drone.prefix})` : 'N/A'}\n` +
-          `${locationText}` +
-          `🗺️ *Mapa (Ponto Principal):* ${mapLink}\n` +
-          `🕒 *Início:* ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
-          `🏁 *Término Previsto:* ${endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
-          `${streamText}\n\n` +
-          `_Enviado via Centro de Comando SYSARP_`;
-
-      const encodedText = encodeURIComponent(text);
-      window.open(`https://wa.me/?text=${encodedText}`, '_blank');
+      setIsCreating(false); setIsEditing(null); loadData();
+    } catch (e) { alert("Erro ao salvar."); } finally { setLoading(false); }
   };
 
-  // --- PAUSAR / RETOMAR ---
-  const handleTogglePause = async (op: Operation) => {
-      if (!op) return;
-      
-      try {
-          const isPausing = !op.is_paused;
-          let updates: Partial<Operation> = {};
-
-          if (isPausing) {
-              // INICIAR PAUSA
-              updates = {
-                  is_paused: true,
-                  last_pause_start: new Date().toISOString()
-              };
-          } else {
-              // RETOMAR (FINALIZAR PAUSA) - SOLICITAR MOTIVO
-              const reason = window.prompt("Qual o motivo desta pausa?", "Pausa Operacional / Troca de Bateria");
-              if (reason === null) return; // Cancelou
-
-              if (op.last_pause_start) {
-                  const start = new Date(op.last_pause_start).getTime();
-                  const end = new Date().getTime();
-                  const durationMinutes = (end - start) / 60000;
-                  
-                  const newLog = {
-                      start: op.last_pause_start,
-                      end: new Date().toISOString(),
-                      reason: reason || 'Pausa Operacional',
-                      duration: durationMinutes
-                  };
-                  
-                  updates = {
-                      is_paused: false,
-                      last_pause_start: null, // Reset as it needs null to respect type
-                      total_pause_duration: (op.total_pause_duration || 0) + durationMinutes,
-                      pause_logs: [...(op.pause_logs || []), newLog]
-                  } as any;
-              } else {
-                  // Fallback se não tiver last_pause_start
-                  updates = { is_paused: false };
-              }
-          }
-
-          await base44.entities.Operation.update(op.id, updates);
-          loadData(); 
-      } catch (e: any) {
-          console.error(e);
-          
-          if (e.message && e.message.includes("invalid input syntax for type integer")) {
-              if (currentUser?.role === 'admin') {
-                  setSqlError(`
--- CORREÇÃO DE TIPO DE COLUNA
--- O erro indica que uma coluna numérica está configurada como INTEIRO mas recebendo DECIMAIS.
--- Execute para corrigir:
-
-ALTER TABLE public.operations ALTER COLUMN total_pause_duration TYPE float USING total_pause_duration::float;
-ALTER TABLE public.operations ALTER COLUMN flight_hours TYPE float USING flight_hours::float;
-                  `);
-              } else {
-                  alert("Erro de banco de dados: Coluna numérica configurada incorretamente. Contate o admin.");
-              }
-              return;
-          }
-
-          // Check for missing column error
-          if (e.message && (e.message.includes("is_paused") || e.message.includes("pause_logs"))) {
-              if (currentUser?.role === 'admin') {
-                  setSqlError(`
--- ATUALIZAÇÃO PARA FUNÇÃO DE PAUSA
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS is_paused boolean DEFAULT false;
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS last_pause_start timestamp with time zone;
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS total_pause_duration float DEFAULT 0;
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS pause_logs jsonb DEFAULT '[]';
-
-NOTIFY pgrst, 'reload schema';
-                  `);
-              } else {
-                  alert("Funcionalidade indisponível. Contate o administrador.");
-              }
-          } else {
-              alert("Erro ao alterar status de pausa.");
-          }
-      }
-  };
-
-  const activeOps = operations.filter(o => o.status === 'active');
-  const displayedOps = activeTab === 'active' ? activeOps : operations.filter(o => o.status === 'completed');
-
-  const copySqlToClipboard = () => {
-    if (sqlError) {
-      navigator.clipboard.writeText(sqlError);
-      alert("Código SQL cobiado!");
-    }
-  };
+  const displayedOps = activeTab === 'active' ? operations.filter(o => o.status === 'active') : operations.filter(o => o.status !== 'active');
 
   return (
     <div className="flex flex-col lg:flex-row h-full w-full relative bg-slate-100 overflow-hidden">
-      
-      {/* SQL FIX MODAL (Only for Admins) */}
-      {sqlError && currentUser?.role === 'admin' && (
-        <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
-           <Card className="w-full max-w-3xl flex flex-col bg-white border-4 border-red-600 shadow-2xl">
-              <div className="p-4 bg-red-600 text-white flex justify-between items-center">
-                 <h3 className="font-bold text-lg flex items-center gap-2"><Database className="w-6 h-6" /> Atualização de Banco de Dados</h3>
-                 <button onClick={() => setSqlError(null)} className="hover:bg-red-700 p-1 rounded"><X className="w-5 h-5" /></button>
-              </div>
-              <div className="p-6 space-y-4">
-                 <p className="text-slate-700 font-medium">Novas funcionalidades detectadas. Execute este SQL para criar as tabelas ou colunas necessárias.</p>
-                 <div className="relative"><pre className="bg-slate-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto font-mono border border-slate-700 max-h-64">{sqlError}</pre>
-                 <button onClick={copySqlToClipboard} className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded"><Copy className="w-4 h-4" /></button></div>
-              </div>
-           </Card>
-        </div>
-      )}
-
-      {/* FINISH OPERATION MODAL */}
-      {isFinishing && (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-            <Card className="w-full max-w-lg bg-white p-6 shadow-2xl border-t-4 border-green-600">
+      {/* MODAL CANCELAMENTO */}
+      {isCancelling && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-4">
+            <Card className="w-full max-w-lg bg-white p-6 shadow-2xl border-t-4 border-amber-500">
                 <div className="flex justify-between items-start mb-4">
-                    <div>
-                        <h2 className="text-xl font-bold flex items-center gap-2 text-slate-800">
-                            <CheckSquare className="w-6 h-6 text-green-600" />
-                            Encerrar Operação
-                        </h2>
-                        <p className="text-sm text-slate-500">
-                            Finalizar <strong>{isFinishing.name}</strong>
-                        </p>
-                    </div>
-                    <button onClick={() => setIsFinishing(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+                    <h2 className="text-xl font-bold flex items-center gap-2"><Ban className="w-6 h-6 text-amber-500" /> Cancelar Operação</h2>
+                    <button onClick={() => setIsCancelling(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
                 </div>
-                
-                <form onSubmit={handleFinishOperation} className="space-y-4">
-                    <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 text-xs text-blue-800 mb-2">
-                       <p>ℹ️ As horas de voo foram somadas automaticamente a partir do <strong>Diário Operacional</strong> ou tempo decorrido. Você pode ajustar se necessário.</p>
-                    </div>
-
-                    <Input
-                        label="Horas Totais de Voo"
-                        type="number"
-                        step="0.1"
-                        value={finishData.flight_hours}
-                        onChange={e => setFinishData({...finishData, flight_hours: Number(e.target.value)})}
-                        required
-                    />
-                    <div>
-                        <label className="text-sm font-medium text-slate-700">Relatório Final / Observações</label>
-                        <textarea
-                            className="w-full p-3 border border-slate-300 rounded-lg text-sm h-32 resize-none focus:ring-2 focus:ring-green-500 outline-none bg-white"
-                            value={finishData.description}
-                            onChange={e => setFinishData({...finishData, description: e.target.value})}
-                            placeholder="Descreva o desfecho da operação..."
-                        />
-                    </div>
-                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                        <Button type="button" variant="outline" onClick={() => setIsFinishing(null)}>Cancelar</Button>
-                        <Button type="submit" disabled={loading} className="bg-green-600 text-white hover:bg-green-700 shadow-md">
-                            {loading ? 'Encerrando...' : 'Confirmar Encerramento'}
-                        </Button>
-                    </div>
+                <form onSubmit={handleConfirmCancel} className="space-y-4">
+                    <textarea className="w-full p-3 border rounded-lg text-sm h-24 resize-none bg-white" value={cancelReason} onChange={e => setCancelReason(e.target.value)} placeholder="Motivo do cancelamento..." required />
+                    <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setIsCancelling(null)}>Voltar</Button><Button type="submit" disabled={loading} className="bg-amber-500 text-white font-bold">Confirmar</Button></div>
                 </form>
             </Card>
         </div>
       )}
 
-      {/* Mapa (Esquerda) */}
-      <div className="flex-1 w-full relative z-0 order-1 lg:order-1 border-b lg:border-r border-slate-200 min-w-0 min-h-0">
+      {/* MODAL ENCERRAMENTO */}
+      {isFinishing && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 p-4">
+            <Card className="w-full max-w-lg bg-white p-6 shadow-2xl border-t-4 border-green-600">
+                <div className="flex justify-between items-start mb-4">
+                    <h2 className="text-xl font-bold flex items-center gap-2"><CheckSquare className="w-6 h-6 text-green-600" /> Encerrar Operação</h2>
+                    <button onClick={() => setIsFinishing(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+                </div>
+                <form onSubmit={handleFinishOperation} className="space-y-4">
+                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-4">
+                        <p className="text-xs font-bold text-slate-500 uppercase mb-2">Informação Importante</p>
+                        <p className="text-sm text-slate-600">Informe o tempo <strong>efetivo de voo</strong> abaixo. Este valor será adicionado ao histórico da aeronave.</p>
+                    </div>
+                    <Input 
+                        label="Horas Totais de Voo (Tempo Efetivo)" 
+                        type="number" 
+                        step="0.1" 
+                        min="0"
+                        value={finishData.flight_hours} 
+                        onChange={e => setFinishData({...finishData, flight_hours: Number(e.target.value)})} 
+                        required 
+                    />
+                    <textarea className="w-full p-3 border rounded-lg text-sm h-24 resize-none bg-white" value={finishData.description} onChange={e => setFinishData({...finishData, description: e.target.value})} placeholder="Relato final da missão..." />
+                    <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={() => setIsFinishing(null)}>Cancelar</Button><Button type="submit" disabled={loading} className="bg-green-600 text-white font-bold px-6">Encerrar e Contabilizar</Button></div>
+                </form>
+            </Card>
+        </div>
+      )}
+
+      {/* MAPA */}
+      <div className="flex-1 w-full relative z-0 order-1 lg:order-1 border-b lg:border-r border-slate-200 min-h-0">
         <MapContainer center={[-25.2521, -52.0215]} zoom={8} style={{ height: '100%', width: '100%' }}>
           <MapController isPanelCollapsed={isPanelCollapsed} />
-          <TileLayer attribution='OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-          <GeomanController initialShapes={formData.shapes} onUpdate={(g:any) => setFormData(p => ({...p, shapes: g}))} editable={isCreating} controllerKey={`geo-${isEditing}-${geoKey}`} drawRequest={drawRequest} />
-          <LocationSelector onLocationSelect={handleLocationSelect} isSelecting={isCreating} />
-          
-          <ResourceLayer 
-             pilots={pilots} 
-             drones={drones} 
-             showUnits={showUnits}
-             showPilots={showPilots}
-             showDrones={showDrones}
-          />
-
-          {isCreating && (
-             <MapRecenter lat={formData.latitude} lng={formData.longitude} />
-          )}
-
-          {isCreating && isValidCoord(formData.latitude, formData.longitude) && (
-             <>
-               <Marker position={[formData.latitude, formData.longitude]} icon={tempIcon}>
-                  <Popup>
-                     <div className="text-center">
-                        <strong className="block text-red-600">Ponto Principal</strong>
-                        <span className="text-xs">Lat: {formData.latitude}<br/>Lng: {formData.longitude}</span>
-                     </div>
-                  </Popup>
-               </Marker>
-               <Circle 
-                  center={[formData.latitude, formData.longitude]} 
-                  radius={Number(formData.radius) || 500} 
-                  pathOptions={{ color: 'red', fillColor: 'red', fillOpacity: 0.1, dashArray: '5, 5' }} 
-               />
-               {/* Marcadores para pontos de decolagem */}
-               {formData.takeoff_points?.map((point, index) => (
-                    isValidCoord(point.lat, point.lng) && (
-                        <Marker key={`tp-${index}`} position={[point.lat, point.lng]} icon={takeoffPointIcon}>
-                            <Popup>Ponto de Interesse #{index+1}</Popup>
-                        </Marker>
-                    )
-               ))}
-             </>
-          )}
-
-          {activeOps.map(op => {
-             if (!isValidCoord(op.latitude, op.longitude)) return null;
-             if (isEditing === op.id) return null;
-
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <ResourceLayer pilots={pilots} drones={drones} showUnits={showUnits} showPilots={showPilots} showDrones={showDrones} />
+          {operations.filter(o => o.status === 'active').map(op => {
              const pilot = pilots.find(p => p.id === op.pilot_id);
              const drone = drones.find(d => d.id === op.drone_id);
              
-             const displayUnit = op.op_unit || op.op_crbm || pilot?.unit || 'N/A';
-             const displayCrbm = (op.op_unit && op.op_crbm) ? op.op_crbm : null;
-
-             return (
-               <React.Fragment key={op.id}>
-                  <Marker position={[op.latitude, op.longitude]} icon={icon}>
-                     <Popup>
-                        <div className="p-1 min-w-[200px]">
-                            <strong className="text-sm block text-slate-900 border-b pb-1 mb-1">{op.name}</strong>
-                            <span className="text-[10px] text-slate-500 block mb-1 font-mono">#{op.occurrence_number}</span>
-                            
-                            <div className="space-y-1 text-xs text-slate-700 bg-slate-50 p-2 rounded border border-slate-100">
-                                <div className="flex items-center gap-1">
-                                    <User className="w-3 h-3 text-slate-400" />
-                                    <span className="font-bold">Piloto:</span> {pilot?.full_name || op.pilot_name || 'N/A'}
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <Plane className="w-3 h-3 text-slate-400" />
-                                    <span className="font-bold">RPA:</span> {drone ? `${drone.prefix} - ${drone.model}` : 'N/A'}
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <Building2 className="w-3 h-3 text-slate-400" />
-                                    <span className="font-bold">Área/Unidade:</span> {displayUnit}
-                                </div>
-                                {displayCrbm && (
-                                    <div className="text-[10px] text-slate-500 pl-4">{displayCrbm}</div>
-                                )}
-                            </div>
+             return isValidCoord(op.latitude, op.longitude) && (
+               <Marker key={`op-marker-${op.id}`} position={[Number(op.latitude), Number(op.longitude)]} icon={defaultIcon}>
+                  <Popup>
+                    <div className="min-w-[280px] p-1 font-sans">
+                        <h3 className="font-bold text-slate-900 text-base uppercase leading-tight border-b pb-2 mb-2">{op.name}</h3>
+                        <p className="text-[10px] text-slate-400 font-mono mb-2">#{op.occurrence_number}</p>
+                        
+                        <div className="mb-4">
+                           <span className="bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100">
+                              {MISSION_HIERARCHY[op.mission_type]?.label}
+                           </span>
                         </div>
-                     </Popup>
-                  </Marker>
-                  <Circle 
-                     center={[op.latitude, op.longitude]} 
-                     radius={op.radius || 500} 
-                     pathOptions={{ color: op.is_paused ? '#f59e0b' : '#3388ff', fillColor: op.is_paused ? '#f59e0b' : '#3388ff', fillOpacity: 0.1 }} 
-                  />
-               </React.Fragment>
+
+                        <div className="bg-slate-50 p-4 rounded-xl space-y-2.5 border border-slate-100">
+                           <div className="flex items-center gap-3 text-sm text-slate-600">
+                              <User className="w-4 h-4 text-slate-400" />
+                              <div>
+                                 <span className="font-bold text-slate-800">Piloto:</span> {pilot?.full_name || 'N/A'}
+                              </div>
+                           </div>
+                           <div className="flex items-center gap-3 text-sm text-slate-600">
+                              <Plane className="w-4 h-4 text-slate-400" />
+                              <div>
+                                 <span className="font-bold text-slate-800">RPA:</span> {drone ? `${drone.prefix} - ${drone.model}` : 'N/A'}
+                              </div>
+                           </div>
+                           <div className="flex items-start gap-3 text-sm text-slate-600">
+                              <Building2 className="w-4 h-4 text-slate-400 mt-0.5" />
+                              <div className="flex flex-col">
+                                 <div className="flex items-center gap-1">
+                                    <span className="font-bold text-slate-800">Área/Unidade:</span>
+                                    <span className="text-slate-700">{drone?.unit || 'N/A'}</span>
+                                 </div>
+                                 <span className="text-[10px] text-slate-400 mt-0.5">{drone?.crbm}</span>
+                              </div>
+                           </div>
+                        </div>
+                    </div>
+                  </Popup>
+               </Marker>
              )
           })}
         </MapContainer>
-        
-        {/* Toggle Panel Button (Top Right - FIXED POS) */}
-        <div className="absolute top-4 right-4 z-[2000]">
-            <button
-                onClick={() => setIsPanelCollapsed(!isPanelCollapsed)}
-                className="bg-white p-2 rounded-md shadow-md border border-slate-200 text-slate-600 hover:text-slate-900 transition-colors"
-                title={isPanelCollapsed ? "Expandir Painel" : "Minimizar Painel"}
-                aria-label={isPanelCollapsed ? "Expandir Painel" : "Minimizar Painel"}
-            >
-                {isPanelCollapsed ? <ChevronsLeft className="w-6 h-6" /> : <ChevronsRight className="w-6 h-6" />}
-            </button>
+        <div className="absolute top-4 right-4 z-[1000]">
+            <button onClick={() => setIsPanelCollapsed(!isPanelCollapsed)} className="bg-white p-2 rounded-md shadow-md border text-slate-600">{isPanelCollapsed ? <ChevronsLeft className="w-6 h-6" /> : <ChevronsRight className="w-6 h-6" />}</button>
         </div>
-
-        {/* Layer Toggle Control (Bottom Left - FIXED POS) */}
-        <div className="absolute bottom-6 left-4 z-[2000] flex flex-col gap-2">
-           <button 
-              onClick={() => setShowUnits(!showUnits)} 
-              className={`p-2 rounded-lg shadow-md border text-xs font-bold transition-all flex items-center justify-between w-32 ${showUnits ? 'bg-slate-800 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-200'}`}
-           >
-              <span className="flex items-center gap-2"><Building2 className="w-4 h-4" /> Unidades</span>
-              <div className={`w-2 h-2 rounded-full ${showUnits ? 'bg-green-400' : 'bg-slate-300'}`}></div>
-           </button>
-           
-           <button 
-              onClick={() => setShowPilots(!showPilots)} 
-              className={`p-2 rounded-lg shadow-md border text-xs font-bold transition-all flex items-center justify-between w-32 ${showPilots ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-slate-500 border-slate-200'}`}
-           >
-              <span className="flex items-center gap-2"><Users className="w-4 h-4" /> Pilotos</span>
-              <div className={`w-2 h-2 rounded-full ${showPilots ? 'bg-green-400' : 'bg-slate-300'}`}></div>
-           </button>
-
-           <button 
-              onClick={() => setShowDrones(!showDrones)} 
-              className={`p-2 rounded-lg shadow-md border text-xs font-bold transition-all flex items-center justify-between w-32 ${showDrones ? 'bg-orange-600 text-white border-orange-700' : 'bg-white text-slate-500 border-slate-200'}`}
-           >
-              <span className="flex items-center gap-2"><Plane className="w-4 h-4" /> Frota</span>
-              <div className={`w-2 h-2 rounded-full ${showDrones ? 'bg-green-400' : 'bg-slate-300'}`}></div>
-           </button>
+        <div className="absolute bottom-6 left-4 z-[1000] flex flex-col gap-2">
+           <button onClick={() => setShowUnits(!showUnits)} className={`p-2 rounded-lg shadow-md border text-xs font-bold transition-all ${showUnits ? 'bg-slate-800 text-white' : 'bg-white text-slate-500'}`}>Unidades</button>
+           <button onClick={() => setShowPilots(!showPilots)} className={`p-2 rounded-lg shadow-md border text-xs font-bold transition-all ${showPilots ? 'bg-blue-600 text-white' : 'bg-white text-slate-500'}`}>Pilotos</button>
+           <button onClick={() => setShowDrones(!showDrones)} className={`p-2 rounded-lg shadow-md border text-xs font-bold transition-all ${showDrones ? 'bg-orange-600 text-white' : 'bg-white text-slate-500'}`}>Frota</button>
         </div>
-
-        {isCreating && (
-            <div className="absolute bottom-8 right-8 z-[1000] flex flex-col gap-2">
-                <div className="bg-white px-3 py-1 rounded shadow text-xs font-bold text-slate-600 mb-1">
-                   {selectingPointIndex !== null ? `Selecionando Ponto #${selectingPointIndex + 1}...` : 'Clique no mapa para posicionar'}
-                </div>
-            </div>
-        )}
       </div>
 
-      {/* Painel Lateral (Direita) - Same as previous version */}
-      <div className={`bg-white z-10 flex flex-col shadow-xl overflow-hidden order-2 lg:order-2 transition-all duration-300 ease-in-out flex-shrink-0 lg:h-full lg:border-l lg:border-t-0 ${isPanelCollapsed ? 'lg:w-0 lg:border-0' : 'lg:w-[28rem]'} w-full border-t border-slate-200 ${isPanelCollapsed ? 'h-0 border-0' : 'h-[55vh]'}`}>
+      {/* PAINEL LATERAL */}
+      <div className={`bg-white z-10 flex flex-col shadow-xl overflow-hidden order-2 transition-all duration-300 ${isPanelCollapsed ? 'lg:w-0' : 'lg:w-[28rem]'} w-full ${isPanelCollapsed ? 'h-0' : 'h-[55vh] lg:h-full'}`}>
         <div className="flex-1 flex flex-col h-full overflow-hidden w-full lg:min-w-[28rem]">
             {isCreating ? (
-            <>
-                {/* ... (Create/Edit Form logic remains same) ... */}
-                <div className="p-4 border-b flex items-center justify-between bg-white shrink-0">
-                    <div className="flex items-center gap-2">
-                        <h2 className="font-bold text-lg text-slate-800">{isEditing ? 'Gerenciar Operação' : 'Nova Operação'}</h2>
-                        {/* Only Mobile Collapse Button remains here, Desktop uses external */}
-                        <button onClick={() => setIsPanelCollapsed(true)} className="p-1 hover:bg-slate-200 rounded text-slate-500 lg:hidden"><ChevronsRight className="w-5 h-5" /></button>
-                    </div>
-                    <Button variant="outline" onClick={handleCancelForm} size="sm"><X className="w-4 h-4"/></Button>
-                </div>
-
-                {isEditing && (
-                   <div className="flex border-b border-slate-200 bg-white">
-                      <button 
-                        onClick={() => setEditTab('details')}
-                        className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors ${editTab === 'details' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                      >
-                         Detalhes Gerais
+                <div className="flex-1 flex flex-col h-full overflow-y-auto p-4">
+                    <div className="flex justify-between items-center mb-6 border-b pb-4">
+                      <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                        <Radio className="w-6 h-6 text-red-600" />
+                        {isEditing ? 'Editar Operação' : 'Nova Operação'}
+                      </h2>
+                      <button onClick={() => { setIsCreating(false); setIsEditing(null); }} className="p-1 hover:bg-slate-100 rounded">
+                        <X className="w-6 h-6 text-slate-400" />
                       </button>
-                      
-                      {formData.is_multi_day && (
-                        <button 
-                            onClick={() => setEditTab('daily_log')}
-                            className={`flex-1 py-3 text-sm font-bold border-b-2 transition-colors ${editTab === 'daily_log' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                        >
-                            Diário Operacional
-                        </button>
-                      )}
-                   </div>
-                )}
-
-                <div className="flex-1 overflow-y-auto p-5 space-y-6">
-                    {editTab === 'details' ? (
-                        <form id="opForm" onSubmit={handleSubmit} className="space-y-6">
-                            <div className="space-y-3">
-                                <Input label="Nome da Operação" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required />
-                                <Select label="Aeronave Principal" required value={formData.drone_id} onChange={e => setFormData({...formData, drone_id: e.target.value})}>
-                                    <option value="">Selecione...</option>
-                                    {drones.map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
-                                </Select>
-                            </div>
-
-                            <div className="space-y-3 p-3 bg-white rounded border border-slate-200">
-                                <h3 className="text-xs font-bold text-slate-500 uppercase border-b pb-1 mb-2">Área da Ocorrência (Protocolo)</h3>
-                                <p className="text-[11px] text-slate-500 -mt-2 mb-2">Define a unidade no protocolo. Se não preenchido, usará a unidade da aeronave, e por último, a do piloto.</p>
-                                <div className="grid grid-cols-2 gap-3">
-                                <Select 
-                                    label="CRBM da Área" 
-                                    value={formData.op_crbm} 
-                                    onChange={e => setFormData({...formData, op_crbm: e.target.value, op_unit: ''})}
-                                >
-                                    <option value="">(Padrão: Unidade do Drone)</option>
-                                    {Object.keys(ORGANIZATION_CHART).map(crbm => <option key={crbm} value={crbm}>{crbm}</option>)}
-                                </Select>
-                                <Select 
-                                    label="Unidade da Área" 
-                                    value={formData.op_unit} 
-                                    disabled={!formData.op_crbm}
-                                    onChange={e => {
-                                        const selectedUnit = e.target.value;
-                                        const unitCoords = UNIT_GEO[selectedUnit];
-                                
-                                        setFormData(prev => {
-                                            if (unitCoords) {
-                                                const [lat, lng] = unitCoords;
-                                                return {
-                                                    ...prev,
-                                                    op_unit: selectedUnit,
-                                                    latitude: lat,
-                                                    longitude: lng,
-                                                };
-                                            } else {
-                                                return { ...prev, op_unit: selectedUnit };
-                                            }
-                                        });
-                                    }}
-                                >
-                                    <option value="">Selecione...</option>
-                                    {formData.op_crbm && ORGANIZATION_CHART[formData.op_crbm as keyof typeof ORGANIZATION_CHART]?.map((unit: string) => <option key={unit} value={unit}>{unit}</option>)}
-                                </Select>
-                                </div>
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-3">
-                                <Select 
-                                    label="Natureza da Missão" 
-                                    value={formData.mission_type} 
-                                    onChange={e => setFormData({...formData, mission_type: e.target.value as MissionType})}
-                                >
-                                    {Object.entries(MISSION_HIERARCHY).map(([key, value]) => (
-                                        <option key={key} value={key}>{value.label}</option>
-                                    ))}
-                                </Select>
-                                {currentSubtypes.length > 0 ? (
-                                    <Select
-                                        label="Sub-classificação"
-                                        value={formData.sub_mission_type}
-                                        onChange={e => setFormData({...formData, sub_mission_type: e.target.value})}
-                                    >
-                                        <option value="">Selecione...</option>
-                                        {currentSubtypes.map(sub => (
-                                            <option key={sub} value={sub}>{sub}</option>
-                                        ))}
-                                    </Select>
-                                ) : (
-                                    <Input 
-                                        label="Sub-classificação" 
-                                        value={formData.sub_mission_type} 
-                                        onChange={e => setFormData({...formData, sub_mission_type: e.target.value})}
-                                        placeholder="Especifique"
-                                    />
-                                )}
-                            </div>
-
-                            <div className="space-y-3 p-3 bg-white rounded border border-slate-200">
-                                <h3 className="text-xs font-bold text-slate-500 uppercase border-b pb-1 mb-2">Equipe e Responsáveis</h3>
-                                <Input 
-                                    label="Piloto em Comando (PIC) *" 
-                                    list="pilots-list" 
-                                    value={formData.pilot_name} 
-                                    onChange={e => {
-                                        const val = e.target.value;
-                                        const found = pilots.find(p => p.full_name === val);
-                                        setFormData(prevFormData => ({
-                                            ...prevFormData, 
-                                            pilot_name: val, 
-                                            pilot_id: found ? found.id : '',
-                                        }));
-                                    }}
-                                    placeholder="Digite para buscar..."
-                                />
-                                <div className="grid grid-cols-2 gap-3">
-                                    <Input 
-                                        label="2º Piloto (Opcional)" 
-                                        list="pilots-list"
-                                        value={formData.second_pilot_name || ''} 
-                                        onChange={e => {
-                                            const val = e.target.value;
-                                            const found = pilots.find(p => p.full_name === val);
-                                            setFormData({...formData, second_pilot_name: val, second_pilot_id: found ? found.id : ''});
-                                        }}
-                                        placeholder="Nome"
-                                    />
-                                    <Input 
-                                        label="Observador (Opcional)"
-                                        value={formData.observer_name || ''} 
-                                        onChange={e => setFormData({...formData, observer_name: e.target.value, observer_id: ''})}
-                                        placeholder="Digite o nome (não cadastrado)"
-                                    />
-                                </div>
-                            </div>
-                            
-                            {/* GEOLOCATION */}
-                            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-4">
-                               <h3 className="text-sm font-bold text-slate-700">Geolocalização</h3>
-                               <div className="grid grid-cols-2 gap-3">
-                                  <Input label="Latitude (Ponto Principal)" type="number" step="any" value={formData.latitude} onChange={e => setFormData({...formData, latitude: parseFloat(e.target.value) || 0})} className="bg-white" />
-                                  <Input label="Longitude (Ponto Principal)" type="number" step="any" value={formData.longitude} onChange={e => setFormData({...formData, longitude: parseFloat(e.target.value) || 0})} className="bg-white" />
-                               </div>
-                               <div className="grid grid-cols-2 gap-3">
-                                  <Input label="Raio (m)" type="number" value={formData.radius} onChange={e => setFormData({...formData, radius: Number(e.target.value)})}/>
-                                  <Input label="Altitude Máx (m)" type="number" value={formData.flight_altitude} onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})}/>
-                               </div>
-                               
-                               {/* MÚLTIPLOS PONTOS (LAYOUT AJUSTADO) */}
-                               <div className="space-y-3 pt-3 border-t">
-                                  <h4 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-                                     <Layers className="w-4 h-4" /> Pontos de Interesse / Decolagem
-                                  </h4>
-                                  
-                                  {formData.takeoff_points?.map((point, index) => (
-                                     <div key={index} className="grid grid-cols-12 gap-1 items-end bg-white p-2 rounded border shadow-sm">
-                                        <div className="col-span-1 text-center font-bold text-slate-400 mb-2">#{index+1}</div>
-                                        <div className="col-span-3">
-                                          <Input label="Lat" type="number" step="any" value={point.lat} onChange={e => handlePointChange(index, 'lat', e.target.value)} className="text-[10px] h-8 px-1" labelClassName="text-[9px]" />
-                                        </div>
-                                        <div className="col-span-3">
-                                          <Input label="Lng" type="number" step="any" value={point.lng} onChange={e => handlePointChange(index, 'lng', e.target.value)} className="text-[10px] h-8 px-1" labelClassName="text-[9px]" />
-                                        </div>
-                                        <div className="col-span-2">
-                                          <Input label="Alt(m)" type="number" value={point.alt} onChange={e => handlePointChange(index, 'alt', e.target.value)} className="text-[10px] h-8 px-1" labelClassName="text-[9px]" />
-                                        </div>
-                                        <div className="col-span-3 flex gap-1 mb-0.5">
-                                            <Button type="button" variant="outline" size="sm" onClick={() => setSelectingPointIndex(index)} className="flex-1 h-8 p-0 bg-white border-slate-200 text-blue-600 hover:bg-blue-50" title="Definir no Mapa">
-                                              <MapPin className="w-4 h-4"/>
-                                            </Button>
-                                            <Button type="button" variant="outline" size="sm" onClick={() => handleRemovePoint(index)} className="flex-1 h-8 p-0 border-red-200 text-red-500 hover:bg-red-50 hover:border-red-300" title="Remover">
-                                              <Trash2 className="w-4 h-4"/>
-                                            </Button>
-                                        </div>
-                                     </div>
-                                  ))}
-                                  <Button type="button" variant="outline" size="sm" onClick={handleAddPoint} className="w-full bg-slate-100 border-dashed border-2 hover:bg-slate-200 transition-colors">
-                                     <Plus className="w-4 h-4 mr-2" /> Adicionar Ponto de Interesse
-                                  </Button>
-                               </div>
-                            </div>
-
-
-                            <div className="space-y-2">
-                                <label className="text-xs font-bold text-slate-500 uppercase border-b pb-1 block">Data e Horário</label>
-                                <Input label="Data da Ocorrência" type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="bg-white border-blue-200"/>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <Input label="Início (Local)" type="time" value={formData.start_time_local} onChange={e => setFormData({...formData, start_time_local: e.target.value})}/>
-                                    <Input label="Término Previsto" type="time" value={formData.end_time_local} onChange={e => setFormData({...formData, end_time_local: e.target.value})}/>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label className="text-sm font-medium text-slate-700 block mb-1">Descrição / Notas</label>
-                                <textarea className="w-full p-2 border border-slate-300 rounded text-sm h-24 resize-none focus:ring-2 focus:ring-blue-500 outline-none bg-white" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Detalhes da operação..."/>
-                            </div>
-
-                            <Input label="Link de Transmissão (Opcional)" placeholder="RTMP / YouTube / DroneDeploy" value={formData.stream_url} onChange={e => setFormData({...formData, stream_url: e.target.value})}/>
-
-                            <div className="space-y-4 py-2 border-t border-b border-slate-100 my-2">
-                                {/* ... SARPAS & SUMMER OPS CHECKBOXES ... */}
-                                <div className="bg-white p-4 rounded-lg border border-slate-200">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <label className="flex items-center gap-2 font-bold text-slate-700 text-sm">
-                                            <Send className="w-4 h-4 text-blue-600" />
-                                            Integração SARPAS
-                                        </label>
-                                        <Badge variant="warning" className="text-[10px] flex items-center gap-1">
-                                            <Hammer className="w-3 h-3" /> Em Construção
-                                        </Badge>
-                                    </div>
-                                    <Input label="Protocolo SARPAS (Manual)" placeholder="Ex: BR-2024-..." value={formData.sarpas_protocol} onChange={e => setFormData({...formData, sarpas_protocol: e.target.value})} className="bg-white" labelClassName="text-xs text-slate-500 font-normal"/>
-                                </div>
-
-                                <div className="bg-white p-4 rounded-lg border border-slate-200">
-                                    <label className="flex items-center gap-3 cursor-pointer mb-2">
-                                        <input type="checkbox" className="w-5 h-5 accent-orange-600" checked={isSummerOp} onChange={e => setIsSummerOp(e.target.checked)}/>
-                                        <div>
-                                            <span className="font-bold text-slate-800 text-sm block flex items-center gap-2">
-                                                <Sun className="w-4 h-4 text-orange-600" />
-                                                Vincular à Operação Verão
-                                            </span>
-                                        </div>
-                                    </label>
-                                    {isSummerOp && (
-                                        <div className="grid grid-cols-2 gap-2 mt-2 animate-fade-in pl-8">
-                                            <Select value={summerCity} onChange={e => { setSummerCity(e.target.value); setSummerPost(""); }} className="text-xs">
-                                                <option value="">Selecione a Cidade...</option>
-                                                {Object.keys(SUMMER_LOCATIONS).map(city => <option key={city} value={city}>{city}</option>)}
-                                            </Select>
-                                            <Select value={summerPost} onChange={e => setSummerPost(e.target.value)} className="text-xs" disabled={!summerCity}>
-                                                <option value="">Selecione o Posto...</option>
-                                                {summerCity && SUMMER_LOCATIONS[summerCity as keyof typeof SUMMER_LOCATIONS]?.map(post => <option key={post} value={post}>{post}</option>)}
-                                            </Select>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="bg-white p-4 rounded-lg border border-slate-200">
-                                    <label className="flex items-center gap-3 cursor-pointer">
-                                        <input type="checkbox" className="w-5 h-5 accent-blue-600" checked={formData.is_multi_day} onChange={e => setFormData({...formData, is_multi_day: e.target.checked})}/>
-                                        <div>
-                                            <span className="font-bold text-slate-800 text-sm block">A ocorrência vai se estender por mais de um dia?</span>
-                                            <span className="text-xs text-slate-500">Habilita a aba "Diário Operacional" após salvar.</span>
-                                        </div>
-                                    </label>
-                                </div>
-                            </div>
-                            
-                            <div className="sticky bottom-0 bg-white pt-4 border-t border-slate-100 flex gap-3">
-                                <Button type="button" variant="outline" onClick={handleCancelForm} className="flex-1">Cancelar</Button>
-                                <Button type="submit" className="flex-1" disabled={loading}>{loading ? 'Salvando...' : 'Salvar'}</Button>
-                            </div>
-                        </form>
-                    ) : (
-                        <OperationDailyLog operationId={isEditing!} pilots={pilots} drones={drones} currentUser={currentUser} />
-                    )}
+                    </div>
+                    <form onSubmit={e => { e.preventDefault(); performSave(); }} className="space-y-4">
+                        <Input label="Nome da Operação" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required placeholder="Ex: Incêndio em Vegetação - Morretes" />
+                        <div className="grid grid-cols-2 gap-4">
+                           <Input label="Nº Ocorrência" value={formData.occurrence_number} onChange={e => setFormData({...formData, occurrence_number: e.target.value})} placeholder="Opcional" />
+                           <Select label="Natureza" value={formData.mission_type} onChange={e => setFormData({...formData, mission_type: e.target.value as any})} required>
+                              {Object.entries(MISSION_HIERARCHY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                           </Select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <Select label="Aeronave" value={formData.drone_id} onChange={e => setFormData({...formData, drone_id: e.target.value})} required>
+                              <option value="">Selecione...</option>
+                              {drones.filter(d => d.status === 'available' || d.id === formData.drone_id).map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
+                          </Select>
+                          <Select label="Piloto Comandante" value={formData.pilot_id} onChange={e => setFormData({...formData, pilot_id: e.target.value})} required>
+                              <option value="">Selecione...</option>
+                              {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                          </Select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                           <Input label="Raio (m)" type="number" value={formData.radius} onChange={e => setFormData({...formData, radius: Number(e.target.value)})} />
+                           <Input label="Altitude (m)" type="number" value={formData.flight_altitude} onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})} />
+                        </div>
+                        <div className="pt-6 border-t flex gap-3">
+                           <Button variant="outline" className="flex-1" type="button" onClick={() => { setIsCreating(false); setIsEditing(null); }}>Cancelar</Button>
+                           <Button type="submit" className="flex-1 bg-red-700 text-white font-bold" disabled={loading}>{isEditing ? 'Atualizar' : 'Iniciar Operação'}</Button>
+                        </div>
+                    </form>
                 </div>
-            </>
             ) : (
-            <>
-                <div className="p-4 border-b flex flex-col gap-4 bg-white shrink-0">
-                    <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                            <h2 className="font-bold text-lg text-slate-800">Operações</h2>
-                            <button onClick={() => setIsPanelCollapsed(true)} className="p-1 hover:bg-slate-200 rounded text-slate-500 ml-2 lg:hidden"><ChevronsRight className="w-5 h-5" /></button>
-                        </div>
-                        <Button onClick={() => { setFormData(initialFormState); setIsCreating(true); setIsPanelCollapsed(false); }} size="sm"><Plus className="w-4 h-4 mr-1" /> Nova</Button>
+                <>
+                    {/* SIDEBAR HEADER */}
+                    <div className="p-6 border-b bg-white shrink-0 flex justify-between items-center">
+                        <h2 className="text-2xl font-bold text-slate-800">Operações</h2>
+                        <Button onClick={() => { setFormData(initialFormState); setIsCreating(true); setIsEditing(null); }} className="bg-red-700 hover:bg-red-800 text-white h-10 px-6 font-bold shadow-md">
+                          <Plus className="w-5 h-5 mr-2" /> Nova
+                        </Button>
                     </div>
-                    <div className="flex bg-slate-100 p-1 rounded-lg">
-                        <button className={`flex-1 py-1.5 text-xs font-bold rounded-md ${activeTab === 'active' ? 'bg-white text-green-700 shadow-sm' : 'text-slate-500'}`} onClick={() => setActiveTab('active')}>Ativas</button>
-                        <button className={`flex-1 py-1.5 text-xs font-bold rounded-md ${activeTab === 'history' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500'}`} onClick={() => setActiveTab('history')}>Histórico</button>
-                    </div>
-                </div>
-                <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                    {displayedOps.map(op => (
-                        <div key={op.id} className={`bg-white border rounded-lg p-3 hover:shadow-md transition-shadow relative border-l-4 ${op.is_paused ? 'border-l-amber-500 bg-amber-50/20' : 'border-l-green-500'}`}>
-                            <div className="flex justify-between items-start mb-1">
-                                <h3 className="font-bold text-slate-800 text-sm truncate pr-2">{op.name}</h3>
-                                {op.status === 'completed' ? (
-                                    <Badge className="bg-slate-200 text-slate-700 text-[10px] uppercase">Encerrada</Badge>
-                                ) : op.is_paused ? (
-                                    <Badge variant="warning" className="text-[9px] uppercase animate-pulse">Pausada</Badge>
-                                ) : (
-                                    <Badge variant="success" className="text-[10px] uppercase">Ativa</Badge>
-                                )}
-                            </div>
-                            <div className="text-xs text-slate-500 space-y-1">
-                                <div className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(op.start_time).toLocaleString()}</div>
-                                <div className="flex items-center gap-1"><User className="w-3 h-3" /> {op.pilot_name || 'N/I'}</div>
-                            </div>
-                            {/* Action Buttons Row - Only show active actions if operational is active */}
-                            <div className="mt-3 flex gap-2 border-t pt-2">
-                                <Button variant="outline" size="sm" className="h-8 w-8 p-0 border-blue-200 text-blue-600 hover:bg-blue-50" onClick={() => handleShareOp(op)} title="Compartilhar WhatsApp">
-                                    <Share2 className="w-3 h-3" />
-                                </Button>
-                                
-                                {activeTab === 'active' && op.status === 'active' && (
-                                    <>
-                                        <Button 
-                                            variant="outline" 
-                                            size="sm" 
-                                            className={`h-8 w-8 p-0 ${op.is_paused ? 'border-green-300 text-green-700 bg-green-50 hover:bg-green-100' : 'border-amber-300 text-amber-600 hover:bg-amber-50'}`} 
-                                            onClick={() => handleTogglePause(op)} 
-                                            title={op.is_paused ? "Retomar Operação" : "Pausar Operação"}
-                                        >
-                                            {op.is_paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
-                                        </Button>
 
-                                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => handleStartEdit(op)} title="Editar"><Pencil className="w-3 h-3" /></Button>
-                                        <Button size="sm" className="flex-1 h-8 text-xs bg-slate-800 text-white" onClick={() => setIsFinishing(op)}><CheckSquare className="w-3 h-3 mr-1" /> Encerrar</Button>
-                                    </>
-                                )}
+                    {/* ABAS ATIVAS / HISTÓRICO */}
+                    <div className="px-6 py-4 bg-slate-50 shrink-0">
+                       <div className="bg-slate-200 p-1 rounded-lg flex gap-1">
+                          <button 
+                            onClick={() => setActiveTab('active')}
+                            className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'active' ? 'bg-white text-green-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                          >
+                            Ativas
+                          </button>
+                          <button 
+                            onClick={() => setActiveTab('history')}
+                            className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'history' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                          >
+                            Histórico
+                          </button>
+                       </div>
+                    </div>
+
+                    {/* LISTA DE CARDS */}
+                    <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                        {displayedOps.map(op => {
+                            const pilot = pilots.find(p => p.id === op.pilot_id);
+                            const isPaused = op.is_paused;
+                            const leftBorderColor = isPaused ? 'border-l-amber-500' : 'border-l-red-600';
+
+                            return (
+                                <Card key={`op-list-${op.id}`} className={`bg-white border rounded-xl overflow-hidden shadow-md border-l-4 ${leftBorderColor} hover:shadow-lg transition-all`}>
+                                    <div className="p-5">
+                                        <div className="flex justify-between items-start mb-3">
+                                            <h3 className="font-bold text-slate-800 text-lg leading-tight flex-1 pr-4">{op.name}</h3>
+                                            <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${isPaused ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700 animate-pulse'}`}>
+                                                {isPaused ? 'PAUSADA' : 'EM ANDAMENTO'}
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-1.5 mb-6">
+                                            <div className="flex items-center gap-2 text-slate-500 text-sm">
+                                                <Clock className="w-4 h-4" />
+                                                <span>{new Date(op.start_time).toLocaleString()}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-slate-500 text-sm">
+                                                <User className="w-4 h-4" />
+                                                <span>{pilot?.full_name || 'N/A'}</span>
+                                            </div>
+                                        </div>
+
+                                        {op.status === 'active' && (
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <button 
+                                                  onClick={() => handleShareOp(op)}
+                                                  className="p-2.5 rounded-lg border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+                                                  title="Compartilhar"
+                                                >
+                                                  <Share2 className="w-5 h-5" />
+                                                </button>
+                                                <button 
+                                                  onClick={() => handleTogglePause(op)}
+                                                  className={`p-2.5 rounded-lg border transition-colors ${isPaused ? 'bg-green-50 text-green-600 border-green-100 hover:bg-green-100' : 'bg-slate-50 text-slate-600 border-slate-100 hover:bg-slate-100'}`}
+                                                  title={isPaused ? "Continuar" : "Pausar"}
+                                                >
+                                                  {isPaused ? <PlayCircle className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
+                                                </button>
+                                                <button 
+                                                  onClick={() => { setFormData({...op, occurrence_number: op.occurrence_number || ''}); setIsEditing(op.id); setIsCreating(true); }}
+                                                  className="p-2.5 rounded-lg border border-slate-100 bg-slate-50 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                                                  title="Editar Detalhes"
+                                                >
+                                                  <Pencil className="w-5 h-5" />
+                                                </button>
+                                                
+                                                <div className="flex-1 flex gap-2">
+                                                  <Button 
+                                                    onClick={() => setIsCancelling(op)}
+                                                    className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold h-11 border-none"
+                                                  >
+                                                    <XCircle className="w-4 h-4 mr-1.5" />
+                                                    Cancelar
+                                                  </Button>
+                                                  <Button 
+                                                    onClick={() => setIsFinishing(op)}
+                                                    className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold h-11 border-none"
+                                                  >
+                                                    <CheckSquare className="w-4 h-4 mr-1.5" />
+                                                    Encerrar
+                                                  </Button>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {op.status !== 'active' && (
+                                            <Badge variant={op.status === 'completed' ? 'success' : 'danger'}>{op.status.toUpperCase()}</Badge>
+                                        )}
+                                    </div>
+                                </Card>
+                            );
+                        })}
+                        {displayedOps.length === 0 && (
+                            <div className="text-center py-20 text-slate-400 italic">
+                               Nenhuma operação {activeTab === 'active' ? 'ativa' : 'no histórico'}.
                             </div>
-                        </div>
-                    ))}
-                </div>
-            </>
+                        )}
+                    </div>
+                </>
             )}
         </div>
       </div>
-      <datalist id="pilots-list">
-        {pilots.filter(p => p.status === 'active').map(p => <option key={p.id} value={p.full_name} />)}
-      </datalist>
     </div>
   );
 }

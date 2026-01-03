@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
 import { base44 } from '../services/base44Client';
 import { Card, Button, Badge } from '../components/ui_components';
-import { Database, CheckCircle, AlertCircle, Play, History, Search, Filter, Copy, Terminal } from 'lucide-react';
+import { Database, CheckCircle, AlertCircle, Play, History, Search, Filter, Copy, Terminal, ShieldAlert } from 'lucide-react';
 
 interface SchemaMigration {
   id: string;
@@ -10,96 +11,61 @@ interface SchemaMigration {
 
 const ALL_UPDATES = [
   {
-    id: 'inventory_and_cautela_system_v1.2',
-    title: 'Módulo de Almoxarifado e Cautelas (v1.2)',
-    description: 'Cria as tabelas de Materiais, Termos de Cautela e seus itens associados. Essencial para o gerenciamento de custódia.',
-    category: 'system',
+    id: 'drone_documents_system_v1.0',
+    title: 'Módulo de Pasta Digital de Aeronaves',
+    description: 'Adiciona suporte ao armazenamento de URLs de documentos (Prefácio, Manuais, Checklists) na tabela de drones via campo JSONB.',
+    category: 'ops',
     sql: `
--- 1. TABELA DE MATERIAIS (ALMOXARIFADO)
-CREATE TABLE IF NOT EXISTS public.materials (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    drone_id uuid REFERENCES public.drones(id) ON DELETE CASCADE,
-    type text NOT NULL,
-    name text NOT NULL,
-    quantity integer DEFAULT 1,
-    serial_number text,
-    status text DEFAULT 'new',
-    purchase_date date,
-    notes text,
-    created_at timestamp with time zone DEFAULT now()
-);
+-- 1. ADICIONA COLUNA DE DOCUMENTOS NA TABELA DRONES
+ALTER TABLE public.drones ADD COLUMN IF NOT EXISTS documents jsonb DEFAULT '{}'::jsonb;
 
--- 2. TABELAS DE ESTATÍSTICAS DE MATERIAIS
-CREATE TABLE IF NOT EXISTS public.battery_stats (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    material_id uuid REFERENCES public.materials(id) ON DELETE CASCADE,
-    cycles integer DEFAULT 0,
-    max_cycles integer DEFAULT 200,
-    capacity_mah integer,
-    voltage_v float,
-    health_percent integer DEFAULT 100
-);
+-- 2. GARANTE PERMISSÕES DE ESCRITA PARA PILOTOS AUTENTICADOS (NECESSÁRIO PARA UPLOAD)
+-- Se já houver uma política de UPDATE, garanta que ela cubra esta coluna.
+-- Exemplo de correção de RLS (se necessário):
+-- DROP POLICY IF EXISTS "Permitir atualização de drones" ON public.drones;
+-- CREATE POLICY "Permitir atualização de drones" ON public.drones FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
 
-CREATE TABLE IF NOT EXISTS public.propeller_stats (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    material_id uuid REFERENCES public.materials(id) ON DELETE CASCADE,
-    hours_flown float DEFAULT 0,
-    max_hours float DEFAULT 100,
-    size_inch text,
-    pitch text,
-    position text
-);
+-- 3. RECARREGA O SCHEMA
+NOTIFY pgrst, 'reload schema';
+`
+  },
+  {
+    id: 'operation_cancellation_v1.0',
+    title: 'Suporte a Cancelamento de Ocorrências',
+    description: 'Atualiza a tabela de operações para permitir o status "cancelled" e garantir que o campo de horas aceite valores zerados para estas ocorrências.',
+    category: 'ops',
+    sql: `
+-- 1. ATUALIZA A RESTRIÇÃO DE STATUS NA TABELA OPERATIONS
+ALTER TABLE public.operations DROP CONSTRAINT IF EXISTS operations_status_check;
+ALTER TABLE public.operations ADD CONSTRAINT operations_status_check CHECK (status IN ('active', 'completed', 'cancelled'));
 
--- 3. TABELA DE TERMOS DE CAUTELA
-CREATE TABLE IF NOT EXISTS public.termos_cautela (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    drone_id uuid REFERENCES public.drones(id) ON DELETE CASCADE,
-    pilot_id uuid REFERENCES public.profiles(id) ON DELETE CASCADE,
-    unidade_nome text NOT NULL,
-    patrimonio text,
-    data_inicio date NOT NULL,
-    tempo_dias integer,
-    tempo_indeterminado boolean DEFAULT true,
-    assinatura_eletronica text,
-    data_hora_assinatura timestamp with time zone,
-    status text DEFAULT 'GERADA' CHECK (status IN ('GERADA', 'ASSINADA', 'ENCERRADA')),
-    created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
-);
+-- 2. GARANTE QUE AS COLUNAS DE TEMPO SUPORTEM FLOATS (CASO AINDA NÃO SUPORTEM)
+ALTER TABLE public.operations ALTER COLUMN total_pause_duration TYPE float USING total_pause_duration::float;
+ALTER TABLE public.operations ALTER COLUMN flight_hours TYPE float USING flight_hours::float;
 
--- 4. TABELA DE ITENS VINCULADOS AO TERMO (SNAPSHOT)
-CREATE TABLE IF NOT EXISTS public.termo_cautela_itens (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    termo_cautela_id uuid REFERENCES public.termos_cautela(id) ON DELETE CASCADE,
-    item_almoxarifado_id uuid REFERENCES public.materials(id) ON DELETE CASCADE,
-    created_at timestamp with time zone DEFAULT now()
-);
+-- 3. RECARREGA SCHEMA
+NOTIFY pgrst, 'reload schema';
+`
+  },
+  {
+    id: 'pilot_validation_system_v1.0',
+    title: 'Sistema de Validação de Pilotos',
+    description: 'Atualiza a tabela de perfis para suportar o status "pending" (pendente) e define este como o padrão para novos registros via página de login.',
+    category: 'auth',
+    sql: `
+-- 1. ATUALIZA A RESTRIÇÃO DE STATUS NA TABELA PROFILES
+ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_status_check;
+ALTER TABLE public.profiles ADD CONSTRAINT profiles_status_check CHECK (status IN ('active', 'inactive', 'pending'));
 
--- 5. HABILITAR RLS E CONFIGURAR PERMISSÕES
-ALTER TABLE public.materials ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.battery_stats ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.propeller_stats ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.termos_cautela ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.termo_cautela_itens ENABLE ROW LEVEL SECURITY;
+-- 2. DEFINE 'PENDING' COMO VALOR PADRÃO PARA NOVOS REGISTROS
+ALTER TABLE public.profiles ALTER COLUMN status SET DEFAULT 'pending';
 
--- POLÍTICAS DE ACESSO (PERMITIR LEITURA PARA TODOS AUTENTICADOS)
+-- 3. GARANTE QUE O CAMPO STATUS EXISTA (CASO NÃO EXISTA)
 DO $$ BEGIN
-    CREATE POLICY "Acesso Leitura Materiais" ON public.materials FOR SELECT TO authenticated USING (true);
-    CREATE POLICY "Acesso Leitura Cautelas" ON public.termos_cautela FOR SELECT TO authenticated USING (true);
-    CREATE POLICY "Acesso Leitura Itens Cautela" ON public.termo_cautela_itens FOR SELECT TO authenticated USING (true);
+    ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS status text DEFAULT 'pending';
 EXCEPTION WHEN others THEN NULL; END $$;
 
--- POLÍTICAS DE ADMIN
-DO $$ BEGIN
-    CREATE POLICY "Admins Gerenciam Materiais" ON public.materials FOR ALL TO authenticated USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
-    CREATE POLICY "Admins Gerenciam Cautelas" ON public.termos_cautela FOR ALL TO authenticated USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
-EXCEPTION WHEN others THEN NULL; END $$;
-
--- POLÍTICA PARA ASSINATURA DE PILOTOS
-DO $$ BEGIN
-    CREATE POLICY "Pilotos Assinam Suas Cautelas" ON public.termos_cautela FOR UPDATE TO authenticated USING (pilot_id = auth.uid());
-EXCEPTION WHEN others THEN NULL; END $$;
-
+-- 4. ATUALIZA O CACHE DO SISTEMA
 NOTIFY pgrst, 'reload schema';
 `
   }
@@ -181,13 +147,6 @@ export default function DatabaseUpdates() {
                          <Copy className="w-3.5 h-3.5 mr-1.5" /> Copiar
                        </Button>
                     </div>
-                  </div>
-                  <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
-                     <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                     <p className="text-xs text-amber-800 leading-relaxed">
-                        <strong>Instrução:</strong> Copie o código acima e execute no <strong>SQL Editor</strong> do painel administrativo do Supabase. 
-                        Após executar, atualize a página do SYSARP para ativar as novas funções.
-                     </p>
                   </div>
                 </div>
               )}

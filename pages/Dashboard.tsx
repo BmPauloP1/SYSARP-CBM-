@@ -1,11 +1,12 @@
+
 import React, { useEffect, useState, useCallback, memo, useRef, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
-import { supabase, isConfigured } from "../services/supabase";
 import { Operation, Drone, Pilot, Maintenance, MISSION_HIERARCHY, ConflictNotification } from "../types";
-import { Badge, Button } from "../components/ui_components";
-import { Radio, Video, AlertTriangle, Map as MapIcon, Wrench, List, Shield, Check, Info, Share2, User, Plane, Building2 } from "lucide-react";
+import { Badge, Button, Card } from "../components/ui_components";
+import { Radio, Video, AlertTriangle, Map as MapIcon, Wrench, List, Shield, Check, Info, Share2, User, Plane, Building2, UserCheck } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 // Fix Leaflet icons
 const icon = L.icon({
@@ -18,76 +19,63 @@ const icon = L.icon({
   shadowSize: [41, 41]
 });
 
-// Helper for valid coordinates
-const isValidCoord = (lat: number, lng: number) => {
-  return !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0;
+const isValidCoord = (lat: any, lng: any) => {
+  const nLat = Number(lat);
+  const nLng = Number(lng);
+  return !isNaN(nLat) && !isNaN(nLng) && nLat !== 0 && nLng !== 0;
 };
 
-// Componente para controlar o mapa (Otimizado)
 const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
   const map = useMap();
   const [positionFound, setPositionFound] = useState(false);
+  const lastBoundsRef = useRef<string>("");
 
   useEffect(() => {
-    // 1. Correção de Renderização (Bug do Leaflet em Flexbox)
-    let frameId: number;
-    const resizeMap = () => {
-       if (map && map.getContainer()) {
-          try { map.invalidateSize(); } catch(e) {}
-       }
-    };
-    
-    const timer = setTimeout(() => {
-       frameId = requestAnimationFrame(resizeMap);
-    }, 100);
+    if (!map) return;
 
-    // 2. Lógica de Foco Automático
-    if (map) {
-      const validOps = activeOps.filter(op => {
-         const lat = Number(op.latitude);
-         const lng = Number(op.longitude);
-         return isValidCoord(lat, lng);
-      });
+    const timer = setTimeout(() => {
+       if (map.getContainer()) {
+          map.invalidateSize();
+       }
+    }, 250);
+
+    const validOps = activeOps.filter(op => isValidCoord(op.latitude, op.longitude));
+    
+    if (validOps.length > 0) {
+      const bounds = L.latLngBounds(validOps.map(op => [Number(op.latitude), Number(op.longitude)]));
+      const boundsKey = bounds.toBBoxString();
       
-      if (validOps.length > 0) {
-        // Se tem operações ativas, foca nelas
-        const bounds = L.latLngBounds(validOps.map(op => [Number(op.latitude), Number(op.longitude)]));
-        if (bounds.isValid()) {
-            map.fitBounds(bounds, { 
+      // Só aplica fitBounds se as fronteiras mudaram significativamente
+      if (bounds.isValid() && boundsKey !== lastBoundsRef.current) {
+          lastBoundsRef.current = boundsKey;
+          map.fitBounds(bounds, { 
             padding: [50, 50], 
             maxZoom: 15,
             animate: true 
-            });
-            setPositionFound(true);
-        }
-      } else if (!positionFound && "geolocation" in navigator) {
-        // Se não tem operações, tenta pegar a localização do usuário
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            if (!map || !map.getContainer()) return;
-            const { latitude, longitude } = position.coords;
-            map.setView([latitude, longitude], 10);
-            setPositionFound(true);
-          },
-          (error) => {
-            console.warn("Geolocalização bloqueada:", error.message);
-            // Default view já está no MapContainer
-          },
-          { timeout: 10000, maximumAge: 60000 }
-        );
+          });
+          setPositionFound(true);
       }
+    } else if (!positionFound && "geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          if (!map || !map.getContainer()) return;
+          const { latitude, longitude } = position.coords;
+          map.setView([latitude, longitude], 10);
+          setPositionFound(true);
+        },
+        null,
+        { timeout: 5000 }
+      );
     }
 
-    return () => {
-      clearTimeout(timer);
-      cancelAnimationFrame(frameId);
-    };
-  }, [map, activeOps, positionFound]);
+    return () => clearTimeout(timer);
+  }, [map, activeOps]);
 
   return null;
 });
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [activeOps, setActiveOps] = useState<Operation[]>([]);
   const [recentOps, setRecentOps] = useState<Operation[]>([]);
   const [maintenanceAlerts, setMaintenanceAlerts] = useState<Maintenance[]>([]);
@@ -95,6 +83,7 @@ export default function Dashboard() {
   const [liveStreams, setLiveStreams] = useState<Operation[]>([]);
   const [drones, setDrones] = useState<Drone[]>([]);
   const [pilots, setPilots] = useState<Pilot[]>([]);
+  const [pendingPilotsCount, setPendingPilotsCount] = useState(0);
   const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   
   const isMounted = useRef(true);
@@ -112,6 +101,7 @@ export default function Dashboard() {
       if (!isMounted.current) return;
 
       const active = ops.filter(o => o.status === 'active');
+      const pendingCount = pils.filter(p => p.status === 'pending').length;
       
       setCurrentUser(me);
       setActiveOps(active);
@@ -120,193 +110,91 @@ export default function Dashboard() {
       setLiveStreams(active.filter(o => o.stream_url));
       setDrones(drn);
       setPilots(pils);
+      setPendingPilotsCount(pendingCount);
 
       if (me) {
           const conflicts = await base44.entities.ConflictNotification.filter({ target_pilot_id: me.id, acknowledged: false });
           if(isMounted.current) setConflictAlerts(conflicts);
       }
     } catch (e: any) {
-      if (e.message && e.message.includes("Failed to fetch")) {
-         // Silent fail
-      } else {
-         console.warn("Dashboard partial load error:", e.message);
-      }
+      console.warn("Dashboard load error:", e.message);
     }
   }, []);
 
   useEffect(() => {
     isMounted.current = true;
     loadData();
-    return () => {
-        isMounted.current = false;
-    };
+    return () => { isMounted.current = false; };
   }, [loadData]);
-
-  // Realtime Subscriptions
-  useEffect(() => {
-    if (!isConfigured || !currentUser) return;
-
-    const opsChannel = supabase
-      .channel('dashboard_ops_monitor')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'operations' },
-        (payload) => {
-           console.log("Realtime Ops Update: reloading dashboard data.", payload);
-           loadData();
-        }
-      )
-      .subscribe();
-      
-    const conflictsChannel = supabase
-      .channel('dashboard_conflicts_monitor')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'conflict_notifications',
-          filter: `target_pilot_id=eq.${currentUser.id}`
-        },
-        (payload) => {
-           console.log("Realtime Conflict Update: reloading dashboard data.", payload);
-           loadData();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(opsChannel);
-      supabase.removeChannel(conflictsChannel);
-    };
-  }, [currentUser, loadData]);
 
   const handleAckConflict = async (id: string) => {
      try {
          await base44.entities.ConflictNotification.update(id, { acknowledged: true });
          setConflictAlerts(prev => prev.filter(c => c.id !== id));
-     } catch (e) {
-         console.error(e);
-     }
-  };
-
-  const showConflictDetails = (alert: ConflictNotification) => {
-      window.alert(
-          `DETALHES DA OCORRÊNCIA CONFLITANTE:\n\n` +
-          `Operação: ${alert.new_op_name}\n` +
-          `Piloto: ${alert.new_pilot_name}\n` +
-          `Telefone: ${alert.new_pilot_phone || 'Não informado'}\n` +
-          `Altitude: ${alert.new_op_altitude}m\n` +
-          `Raio: ${alert.new_op_radius}m\n\n` +
-          `Recomendação: Entre em contato imediato via rádio ou telefone para coordenação.`
-      );
+     } catch (e) { console.error(e); }
   };
 
   const handleShareOp = async (op: Operation) => {
-      let pilot = pilots.find(p => p.id === op.pilot_id);
-
-      if (!pilot && op.pilot_id) {
-          try {
-              const fetchedPilots = await base44.entities.Pilot.filter({ id: op.pilot_id });
-              if (fetchedPilots && fetchedPilots.length > 0) pilot = fetchedPilots[0];
-          } catch (e) {
-              console.error(`Fallback fetch for pilot ${op.pilot_id} failed:`, e);
-          }
-      }
-
+      const pilot = pilots.find(p => p.id === op.pilot_id);
       const drone = drones.find(d => d.id === op.drone_id);
-      const operationalUnit = op.op_unit || op.op_crbm || drone?.unit || pilot?.unit || 'N/A';
-      const mapLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
       const streamText = op.stream_url ? `\n📡 *Transmissão:* ${op.stream_url}` : '';
-      const missionLabel = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
       
       const startTime = new Date(op.start_time);
-      const endTime = op.end_time 
-          ? new Date(op.end_time) 
-          : new Date(startTime.getTime() + 2 * 60 * 60 * 1000);
-
-      let locationText = `📍 *Coord:* ${op.latitude}, ${op.longitude}\n` +
-                         `📏 *Parâmetros:* Raio: ${op.radius}m | Altura: ${op.flight_altitude || 'N/A'}m\n`;
-
-      if (op.takeoff_points && op.takeoff_points.length > 0) {
-          locationText = `📍 *Pontos de Interesse:*\n` +
-              op.takeoff_points.map((p, i) => 
-                  `   ${i+1}: Lat ${p.lat.toFixed(5)}, Lng ${p.lng.toFixed(5)} (Alt: ${p.alt}m)`
-              ).join('\n') + `\n📏 *Raio Principal:* ${op.radius}m\n`;
-      }
-      
-      const pilotName = pilot ? pilot.full_name : op.pilot_name || 'N/A';
-      const pilotPhone = pilot ? pilot.phone : 'N/A';
-      
       const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n` +
           `🚁 *Ocorrência:* ${op.name}\n` +
           `🔢 *Protocolo:* ${op.occurrence_number}\n` +
-          `📋 *Natureza:* ${missionLabel}\n` +
-          `👤 *Piloto:* ${pilotName}\n` +
-          `📞 *Contato:* ${pilotPhone}\n` +
-          `🏢 *Unidade (Área):* ${operationalUnit}\n` +
-          `🛸 *Aeronave:* ${drone ? `${drone.model} (${drone.prefix})` : 'N/A'}\n` +
-          `${locationText}` +
-          `🗺️ *Mapa (Ponto Principal):* ${mapLink}\n` +
+          `👤 *Piloto:* ${pilot?.full_name || op.pilot_name || 'N/A'}\n` +
+          `📍 *Coord:* ${op.latitude}, ${op.longitude}\n` +
           `🕒 *Início:* ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
-          `🏁 *Término Previsto:* ${endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
-          `${streamText}\n\n` +
-          `_Enviado via Centro de Comando SYSARP_`;
+          `${streamText}`;
 
-      const encodedText = encodeURIComponent(text);
-      window.open(`https://wa.me/?text=${encodedText}`, '_blank');
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const mapMarkers = useMemo(() => {
     return activeOps.map(op => {
-      const lat = Number(op.latitude);
-      const lng = Number(op.longitude);
-      if (!isValidCoord(lat, lng)) return null;
+      if (!isValidCoord(op.latitude, op.longitude)) return null;
 
       const pilot = pilots.find(p => p.id === op.pilot_id);
       const drone = drones.find(d => d.id === op.drone_id);
 
-      const displayUnit = op.op_unit || op.op_crbm || pilot?.unit || 'N/A';
-      const displayCrbm = (op.op_unit && op.op_crbm) ? op.op_crbm : null;
-
       return (
-          <Marker 
-            key={op.id} 
-            position={[lat, lng]} 
-            icon={icon}
-          >
+          <Marker key={`active-op-${op.id}`} position={[Number(op.latitude), Number(op.longitude)]} icon={icon}>
             <Popup>
-              <div className="p-1 min-w-[200px]">
-                <strong className="text-sm block text-slate-900 border-b pb-1 mb-1">{op.name}</strong>
-                <span className="text-[10px] text-slate-500 block mb-1 font-mono">#{op.occurrence_number}</span>
+              <div className="min-w-[280px] p-1 font-sans">
+                <h3 className="font-bold text-slate-900 text-base uppercase leading-tight border-b pb-2 mb-2">{op.name}</h3>
+                <p className="text-[10px] text-slate-400 font-mono mb-2">#{op.occurrence_number}</p>
                 
-                <Badge variant="danger" className="mb-2 block w-fit">
-                    {MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}
-                </Badge>
-
-                <div className="space-y-1 text-xs text-slate-700 bg-slate-50 p-2 rounded border border-slate-100">
-                    <div className="flex items-center gap-1">
-                        <User className="w-3 h-3 text-slate-400" />
-                        <span className="font-bold">Piloto:</span> {pilot?.full_name || op.pilot_name || 'N/A'}
-                    </div>
-                    <div className="flex items-center gap-1">
-                        <Plane className="w-3 h-3 text-slate-400" />
-                        <span className="font-bold">RPA:</span> {drone ? `${drone.prefix} - ${drone.model}` : 'N/A'}
-                    </div>
-                    <div className="flex items-center gap-1">
-                        <Building2 className="w-3 h-3 text-slate-400" />
-                        <span className="font-bold">Área/Unidade:</span> {displayUnit}
-                    </div>
-                    {displayCrbm && (
-                        <div className="text-[10px] text-slate-500 pl-4">{displayCrbm}</div>
-                    )}
+                <div className="mb-4">
+                   <span className="bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100">
+                      {MISSION_HIERARCHY[op.mission_type]?.label}
+                   </span>
                 </div>
 
-                {op.stream_url && (
-                  <div className="mt-2 text-xs text-red-600 font-bold flex items-center gap-1 animate-pulse">
-                    <Video className="w-3 h-3" /> Transmissão Ao Vivo
-                  </div>
-                )}
+                <div className="bg-slate-50 p-4 rounded-xl space-y-2.5 border border-slate-100">
+                   <div className="flex items-center gap-3 text-sm text-slate-600">
+                      <User className="w-4 h-4 text-slate-400" />
+                      <div>
+                         <span className="font-bold text-slate-800">Piloto:</span> {pilot?.full_name || 'N/A'}
+                      </div>
+                   </div>
+                   <div className="flex items-center gap-3 text-sm text-slate-600">
+                      <Plane className="w-4 h-4 text-slate-400" />
+                      <div>
+                         <span className="font-bold text-slate-800">RPA:</span> {drone ? `${drone.prefix} - ${drone.model}` : 'N/A'}
+                      </div>
+                   </div>
+                   <div className="flex items-start gap-3 text-sm text-slate-600">
+                      <Building2 className="w-4 h-4 text-slate-400 mt-0.5" />
+                      <div className="flex flex-col">
+                         <div className="flex items-center gap-1">
+                            <span className="font-bold text-slate-800">Área/Unidade:</span>
+                            <span className="text-slate-700">{drone?.unit || 'N/A'}</span>
+                         </div>
+                         <span className="text-[10px] text-slate-400 mt-0.5">{drone?.crbm}</span>
+                      </div>
+                   </div>
+                </div>
               </div>
             </Popup>
           </Marker>
@@ -316,222 +204,117 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col h-full bg-slate-100 overflow-hidden">
-      {/* HEADER / TOP BAR */}
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm z-10 flex-shrink-0">
         <div>
           <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <Radio className="w-5 h-5 text-red-600 animate-pulse" />
-            <span className="hidden sm:inline">Centro de Comando Operacional</span>
-            <span className="sm:hidden">CCO - SYSARP</span>
+            CCO - SYSARP
           </h1>
-          <p className="text-xs text-slate-500 hidden sm:block">Monitoramento em Tempo Real - SYSARP</p>
         </div>
         <div className="flex gap-3">
            <div className="px-4 py-2 bg-red-50 text-red-700 rounded-lg border border-red-100 flex items-center gap-2">
-              <span className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-              </span>
-              <span className="font-bold text-sm">{activeOps.length} <span className="hidden sm:inline">Operações Ativas</span><span className="sm:hidden">Ops</span></span>
+              <span className="font-bold text-sm">{activeOps.length} Ops Ativas</span>
            </div>
         </div>
       </div>
 
       <div className="flex flex-col lg:flex-row flex-1 overflow-hidden relative">
-        {/* LEFT/TOP: MAP */}
         <div className="w-full lg:flex-1 h-[50vh] lg:h-auto relative border-r border-slate-200 shadow-inner z-0">
-           <MapContainer 
-              center={[-25.2521, -52.0215]} 
-              zoom={7} 
-              style={{ height: '100%', width: '100%' }}
-            >
+           <MapContainer center={[-25.2521, -52.0215]} zoom={7} style={{ height: '100%', width: '100%' }}>
               <MapController activeOps={activeOps} />
-              
-              <TileLayer
-                attribution='&copy; OpenStreetMap'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
               {mapMarkers}
            </MapContainer>
-           
-           <div className="absolute bottom-6 left-6 bg-white/90 backdrop-blur p-3 rounded-lg shadow-lg border border-slate-200 text-xs z-[400]">
-              <div className="font-bold text-slate-700 mb-2">Legenda</div>
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-3 h-3 bg-blue-500 rounded-full border border-white shadow-sm"></div>
-                <span>Operação Ativa</span>
-              </div>
-           </div>
         </div>
 
-        {/* RIGHT/BOTTOM: ALERTS SIDEBAR */}
-        <div className="w-full lg:w-96 h-[50vh] lg:h-auto bg-slate-100 flex flex-col overflow-hidden border-t lg:border-t-0 lg:border-l border-slate-200 z-10 flex-shrink-0 shadow-[0_-5px_15px_-5px_rgba(0,0,0,0.1)] lg:shadow-none">
+        <div className="w-full lg:w-96 h-[50vh] lg:h-auto bg-slate-100 flex flex-col overflow-hidden border-t lg:border-t-0 lg:border-l border-slate-200 z-10 flex-shrink-0">
           <div className="p-4 bg-white border-b border-slate-200 font-bold text-slate-800 flex items-center gap-2 shadow-sm flex-shrink-0">
             <Shield className="w-5 h-5 text-red-700" />
             Painel de Controle
           </div>
           
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            
-            {/* BOX 1: LIVE STREAMS */}
-            <div className="bg-white rounded-xl shadow-sm border border-red-100 overflow-hidden flex-shrink-0">
+            {currentUser?.role === 'admin' && pendingPilotsCount > 0 && (
+              <Card className="p-4 bg-amber-600 text-white border-none shadow-lg animate-pulse border-l-4 border-l-amber-400">
+                <div className="flex items-center justify-between">
+                   <div className="flex items-center gap-3">
+                      <div className="p-2 bg-white/20 rounded-lg">
+                         <UserCheck className="w-6 h-6" />
+                      </div>
+                      <div>
+                         <h3 className="font-bold text-sm">Validações Pendentes</h3>
+                         <p className="text-[10px] text-amber-100">{pendingPilotsCount} novos pilotos aguardando acesso.</p>
+                      </div>
+                   </div>
+                   <Button 
+                      size="sm" 
+                      className="bg-white text-amber-700 hover:bg-amber-50 h-8 text-[10px] font-bold"
+                      onClick={() => navigate('/pilots')}
+                   >
+                      VALIDAR
+                   </Button>
+                </div>
+              </Card>
+            )}
+
+            <div className="bg-white rounded-xl shadow-sm border border-red-100 overflow-hidden">
               <div className="bg-red-800 px-4 py-2 flex justify-between items-center">
                 <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
-                  <Video className="w-3 h-3" />
-                  Transmissões
+                  <Video className="w-3 h-3" /> Transmissões
                 </h3>
-                {liveStreams.length > 0 && <span className="text-[10px] text-white font-bold animate-pulse bg-red-600 px-2 rounded-full">AO VIVO</span>}
               </div>
-              
-              <div className="p-3 space-y-2">
+              <div className="p-3">
                 {liveStreams.length === 0 ? (
                   <p className="text-xs text-slate-400 italic text-center py-2">Nenhuma transmissão ativa.</p>
                 ) : (
                   liveStreams.map(op => (
-                    <div key={op.id} className="p-3 bg-red-50 border border-red-100 rounded-lg hover:shadow-md transition-shadow">
-                      <div className="flex justify-between items-start">
-                        <div className="min-w-0 pr-2">
-                           <h4 className="font-bold text-sm text-slate-800 leading-tight break-words">{op.name}</h4>
-                           <p className="text-[10px] text-red-600 font-medium mt-1 uppercase">
-                              {MISSION_HIERARCHY[op.mission_type as "fire"]?.label || op.mission_type}
-                           </p>
-                        </div>
-                        <a href="#/transmissions" className="p-2 bg-white rounded-full text-red-600 hover:bg-red-600 hover:text-white border border-red-200 transition-colors shadow-sm">
-                          <Video className="w-4 h-4" />
-                        </a>
-                      </div>
+                    <div key={op.id} className="p-2 bg-red-50 border border-red-100 rounded-lg flex justify-between items-center">
+                       <span className="text-xs font-bold text-slate-800 truncate">{op.name}</span>
+                       <a href="#/transmissions" className="text-red-600"><Video className="w-4 h-4" /></a>
                     </div>
                   ))
                 )}
               </div>
             </div>
 
-            {/* BOX 2: RECENT OPERATIONS */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex-shrink-0">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="bg-slate-800 px-4 py-2">
                 <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
-                  <List className="w-3 h-3" />
-                  Operações Recentes
+                  <List className="w-3 h-3" /> Operações Recentes
                 </h3>
               </div>
-              
               <div className="p-3 space-y-2">
                 {recentOps.map(op => (
-                   <div key={op.id} className="flex items-start gap-3 p-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        op.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'
-                      }`}>
-                         <MapIcon className="w-4 h-4" />
-                      </div>
+                   <div key={op.id} className="flex items-center gap-3 p-2 border border-slate-100 rounded-lg">
                       <div className="min-w-0 flex-1">
-                         <div className="flex justify-between items-baseline">
-                           <p className="text-xs font-bold text-slate-800 truncate">{op.name}</p>
-                           <span className="text-[10px] text-slate-400">{new Date(op.start_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                         </div>
-                         <p className="text-[10px] text-slate-500 font-mono">#{op.occurrence_number}</p>
-                         
-                         {/* Status Bar with Share Button */}
-                         <div className="mt-1 flex justify-between items-center">
-                            <span className={`text-[9px] px-1.5 py-0.5 rounded border uppercase font-bold ${
-                              op.status === 'active' 
-                              ? 'bg-green-50 text-green-700 border-green-100' 
-                              : 'bg-slate-50 text-slate-600 border-slate-100'
-                            }`}>
-                              {op.status === 'active' ? 'Em Andamento' : 'Encerrada'}
-                            </span>
-
-                            {op.status === 'active' && (
-                                <button 
-                                    onClick={() => handleShareOp(op)}
-                                    className="text-green-600 hover:bg-green-50 p-1 rounded transition-colors"
-                                    title="Compartilhar via WhatsApp"
-                                >
-                                    <Share2 className="w-4 h-4" />
-                                </button>
-                            )}
-                         </div>
+                         <p className="text-xs font-bold text-slate-800 truncate">{op.name}</p>
+                         <p className="text-[9px] text-slate-400">#{op.occurrence_number}</p>
                       </div>
+                      <button onClick={() => handleShareOp(op)} className="text-green-600"><Share2 className="w-4 h-4" /></button>
                    </div>
                 ))}
               </div>
             </div>
 
-            {/* BOX 3: TRAFFIC CONFLICTS (ALWAYS VISIBLE) */}
-            <div className={`bg-white rounded-xl shadow-sm border ${conflictAlerts.length > 0 ? 'border-red-500' : 'border-green-200'} overflow-hidden flex-shrink-0 transition-colors duration-300`}>
-              <div className={`${conflictAlerts.length > 0 ? 'bg-red-600 animate-pulse' : 'bg-green-600'} px-4 py-2 flex justify-between items-center transition-colors duration-300`}>
+            <div className={`bg-white rounded-xl shadow-sm border ${conflictAlerts.length > 0 ? 'border-red-500' : 'border-green-200'} overflow-hidden`}>
+              <div className={`${conflictAlerts.length > 0 ? 'bg-red-600 animate-pulse' : 'bg-green-600'} px-4 py-2 flex justify-between items-center`}>
                 <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
-                  {conflictAlerts.length > 0 ? <AlertTriangle className="w-3 h-3" /> : <Shield className="w-3 h-3" />}
-                  Tráfego Aéreo
+                  <Shield className="w-3 h-3" /> Tráfego Aéreo
                 </h3>
-                {conflictAlerts.length > 0 && <span className="bg-white text-red-700 text-[10px] font-bold px-1.5 rounded-full">{conflictAlerts.length}</span>}
               </div>
-
               <div className="p-3">
                  {conflictAlerts.length === 0 ? (
-                    <div className="flex items-center gap-2 text-green-700 bg-green-50 p-2 rounded text-xs border border-green-100">
-                       <Check className="w-4 h-4" />
-                       <span className="font-bold">Sem conflitos no momento.</span>
-                    </div>
+                    <div className="text-xs text-green-700 bg-green-50 p-2 rounded">Sem conflitos.</div>
                  ) : (
-                    <div className="space-y-2">
-                       {conflictAlerts.map(alert => (
-                         <div key={alert.id} className="bg-red-50 border border-red-100 p-2 rounded text-xs space-y-2">
-                            <div className="flex justify-between items-start">
-                               <strong className="text-red-800 truncate pr-2">{alert.new_op_name}</strong>
-                               <span className="text-[10px] text-red-600 font-mono whitespace-nowrap">Alt: {alert.new_op_altitude}m</span>
-                            </div>
-                            <p className="text-slate-600">Piloto: {alert.new_pilot_name}</p>
-
-                            <div className="flex gap-2 mt-1">
-                               <Button size="sm" variant="outline" className="flex-1 h-7 text-[10px] bg-white border-red-200 text-red-700 hover:bg-red-100" onClick={() => showConflictDetails(alert)}>
-                                  <Info className="w-3 h-3 mr-1"/> Ver Detalhes
-                               </Button>
-                               <Button size="sm" className="flex-1 h-7 text-[10px] bg-red-600 text-white hover:bg-red-700" onClick={() => handleAckConflict(alert.id)}>
-                                  Ciente
-                               </Button>
-                            </div>
-                         </div>
-                       ))}
-                    </div>
+                    conflictAlerts.map(alert => (
+                       <div key={alert.id} className="bg-red-50 p-2 rounded text-[10px] flex justify-between items-center mb-2">
+                          <span>{alert.new_op_name}</span>
+                          <Button size="sm" className="h-6 text-[9px]" onClick={() => handleAckConflict(alert.id)}>OK</Button>
+                       </div>
+                    ))
                  )}
               </div>
             </div>
-
-            {/* BOX 4: MAINTENANCE ALERTS */}
-            <div className="bg-white rounded-xl shadow-sm border border-amber-200 overflow-hidden flex-shrink-0">
-              <div className="bg-amber-600 px-4 py-2 flex justify-between items-center">
-                <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
-                  <Wrench className="w-3 h-3" />
-                  Manutenção
-                </h3>
-                {maintenanceAlerts.length > 0 && (
-                   <span className="bg-white text-amber-700 text-[10px] font-bold px-1.5 rounded-full">
-                     {maintenanceAlerts.length}
-                   </span>
-                )}
-              </div>
-              
-              <div className="p-3 space-y-2">
-                {maintenanceAlerts.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic text-center py-2">Nenhuma manutenção pendente.</p>
-                ) : (
-                  maintenanceAlerts.map(maint => {
-                    const drone = drones.find(d => d.id === maint.drone_id);
-                    return (
-                      <div key={maint.id} className="p-2.5 bg-amber-50 border border-amber-100 rounded-lg">
-                        <div className="flex justify-between items-start mb-1">
-                           <span className="text-xs font-bold text-amber-900 truncate">{drone?.prefix || 'Aeronave'}</span>
-                           <span className="text-[9px] bg-white border border-amber-200 text-amber-800 px-1 rounded">
-                             {new Date(maint.maintenance_date).toLocaleDateString()}
-                           </span>
-                        </div>
-                        <p className="text-[11px] text-amber-800 leading-tight">{maint.description}</p>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
           </div>
         </div>
       </div>

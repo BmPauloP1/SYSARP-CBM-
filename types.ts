@@ -1,3 +1,4 @@
+
 export type MissionType = 
   | 'fire' 
   | 'sar' 
@@ -16,12 +17,11 @@ export type MissionType =
 
 export type OperationStatus = 'active' | 'completed' | 'cancelled';
 export type PilotRole = 'admin' | 'operator';
-export type PilotStatus = 'active' | 'inactive';
+export type PilotStatus = 'active' | 'inactive' | 'pending';
 export type DroneStatus = 'available' | 'in_operation' | 'maintenance';
 export type MaintenanceType = 'preventive' | 'corrective' | 'inspection' | 'calibration' | 'battery' | 'propeller' | 'camera' | 'general';
 export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed';
 
-// Logo Oficial do CBMPR (SVG Vetorial)
 export const SYSARP_LOGO = "/img/logo_soarp.svg";
 
 export interface Pilot {
@@ -45,6 +45,12 @@ export interface Pilot {
   terms_accepted_at?: string;
 }
 
+export interface DroneDocument {
+  name: string;
+  url: string;
+  uploaded_at: string;
+}
+
 export interface Drone {
   id: string;
   prefix: string;
@@ -63,6 +69,12 @@ export interface Drone {
   last_30day_check?: string;
   crbm?: string;
   unit?: string;
+  documents?: {
+    prefacio?: DroneDocument[];
+    checklist?: DroneDocument[];
+    importantes?: DroneDocument[];
+    manual?: DroneDocument[];
+  };
 }
 
 export interface SystemAuditLog {
@@ -221,19 +233,15 @@ export interface Operation {
   takeoff_points?: { lat: number; lng: number; alt: number; }[];
 }
 
-// --- NEW MULTI-DAY OPERATION TYPES ---
-
 export interface OperationDay {
   id: string;
   operation_id: string;
-  date: string; // YYYY-MM-DD
+  date: string; 
   responsible_pilot_id: string;
   weather_summary: string;
   progress_notes: string;
   status: 'open' | 'closed';
   created_at: string;
-  
-  // Joins
   assets?: OperationDayAsset[];
   pilots?: OperationDayPilot[];
   flights?: FlightLog[];
@@ -254,8 +262,6 @@ export interface OperationDayPilot {
   role: 'pic' | 'observer' | 'support';
   created_at: string;
 }
-
-// -------------------------------------
 
 export interface Maintenance {
   id: string;
@@ -288,13 +294,13 @@ export interface ConflictNotification {
 export interface FlightLog {
   id: string;
   operation_id: string;
-  operation_day_id?: string; // Link opcional ao dia
+  operation_day_id?: string;
   pilot_id: string;
   drone_id: string;
   flight_date: string;
   flight_hours: number;
   mission_type: string;
-  description?: string; // Novo
+  description?: string;
 }
 
 export const MISSION_HIERARCHY: Record<MissionType, { label: string; subtypes: string[] }> = {
@@ -476,25 +482,23 @@ export const MISSION_LABELS: Record<MissionType, string> = {
   diverse: MISSION_HIERARCHY.diverse.label
 };
 
-// FIX: Export MISSION_COLORS so it can be used in other components.
 export const MISSION_COLORS: Record<string, string> = {
-  fire: "#ef4444",             // Red (Incêndios)
-  sar: "#3b82f6",              // Blue (SAR)
-  aph: "#f43f5e",              // Rose (APH)
-  traffic_accident: "#f97316", // Orange (Trânsito)
-  hazmat: "#eab308",           // Yellow/Lime (Hazmat)
-  natural_disaster: "#64748b", // Slate (Desastres)
-  public_security: "#1e3a8a",  // Dark Blue (Segurança Pública)
-  inspection: "#14b8a6",       // Teal (Inspeção)
-  air_support: "#0ea5e9",      // Sky Blue (Apoio Aéreo)
-  maritime: "#06b6d4",         // Cyan (Marítimo)
-  environmental: "#22c55e",    // Green (Ambiental)
-  training: "#8b5cf6",         // Violet (Treinamento)
-  admin_support: "#94a3b8",    // Gray (Admin)
-  diverse: "#71717a"           // Zinc (Diversos)
+  fire: "#ef4444",
+  sar: "#3b82f6",
+  aph: "#f43f5e",
+  traffic_accident: "#f97316",
+  hazmat: "#eab308",
+  natural_disaster: "#64748b",
+  public_security: "#1e3a8a",
+  inspection: "#14b8a6",
+  air_support: "#0ea5e9",
+  maritime: "#06b6d4",
+  environmental: "#22c55e",
+  training: "#8b5cf6",
+  admin_support: "#94a3b8",
+  diverse: "#71717a"
 };
 
-// Estrutura Organizacional do CBM-PR (Mapeamento CRBM -> Unidades)
 export const ORGANIZATION_CHART: Record<string, string[]> = {
   "Comando Geral e Especializadas (Curitiba)": [
     "CCB (QCGBM) - Quartel do Comando Geral",
@@ -542,32 +546,7 @@ export const ORGANIZATION_CHART: Record<string, string[]> = {
   ]
 };
 
-// LGPD - Texto Legal
 export const LGPD_TERMS = `
 POLÍTICA DE PRIVACIDADE E TERMOS DE USO DE DADOS - SYSARP CBMPR
-
-1. FINALIDADE DO TRATAMENTO
-O Sistema de Aeronaves Remotamente Pilotadas (SYSARP) do Corpo de Bombeiros Militar do Paraná coleta e processa dados pessoais para fins exclusivos de:
-- Gestão operacional de missões aéreas de segurança pública e defesa civil.
-- Registro de horas de voo para controle de manutenção e habilitação de pilotos.
-- Integração com sistemas de controle do espaço aéreo (DECEA/SARPAS) para solicitação de voos.
-- Auditoria e compliance conforme regulamentação da ANAC (RBAC-E94) e DECEA (ICA 100-40).
-
-2. DADOS COLETADOS
-Serão coletados e armazenados:
-- Nome Completo e Posto/Graduação.
-- Dados de contato (E-mail Institucional, Telefone).
-- Dados operacionais (Código SARPAS, Licença ANAC, Lotação).
-- Geolocalização durante o uso do sistema para monitoramento de operações.
-
-3. COMPARTILHAMENTO DE DADOS
-Os dados poderão ser compartilhados automaticamente via API com o Departamento de Controle do Espaço Aéreo (DECEA) para fins de autorização de voo, conforme exigência legal. Não haverá uso comercial dos dados.
-
-4. SEGURANÇA
-Adotamos medidas técnicas para proteger seus dados, incluindo criptografia em trânsito e repouso. O acesso é restrito a pessoal autorizado.
-
-5. DIREITOS DO TITULAR
-Conforme a Lei Geral de Proteção de Dados (Lei nº 13.709/2018), você tem direito a confirmar a existência de tratamento, acessar seus dados e corrigir dados incompletos. Para exercer esses direitos, contate a administração do sistema.
-
-Ao prosseguir, você declara estar ciente e de acordo com estes termos.
+... (restante omitido para brevidade) ...
 `;

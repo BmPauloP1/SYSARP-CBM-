@@ -142,8 +142,31 @@ export default function Login() {
 
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sysarp-dark via-sysarp-primary to-sysarp-dark flex flex-col items-center justify-center p-4 py-8 overflow-y-auto">
+    <div className="min-h-screen bg-gradient-to-br from-sysarp-dark via-sysarp-primary to-sysarp-dark flex flex-col items-center justify-center p-4 py-8 overflow-y-auto relative">
       
+      {/* AIRDATA SAFETY BADGE */}
+      <div className="absolute top-4 left-4 z-[100] opacity-80 hover:opacity-100 transition-all hover:scale-105 hidden sm:block">
+        <a href='https://certificates.airdata.com/QcvFJL' target="_blank" rel="noopener noreferrer" title="Airdata UAV Safety Verified">
+          <img 
+            alt='Airdata UAV|Drone Safety Verified Badge' 
+            src='https://certificates.airdata.com/badge?i=QcvFJL&r=Hnhr&t=7&m=3&size=12&c=0' 
+            className="w-[180px] md:w-[280px] lg:w-[417px] h-auto border-0 drop-shadow-xl"
+            style={{ imageRendering: 'smooth' }}
+          />
+        </a>
+      </div>
+
+      {/* MOBILE AIRDATA BADGE (Compact) */}
+      <div className="sm:hidden absolute top-3 left-3 z-[100] opacity-90">
+         <a href='https://certificates.airdata.com/QcvFJL' target="_blank" rel="noopener noreferrer">
+           <img 
+             alt='Airdata Badge' 
+             src='https://certificates.airdata.com/badge?i=QcvFJL&r=Hnhr&t=7&m=3&size=12&c=0' 
+             className="w-[120px] h-auto"
+           />
+         </a>
+      </div>
+
       {/* EMAIL FIX MODAL */}
       {emailFixSql && (
         <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">

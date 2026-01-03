@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
 import { Pilot, ORGANIZATION_CHART, SYSARP_LOGO } from "../types";
 import { Card, Button, Badge, Input, Select } from "../components/ui_components";
-import { Plus, User, X, Save, Phone, Lock, Shield, Trash2, Database, Copy, Pencil, Search, ChevronLeft, ChevronRight, Mail, Filter, FileText, RefreshCcw, Users, ChevronDown } from "lucide-react";
+import { Plus, User, X, Save, Phone, Lock, Shield, Trash2, Database, Copy, Pencil, Search, ChevronLeft, ChevronRight, Mail, Filter, FileText, RefreshCcw, Users, ChevronDown, CheckCircle, XCircle } from "lucide-react";
 
 // Helper para carregar imagem para o PDF (Reutilizado para consistência)
 const getImageData = (url: string): Promise<string> => {
@@ -124,6 +124,7 @@ export default function PilotManagement() {
     return {
         total: pilots.length,
         active: pilots.filter(p => p.status === 'active').length,
+        pending: pilots.filter(p => p.status === 'pending').length,
         inactive: pilots.filter(p => p.status === 'inactive').length,
         admins: pilots.filter(p => p.role === 'admin').length
     };
@@ -176,14 +177,14 @@ export default function PilotManagement() {
         doc.text("CORPO DE BOMBEIROS MILITAR DO PARANÁ", 105, 26, { align: "center" });
         
         doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, 35);
-        doc.text(`Filtros: ${filterCrbm !== 'all' ? filterCrbm : 'Todos CRBMs'} | Status: ${filterStatus !== 'all' ? (filterStatus === 'active' ? 'Ativos' : 'Inativos') : 'Todos'}`, 14, 40);
+        doc.text(`Filtros: ${filterCrbm !== 'all' ? filterCrbm : 'Todos CRBMs'} | Status: ${filterStatus !== 'all' ? filterStatus : 'Todos'}`, 14, 40);
 
         const tableData = filteredPilots.map(p => [
             p.full_name,
             p.sarpas_code || '-',
             p.unit || '-',
             p.phone || '-',
-            p.status === 'active' ? 'ATIVO' : 'INATIVO',
+            p.status.toUpperCase(),
             p.role === 'admin' ? 'ADMIN' : 'OP'
         ]);
 
@@ -226,11 +227,27 @@ export default function PilotManagement() {
       crbm: pilot.crbm,
       unit: pilot.unit,
       license: pilot.license,
-      role: pilot.role,   // Carrega o papel atual
-      status: pilot.status // Carrega o status atual
+      role: pilot.role,   
+      status: pilot.status 
     });
     
     setIsModalOpen(true);
+  };
+
+  const handleValidate = async (pilotId: string) => {
+      if (!currentUser || currentUser.role !== 'admin') return;
+      if (!confirm("Confirmar validação deste cadastro? O piloto terá acesso imediato ao sistema.")) return;
+
+      setLoading(true);
+      try {
+          await base44.entities.Pilot.update(pilotId, { status: 'active' });
+          alert("Cadastro validado com sucesso!");
+          loadData();
+      } catch (e) {
+          alert("Erro ao validar cadastro.");
+      } finally {
+          setLoading(false);
+      }
   };
 
   const handleNew = () => {
@@ -265,8 +282,6 @@ export default function PilotManagement() {
           crbm: formData.crbm,
           unit: formData.unit,
           license: formData.license,
-          // Apenas atualiza role/status se for admin, para segurança no frontend
-          // O backend deve ter policies RLS para garantir isso também
           ...(currentUser?.role === 'admin' ? { role: formData.role, status: formData.status } : {})
         });
         alert("Dados do piloto atualizados com sucesso!");
@@ -278,7 +293,7 @@ export default function PilotManagement() {
           full_name: formData.full_name || '',
           phone: formData.phone || '',
           email: fullEmail,
-          status: 'active',
+          status: currentUser?.role === 'admin' ? 'active' : 'pending',
           password: '123456',
           change_password_required: true,
           terms_accepted: false
@@ -296,8 +311,6 @@ export default function PilotManagement() {
          if (currentUser?.role === 'admin') {
              const fixSql = `
 -- COPIE E RODE NO SUPABASE SQL EDITOR PARA CORRIGIR PERMISSÕES:
-DROP POLICY IF EXISTS "Edição de perfil" ON public.profiles;
-DROP POLICY IF EXISTS "Admins podem editar" ON public.profiles;
 DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Admins can update any profile" ON public.profiles;
 
@@ -366,30 +379,24 @@ USING ( (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1) = 'admi
             if (error.message.includes("RPC_NOT_FOUND")) {
                 const fixSql = `
 -- HABILITA RESET DE SENHA PELO ADMIN
--- Cole e execute no SQL Editor do Supabase para criar a função necessária.
-
 CREATE OR REPLACE FUNCTION admin_reset_user_password(user_id uuid, new_password text)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 BEGIN
-  -- Atualiza a senha do usuário na tabela 'users' do schema 'auth'
   UPDATE auth.users
   SET
     encrypted_password = crypt(new_password, gen_salt('bf')),
-    -- Força a expiração de sessões antigas
     password_changed_at = now()
   WHERE id = user_id;
 
-  -- Também marca que o usuário precisa mudar a senha no próximo login
   UPDATE public.profiles
   SET change_password_required = true
   WHERE id = user_id;
 END;
 $$;
 
--- Garante que a função pode ser chamada pelo app
 GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authenticated;
                 `;
                 setSqlError(fixSql);
@@ -419,14 +426,13 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
               <div className="p-4 bg-red-600 text-white flex justify-between items-center">
                  <h3 className="font-bold text-lg flex items-center gap-2">
                    <Database className="w-6 h-6" />
-                   Erro de Permissão (RLS) - Ação Necessária
+                   Ação Técnica Necessária
                  </h3>
                  <button onClick={() => setSqlError(null)} className="hover:bg-red-700 p-1 rounded"><X className="w-5 h-5" /></button>
               </div>
               <div className="p-6 space-y-4">
                  <p className="text-slate-700 font-medium">
-                    O Banco de Dados bloqueou a edição.
-                    <strong>Solução:</strong> Copie o código abaixo e execute no SQL Editor do Supabase.
+                    Ajuste de banco de dados requerido para permissões ou funções específicas.
                  </p>
                  <div className="relative">
                     <pre className="bg-slate-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto font-mono border border-slate-700 max-h-64">
@@ -461,27 +467,31 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
         </div>
 
         {/* STATS BAR */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg flex items-center justify-between">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg flex items-center justify-between shadow-sm">
                 <div className="text-xs font-bold text-slate-500 uppercase">Total</div>
                 <div className="text-xl font-bold text-slate-800">{stats.total}</div>
             </div>
-            <div className="bg-green-50 border border-green-200 p-3 rounded-lg flex items-center justify-between">
+            <div className="bg-green-50 border border-green-200 p-3 rounded-lg flex items-center justify-between shadow-sm">
                 <div className="text-xs font-bold text-green-700 uppercase">Ativos</div>
                 <div className="text-xl font-bold text-green-800">{stats.active}</div>
             </div>
-            <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg flex items-center justify-between opacity-70">
+            <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg flex items-center justify-between shadow-sm animate-pulse border-l-4 border-l-amber-500">
+                <div className="text-xs font-bold text-amber-700 uppercase">Pendentes</div>
+                <div className="text-xl font-bold text-amber-800">{stats.pending}</div>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg flex items-center justify-between opacity-70 shadow-sm">
                 <div className="text-xs font-bold text-slate-500 uppercase">Inativos</div>
                 <div className="text-xl font-bold text-slate-800">{stats.inactive}</div>
             </div>
-            <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-center justify-between">
+            <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-center justify-between shadow-sm">
                 <div className="text-xs font-bold text-blue-700 uppercase">Admins</div>
                 <div className="text-xl font-bold text-blue-800">{stats.admins}</div>
             </div>
         </div>
 
         {/* COLLAPSIBLE FILTERS BAR */}
-        <Card className="p-0 bg-slate-50 border-slate-200 overflow-hidden">
+        <Card className="p-0 bg-slate-50 border-slate-200 overflow-hidden shadow-sm">
             <button
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
                 className="w-full flex justify-between items-center p-4 text-left hover:bg-slate-100 transition-colors"
@@ -532,6 +542,7 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                             >
                                 <option value="all">Todos os Status</option>
                                 <option value="active">Ativo</option>
+                                <option value="pending">Pendente (Validação)</option>
                                 <option value="inactive">Inativo</option>
                             </Select>
                         </div>
@@ -554,7 +565,7 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="bg-white border border-slate-200 rounded-xl shadow-md overflow-hidden min-h-[200px]">
           
-          {/* DESKTOP TABLE VIEW (> 1024px) */}
+          {/* DESKTOP TABLE VIEW */}
           <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-left border-collapse min-w-[800px]">
               <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
@@ -569,10 +580,10 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
               <tbody className="divide-y divide-slate-100">
                 {currentPilots.length > 0 ? (
                   currentPilots.map((pilot) => (
-                    <tr key={pilot.id} className={`hover:bg-slate-50 transition-colors ${pilot.status === 'inactive' ? 'bg-slate-50 opacity-75' : ''}`}>
+                    <tr key={pilot.id} className={`hover:bg-slate-50 transition-colors ${pilot.status === 'pending' ? 'bg-amber-50/30' : pilot.status === 'inactive' ? 'bg-slate-50 opacity-75' : ''}`}>
                       <td className="px-6 py-4 align-top">
                         <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-full bg-slate-200 flex-shrink-0 flex items-center justify-center text-slate-600 font-bold border-2 border-white shadow-sm">
+                          <div className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center font-bold border-2 shadow-sm ${pilot.status === 'pending' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-slate-200 text-slate-600 border-white'}`}>
                              {pilot.full_name?.[0].toUpperCase()}
                           </div>
                           <div className="min-w-0">
@@ -582,8 +593,8 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                                <Badge variant={pilot.role === 'admin' ? 'danger' : 'default'} className="text-[10px]">
                                  {pilot.role === 'admin' ? 'Administrador' : 'Piloto'}
                                </Badge>
-                               <Badge variant={pilot.status === 'active' ? 'success' : 'warning'} className="text-[10px]">
-                                 {pilot.status === 'active' ? 'Ativo' : 'Inativo'}
+                               <Badge variant={pilot.status === 'active' ? 'success' : pilot.status === 'pending' ? 'warning' : 'default'} className="text-[10px]">
+                                 {pilot.status === 'active' ? 'Ativo' : pilot.status === 'pending' ? 'Pendente' : 'Inativo'}
                                </Badge>
                             </div>
                           </div>
@@ -612,6 +623,15 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                       </td>
                       <td className="px-6 py-4 align-top">
                         <div className="flex items-center gap-2">
+                           {currentUser?.role === 'admin' && pilot.status === 'pending' && (
+                             <Button 
+                               onClick={() => handleValidate(pilot.id)}
+                               className="px-2 py-1 h-8 bg-green-600 text-white hover:bg-green-700 shadow-sm"
+                               title="Validar Cadastro"
+                             >
+                               <CheckCircle className="w-4 h-4 mr-1" /> Validar
+                             </Button>
+                           )}
                            {(currentUser?.role === 'admin' || currentUser?.id === pilot.id) && (
                              <Button 
                                variant="outline" 
@@ -626,7 +646,7 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                              <Button 
                                variant="outline"
                                onClick={(e) => handleDelete(e, pilot.id)}
-                               title="Excluir Piloto"
+                               title="Excluir Registro"
                                className="px-2 py-1 h-8 bg-red-50 text-red-600 border-red-200 hover:bg-red-100"
                              >
                                 <Trash2 className="w-4 h-4 mr-1" /> Excluir
@@ -639,7 +659,7 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                 ) : (
                   <tr>
                     <td colSpan={5} className="px-6 py-8 text-center text-slate-500 italic">
-                      Nenhum piloto encontrado para os filtros selecionados.
+                      Nenhum piloto encontrado.
                     </td>
                   </tr>
                 )}
@@ -647,92 +667,62 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
             </table>
           </div>
 
-          {/* MOBILE & TABLET CARD VIEW (< 1024px) */}
+          {/* MOBILE CARD VIEW */}
           <div className="lg:hidden p-3 bg-slate-50/50">
             {currentPilots.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {currentPilots.map((pilot) => (
                   <div 
                     key={pilot.id} 
-                    className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-start gap-4 hover:shadow-md transition-shadow cursor-pointer relative overflow-hidden"
-                    onClick={() => (currentUser?.role === 'admin' || currentUser?.id === pilot.id) ? handleEdit(pilot) : null}
+                    className={`bg-white p-4 rounded-xl border shadow-sm flex flex-col gap-3 transition-all relative overflow-hidden ${pilot.status === 'pending' ? 'border-amber-400 ring-1 ring-amber-100' : 'border-slate-200'}`}
                   >
-                      {/* Status Indicator Bar */}
-                      <div className={`absolute left-0 top-0 bottom-0 w-1 ${pilot.status === 'active' ? 'bg-green-500' : 'bg-slate-300'}`}></div>
+                      {pilot.status === 'pending' && <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-amber-500"></div>}
+                      
+                      <div className="flex justify-between items-start">
+                          <div className="flex items-center gap-3">
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${pilot.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
+                                  {pilot.full_name?.[0].toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                  <h3 className="font-bold text-slate-900 text-sm leading-tight truncate">{pilot.full_name}</h3>
+                                  <p className="text-xs text-slate-500 truncate">{pilot.email.split('@')[0]}</p>
+                              </div>
+                          </div>
+                          <Badge variant={pilot.status === 'active' ? 'success' : pilot.status === 'pending' ? 'warning' : 'default'} className="text-[9px]">
+                              {pilot.status.toUpperCase()}
+                          </Badge>
+                      </div>
 
-                      {/* Avatar Column */}
-                      <div className="shrink-0">
-                          <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold text-xl border border-slate-200">
-                              {pilot.full_name?.[0].toUpperCase()}
+                      <div className="grid grid-cols-2 gap-2 text-[10px]">
+                          <div className="bg-slate-50 p-2 rounded border border-slate-100">
+                              <p className="text-slate-400 uppercase font-bold">Unidade</p>
+                              <p className="font-bold text-slate-700 truncate">{pilot.unit || 'N/D'}</p>
+                          </div>
+                          <div className="bg-slate-50 p-2 rounded border border-slate-100">
+                              <p className="text-slate-400 uppercase font-bold">SARPAS</p>
+                              <p className="font-bold text-slate-700">{pilot.sarpas_code || '-'}</p>
                           </div>
                       </div>
-                      
-                      {/* Content Column */}
-                      <div className="flex-1 min-w-0 flex flex-col justify-between h-full">
-                          
-                          {/* Top: Name & Email */}
-                          <div className="mb-2">
-                              <h3 className="font-bold text-slate-900 text-sm leading-tight mb-0.5 break-words">{pilot.full_name}</h3>
-                              <div className="flex items-center gap-1 text-slate-500 text-xs mb-1.5">
-                                 <Mail className="w-3 h-3 shrink-0" />
-                                 <span className="truncate">{pilot.email.split('@')[0]}</span>
-                              </div>
-                              
-                              <div className="flex flex-wrap gap-1.5">
-                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${pilot.role === 'admin' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                                      {pilot.role === 'admin' ? 'Admin' : 'Piloto'}
-                                  </span>
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-100 font-mono">
-                                      {pilot.sarpas_code || 'S/ SARPAS'}
-                                  </span>
-                              </div>
-                          </div>
 
-                          {/* Bottom: Location & Actions */}
-                          <div className="flex items-end justify-between border-t border-slate-100 pt-2 mt-auto">
-                              <div className="flex flex-col min-w-0 pr-2">
-                                  <p className="text-xs font-bold text-slate-800 leading-tight truncate" title={pilot.unit}>{pilot.unit?.split(' - ')[0] || 'N/D'}</p>
-                                  <p className="text-[10px] text-slate-500 leading-tight mt-0.5 truncate" title={pilot.crbm}>{pilot.crbm?.split(' - ')[0] || ''}</p>
-                              </div>
-                              
-                              {/* Mobile Actions */}
-                              <div className="flex gap-2 shrink-0">
-                                  <button 
-                                    onClick={(e) => handleWhatsApp(pilot.phone, e)}
-                                    className="p-1.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors"
-                                    title="WhatsApp"
-                                  >
-                                     <Phone className="w-4 h-4" />
-                                  </button>
-                                  
-                                  {(currentUser?.role === 'admin' || currentUser?.id === pilot.id) && (
-                                      <button 
-                                        onClick={(e) => { e.stopPropagation(); handleEdit(pilot); }}
-                                        className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
-                                        title="Editar"
-                                      >
-                                         <Pencil className="w-4 h-4" />
-                                      </button>
-                                  )}
-                                  
-                                  {currentUser?.role === 'admin' && (
-                                      <button 
-                                        onClick={(e) => handleDelete(e, pilot.id)}
-                                        className="p-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
-                                        title="Excluir"
-                                      >
-                                         <Trash2 className="w-4 h-4" />
-                                      </button>
-                                  )}
-                              </div>
-                          </div>
+                      <div className="flex gap-2 pt-2 border-t border-slate-100">
+                          {currentUser?.role === 'admin' && pilot.status === 'pending' && (
+                              <Button onClick={() => handleValidate(pilot.id)} className="flex-1 h-9 text-xs bg-green-600 text-white">
+                                 <CheckCircle className="w-4 h-4 mr-1" /> Validar
+                              </Button>
+                          )}
+                          <Button variant="outline" className="flex-1 h-9 text-xs" onClick={() => handleEdit(pilot)}>
+                             <Pencil className="w-3 h-3 mr-1" /> Editar
+                          </Button>
+                          <Button variant="outline" className="h-9 w-10 p-0 text-red-500" onClick={(e) => handleDelete(e, pilot.id)}>
+                             <Trash2 className="w-4 h-4" />
+                          </Button>
                       </div>
                   </div>
                 ))}
               </div>
             ) : (
               <div className="p-8 text-center text-slate-500 italic bg-white rounded-xl border border-dashed">
-                  Nenhum piloto encontrado.
+                  Nenhum registro encontrado.
               </div>
             )}
           </div>
@@ -742,16 +732,13 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
              <span className="text-xs text-slate-500 hidden sm:inline">
                Mostrando {currentPilots.length} de {filteredPilots.length} registros
              </span>
-             <span className="text-xs text-slate-500 sm:hidden font-medium">
-               Pág {currentPage} de {totalPages || 1}
-             </span>
              <div className="flex items-center gap-2">
                 <Button 
                   variant="outline" 
                   size="sm" 
                   onClick={prevPage} 
                   disabled={currentPage === 1}
-                  className="h-9 w-9 p-0 md:h-8 md:w-8 bg-white"
+                  className="h-9 w-9 p-0 md:h-8 md:w-8 bg-white shadow-sm"
                 >
                   <ChevronLeft className="w-5 h-5 md:w-4 md:h-4" />
                 </Button>
@@ -760,7 +747,7 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                   size="sm" 
                   onClick={nextPage} 
                   disabled={currentPage >= totalPages}
-                  className="h-9 w-9 p-0 md:h-8 md:w-8 bg-white"
+                  className="h-9 w-9 p-0 md:h-8 md:w-8 bg-white shadow-sm"
                 >
                   <ChevronRight className="w-5 h-5 md:w-4 md:h-4" />
                 </Button>
@@ -772,11 +759,11 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
       {/* MODAL DE CADASTRO / EDIÇÃO */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <Card className="w-full max-w-2xl p-6 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto">
+          <Card className="w-full max-w-2xl p-6 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto bg-white">
             <div className="flex justify-between items-center mb-6 border-b pb-4">
               <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                 <User className="w-6 h-6 text-blue-600" />
-                {editingPilotId ? 'Editar Piloto' : 'Cadastrar Novo Piloto'}
+                {editingPilotId ? 'Editar Perfil' : 'Cadastrar Novo Piloto'}
               </h2>
               <button type="button" onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
@@ -785,11 +772,10 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
 
             <form onSubmit={handleSave} className="space-y-4">
               {!editingPilotId && (
-                <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg flex items-start gap-3 text-sm text-yellow-800">
-                  <Lock className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-start gap-3 text-sm text-blue-800">
+                  <Shield className="w-5 h-5 flex-shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-bold">Atenção:</span> Este usuário será criado com a senha padrão <strong>123456</strong>. 
-                    No primeiro acesso, será obrigatória a alteração da senha.
+                    <span className="font-bold">Informação:</span> Novos cadastros criados pela área administrativa podem ser ativados imediatamente.
                   </div>
                 </div>
               )}
@@ -840,7 +826,7 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
 
               <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
                 <h3 className="text-sm font-bold text-slate-700 mb-3 uppercase flex items-center gap-2">
-                  <Shield className="w-4 h-4" />
+                  <MapCcw className="w-4 h-4 text-blue-600" />
                   Lotação Operacional
                 </h3>
                 
@@ -899,29 +885,31 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                       onChange={e => setFormData({...formData, status: e.target.value as any})}
                     >
                       <option value="active">Ativo</option>
+                      <option value="pending">Pendente (Validação)</option>
                       <option value="inactive">Inativo</option>
                     </Select>
                  </div>
               </div>
 
-              <div className="pt-4 flex flex-col-reverse sm:flex-row gap-3">
-                <Button type="button" variant="outline" className="w-full sm:w-auto sm:flex-1" onClick={() => setIsModalOpen(false)}>
+              <div className="pt-4 flex flex-col-reverse sm:flex-row gap-3 border-t">
+                <Button type="button" variant="outline" className="flex-1" onClick={() => setIsModalOpen(false)}>
                   Cancelar
                 </Button>
                 <div className="flex flex-col-reverse sm:flex-row gap-3 w-full sm:flex-1">
                     {currentUser?.role === 'admin' && editingPilotId && (
                         <Button 
                             type="button"
-                            className="w-full sm:w-auto sm:flex-1 bg-amber-500 hover:bg-amber-600 text-white" 
+                            className="flex-1 bg-amber-500 hover:bg-amber-600 text-white" 
                             onClick={handleResetPassword}
                         >
                             <Lock className="w-4 h-4 mr-2" />
                             Resetar Senha
                         </Button>
                     )}
-                    <Button type="submit" disabled={loading} className="w-full sm:w-auto sm:flex-1 bg-blue-600 hover:bg-blue-700 text-white">
+                    <Button type="submit" disabled={loading} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold">
                       <Save className="w-4 h-4 mr-2" />
-                      {loading ? "Salvando..." : (editingPilotId ? "Atualizar Piloto" : "Cadastrar Piloto")}
+                      {/* Fix: changed editingId to editingPilotId to match the defined state variable */}
+                      {loading ? "Salvando..." : (editingPilotId ? "Atualizar Perfil" : "Cadastrar Piloto")}
                     </Button>
                 </div>
               </div>
@@ -931,4 +919,11 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
       )}
     </div>
   );
+}
+
+// Ícones adicionais
+function MapCcw({ className }: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    )
 }
