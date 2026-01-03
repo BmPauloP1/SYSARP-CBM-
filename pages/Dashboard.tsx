@@ -3,9 +3,11 @@ import React, { useEffect, useState, useCallback, memo, useRef, useMemo } from "
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
-import { Operation, Drone, Pilot, Maintenance, MISSION_HIERARCHY, ConflictNotification } from "../types";
+/* Fix: Added missing Maintenance type to the import list from types.ts */
+import { Operation, Drone, Pilot, MISSION_HIERARCHY, MISSION_COLORS, MISSION_LABELS, ConflictNotification, Maintenance } from "../types";
 import { Badge, Button, Card } from "../components/ui_components";
-import { Radio, Video, AlertTriangle, Map as MapIcon, Wrench, List, Shield, Check, Info, Share2, User, Plane, Building2, UserCheck } from "lucide-react";
+/* Fix: Added missing Clock icon to the import list from lucide-react */
+import { Radio, Video, AlertTriangle, Map as MapIcon, Wrench, List, Shield, Check, Info, Share2, User, Plane, Building2, UserCheck, Navigation, Clock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 // Fix Leaflet icons
@@ -19,6 +21,15 @@ const icon = L.icon({
   shadowSize: [41, 41]
 });
 
+const getCustomIcon = (color: string) => {
+  return L.divIcon({
+    className: "custom-div-icon",
+    html: `<div style="background-color: ${color}; width: 14px; height: 14px; border: 2.5px solid white; border-radius: 50%; box-shadow: 0 0 6px rgba(0,0,0,0.4);"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  });
+};
+
 const isValidCoord = (lat: any, lng: any) => {
   const nLat = Number(lat);
   const nLng = Number(lng);
@@ -27,44 +38,34 @@ const isValidCoord = (lat: any, lng: any) => {
 
 const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
   const map = useMap();
-  const [positionFound, setPositionFound] = useState(false);
-  const lastBoundsRef = useRef<string>("");
+  const hasFocusedRef = useRef(false);
 
   useEffect(() => {
     if (!map) return;
 
+    // Ajusta o tamanho do mapa após o mount
     const timer = setTimeout(() => {
-       if (map.getContainer()) {
-          map.invalidateSize();
-       }
+       if (map.getContainer()) map.invalidateSize();
     }, 250);
 
     const validOps = activeOps.filter(op => isValidCoord(op.latitude, op.longitude));
     
     if (validOps.length > 0) {
       const bounds = L.latLngBounds(validOps.map(op => [Number(op.latitude), Number(op.longitude)]));
-      const boundsKey = bounds.toBBoxString();
-      
-      // Só aplica fitBounds se as fronteiras mudaram significativamente
-      if (bounds.isValid() && boundsKey !== lastBoundsRef.current) {
-          lastBoundsRef.current = boundsKey;
-          map.fitBounds(bounds, { 
-            padding: [50, 50], 
-            maxZoom: 15,
-            animate: true 
-          });
-          setPositionFound(true);
+      if (bounds.isValid()) {
+          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15, animate: true });
+          hasFocusedRef.current = true;
       }
-    } else if (!positionFound && "geolocation" in navigator) {
+    } else if (!hasFocusedRef.current && "geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           if (!map || !map.getContainer()) return;
           const { latitude, longitude } = position.coords;
-          map.setView([latitude, longitude], 10);
-          setPositionFound(true);
+          map.setView([latitude, longitude], 12);
+          hasFocusedRef.current = true;
         },
         null,
-        { timeout: 5000 }
+        { timeout: 5000, enableHighAccuracy: true }
       );
     }
 
@@ -124,7 +125,11 @@ export default function Dashboard() {
   useEffect(() => {
     isMounted.current = true;
     loadData();
-    return () => { isMounted.current = false; };
+    const interval = setInterval(loadData, 30000);
+    return () => { 
+        isMounted.current = false;
+        clearInterval(interval);
+    };
   }, [loadData]);
 
   const handleAckConflict = async (id: string) => {
@@ -136,17 +141,13 @@ export default function Dashboard() {
 
   const handleShareOp = async (op: Operation) => {
       const pilot = pilots.find(p => p.id === op.pilot_id);
-      const drone = drones.find(d => d.id === op.drone_id);
-      const streamText = op.stream_url ? `\n📡 *Transmissão:* ${op.stream_url}` : '';
-      
       const startTime = new Date(op.start_time);
       const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n` +
           `🚁 *Ocorrência:* ${op.name}\n` +
           `🔢 *Protocolo:* ${op.occurrence_number}\n` +
-          `👤 *Piloto:* ${pilot?.full_name || op.pilot_name || 'N/A'}\n` +
+          `👤 *Piloto:* ${pilot?.full_name || 'N/A'}\n` +
           `📍 *Coord:* ${op.latitude}, ${op.longitude}\n` +
-          `🕒 *Início:* ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n` +
-          `${streamText}`;
+          `🕒 *Início:* ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n`;
 
       window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
@@ -157,9 +158,10 @@ export default function Dashboard() {
 
       const pilot = pilots.find(p => p.id === op.pilot_id);
       const drone = drones.find(d => d.id === op.drone_id);
+      const opColor = MISSION_COLORS[op.mission_type] || '#ef4444';
 
       return (
-          <Marker key={`active-op-${op.id}`} position={[Number(op.latitude), Number(op.longitude)]} icon={icon}>
+          <Marker key={`active-op-${op.id}`} position={[Number(op.latitude), Number(op.longitude)]} icon={getCustomIcon(opColor)}>
             <Popup>
               <div className="min-w-[280px] p-1 font-sans">
                 <h3 className="font-bold text-slate-900 text-base uppercase leading-tight border-b pb-2 mb-2">{op.name}</h3>
@@ -194,6 +196,11 @@ export default function Dashboard() {
                          <span className="text-[10px] text-slate-400 mt-0.5">{drone?.crbm}</span>
                       </div>
                    </div>
+                </div>
+                
+                <div className="mt-3 flex items-center justify-between text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
+                   <span className="flex items-center gap-1"><Clock className="w-3" /> {new Date(op.start_time).toLocaleTimeString()}</span>
+                   <span className="flex items-center gap-1"><Navigation className="w-3" /> Raio: {op.radius}m</span>
                 </div>
               </div>
             </Popup>

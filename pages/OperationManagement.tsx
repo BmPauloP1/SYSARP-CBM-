@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
@@ -60,6 +60,19 @@ const MapController = ({ isPanelCollapsed }: { isPanelCollapsed: boolean }) => {
     return () => clearTimeout(timer);
   }, [map, isPanelCollapsed]);
   return null;
+};
+
+const MapPanController = ({ lat, lng }: { lat: number, lng: number }) => {
+    const map = useMap();
+    const lastPos = useRef({ lat, lng });
+    
+    useEffect(() => {
+        if (lat !== lastPos.current.lat || lng !== lastPos.current.lng) {
+            map.flyTo([lat, lng], map.getZoom() > 10 ? map.getZoom() : 15);
+            lastPos.current = { lat, lng };
+        }
+    }, [lat, lng, map]);
+    return null;
 };
 
 const MapEventsHandler = ({ onMapClick }: { onMapClick: (lat: number, lng: number) => void }) => {
@@ -127,6 +140,28 @@ export default function OperationManagement() {
   const handleMapClick = (lat: number, lng: number) => {
       if (!isCreating) return;
       setFormData(prev => ({ ...prev, latitude: lat, longitude: lng }));
+  };
+
+  const handleNewMission = () => {
+    setFormData(initialFormState);
+    setIsCreating(true);
+    
+    // Tenta obter geolocalização do usuário para centralizar o mapa na nova missão
+    if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                setFormData(prev => ({
+                    ...prev,
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude
+                }));
+            },
+            (error) => {
+                console.warn("Geolocalização recusada ou indisponível.", error);
+            },
+            { enableHighAccuracy: true, timeout: 5000 }
+        );
+    }
   };
 
   const addPointOfInterest = () => {
@@ -292,6 +327,7 @@ export default function OperationManagement() {
       <div className="flex-1 w-full relative z-0 order-1 lg:order-1 border-b lg:border-r border-slate-200 min-h-0">
         <MapContainer center={[-25.2521, -52.0215]} zoom={8} style={{ height: '100%', width: '100%' }}>
           <MapController isPanelCollapsed={isPanelCollapsed} />
+          {isCreating && <MapPanController lat={formData.latitude} lng={formData.longitude} />}
           {isCreating && <MapEventsHandler onMapClick={handleMapClick} />}
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           
@@ -503,7 +539,7 @@ export default function OperationManagement() {
                             <h2 className="text-xl font-bold text-slate-800">Missões RPA</h2>
                             <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Monitoramento em Tempo Real</p>
                         </div>
-                        <Button onClick={() => { setFormData(initialFormState); setIsCreating(true); }} className="bg-red-700 text-white h-10 px-6 font-bold shadow-lg text-xs uppercase">
+                        <Button onClick={handleNewMission} className="bg-red-700 text-white h-10 px-6 font-bold shadow-lg text-xs uppercase">
                           <Plus className="w-4 h-4 mr-1.5" /> NOVA MISSÃO
                         </Button>
                     </div>
@@ -596,7 +632,7 @@ export default function OperationManagement() {
       {/* MODAL CANCELAMENTO */}
       {isCancellingOp && (
         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <Card className="w-full max-w-lg bg-white p-8 rounded-2xl shadow-2xl border-t-8 border-red-600 animate-fade-in">
+            <Card className="w-full max-w-lg bg-white p-8 rounded-2xl shadow-2xl border-t-8 border-green-600 animate-fade-in">
                 <div className="flex justify-between items-start mb-6">
                     <h2 className="text-2xl font-black text-red-700 flex items-center gap-2">
                         <AlertTriangle className="w-8 h-8 text-red-600" /> CANCELAR OPERAÇÃO
