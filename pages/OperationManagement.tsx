@@ -11,7 +11,7 @@ import {
   Radio, Sun, Calendar, MapPin, Building2, 
   Navigation, Layers, MousePointer2, Users, 
   Pause, XCircle, Trash2, ChevronRight,
-  FileText, Send, Info, Video, Plane
+  FileText, Send, Info, Video, Plane, AlertTriangle
 } from "lucide-react";
 import OperationDailyLog from "../components/OperationDailyLog";
 
@@ -84,6 +84,9 @@ export default function OperationManagement() {
   const [isCreating, setIsCreating] = useState(false);
   const [isEditing, setIsEditing] = useState<string | null>(null);
   const [isFinishing, setIsFinishing] = useState<Operation | null>(null);
+  const [isCancellingOp, setIsCancellingOp] = useState<Operation | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [isAcknowledgeCancel, setIsAcknowledgeCancel] = useState(false);
   const [viewingLogOp, setViewingLogOp] = useState<Operation | null>(null);
 
   const initialFormState = {
@@ -202,14 +205,30 @@ export default function OperationManagement() {
     } catch (e) { alert("Erro ao encerrar."); } finally { setLoading(false); }
   };
 
-  const handleCancelOperation = async (op: Operation) => {
-      if(!confirm("Cancelar missão? Aeronave será liberada.")) return;
+  const handleCancelOperationSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!isCancellingOp || !isAcknowledgeCancel || !cancelReason.trim()) return;
+      
       setLoading(true);
       try {
-          await base44.entities.Operation.update(op.id, { status: 'cancelled', end_time: new Date().toISOString() });
-          if(op.drone_id) await base44.entities.Drone.update(op.drone_id, { status: 'available' });
+          await base44.entities.Operation.update(isCancellingOp.id, { 
+              status: 'cancelled', 
+              end_time: new Date().toISOString(),
+              description: `${isCancellingOp.description || ''}\n\n[CANCELAMENTO]: ${cancelReason}`
+          });
+          if(isCancellingOp.drone_id) {
+              await base44.entities.Drone.update(isCancellingOp.drone_id, { status: 'available' });
+          }
+          setIsCancellingOp(null);
+          setCancelReason("");
+          setIsAcknowledgeCancel(false);
           loadData();
-      } catch(e) { alert("Erro ao cancelar."); } finally { setLoading(false); }
+          alert("Missão cancelada com sucesso. Aeronave liberada.");
+      } catch(e) { 
+          alert("Erro ao cancelar missão."); 
+      } finally { 
+          setLoading(false); 
+      }
   };
 
   const displayedOps = activeTab === 'active' ? operations.filter(o => o.status === 'active') : operations.filter(o => o.status !== 'active');
@@ -505,7 +524,7 @@ export default function OperationManagement() {
                                             <h3 className="font-bold text-slate-800 text-base leading-tight uppercase">{op.name}</h3>
                                             <p className="text-[9px] font-mono text-slate-400 mt-0.5">#{op.occurrence_number}</p>
                                         </div>
-                                        <Badge variant={op.status === 'active' ? 'success' : 'default'} className={op.status === 'active' ? 'animate-pulse' : ''}>
+                                        <Badge variant={op.status === 'active' ? 'success' : op.status === 'completed' ? 'default' : 'danger'}>
                                             {op.status === 'active' ? 'EM ANDAMENTO' : op.status.toUpperCase()}
                                         </Badge>
                                     </div>
@@ -533,7 +552,7 @@ export default function OperationManagement() {
                                                 )}
                                             </div>
                                             <div className="flex gap-3">
-                                                <Button onClick={() => handleCancelOperation(op)} variant="outline" className="flex-1 h-11 border-red-600 text-red-600 hover:bg-red-50 text-[10px] font-black uppercase tracking-tighter shadow-sm">
+                                                <Button onClick={() => setIsCancellingOp(op)} variant="outline" className="flex-1 h-11 border-red-600 text-red-600 hover:bg-red-50 text-[10px] font-black uppercase tracking-tighter shadow-sm">
                                                     <XCircle className="w-4 h-4 mr-1.5" /> Cancelar
                                                 </Button>
                                                 <Button onClick={() => setIsFinishing(op)} className="flex-1 h-11 bg-red-600 hover:bg-red-700 text-white text-[10px] font-black uppercase tracking-tighter shadow-md">
@@ -568,6 +587,75 @@ export default function OperationManagement() {
                     <div className="flex gap-3 pt-2">
                         <Button type="button" variant="outline" className="flex-1 h-12 font-bold uppercase text-xs" onClick={() => setIsFinishing(null)}>CANCELAR</Button>
                         <Button type="submit" disabled={loading} className="flex-[2] h-12 bg-green-600 hover:bg-green-700 text-white font-black shadow-xl uppercase tracking-widest text-xs">Gravar e Finalizar</Button>
+                    </div>
+                </form>
+            </Card>
+        </div>
+      )}
+
+      {/* MODAL CANCELAMENTO */}
+      {isCancellingOp && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <Card className="w-full max-w-lg bg-white p-8 rounded-2xl shadow-2xl border-t-8 border-red-600 animate-fade-in">
+                <div className="flex justify-between items-start mb-6">
+                    <h2 className="text-2xl font-black text-red-700 flex items-center gap-2">
+                        <AlertTriangle className="w-8 h-8 text-red-600" /> CANCELAR OPERAÇÃO
+                    </h2>
+                    <button onClick={() => setIsCancellingOp(null)} className="text-slate-400 hover:text-slate-600">
+                        <X className="w-6 h-6" />
+                    </button>
+                </div>
+                
+                <form onSubmit={handleCancelOperationSubmit} className="space-y-6">
+                    <div className="bg-red-50 p-4 rounded-xl border border-red-100">
+                        <p className="text-sm text-red-800 leading-tight">
+                            Você está solicitando o cancelamento imediato da missão: <br/>
+                            <strong className="uppercase">{isCancellingOp.name}</strong>
+                        </p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-500 uppercase block">Motivo do Cancelamento</label>
+                        <textarea 
+                            className="w-full p-4 border rounded-xl text-sm h-32 focus:ring-2 focus:ring-red-500 outline-none resize-none bg-white border-slate-300"
+                            placeholder="Descreva por que a missão está sendo cancelada..."
+                            required
+                            value={cancelReason}
+                            onChange={e => setCancelReason(e.target.value)}
+                        />
+                    </div>
+
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                        <label className="flex items-start gap-3 cursor-pointer group">
+                            <input 
+                                type="checkbox" 
+                                className="mt-1 w-5 h-5 accent-red-600 rounded border-slate-300 transition-all"
+                                checked={isAcknowledgeCancel}
+                                onChange={e => setIsAcknowledgeCancel(e.target.checked)}
+                                required
+                            />
+                            <span className="text-xs font-bold text-slate-600 group-hover:text-slate-800 transition-colors">
+                                Estou ciente de que esta ação é irreversível. Após o cancelamento, a ocorrência será enviada ao histórico e NÃO poderá mais ser editada ou reativada.
+                            </span>
+                        </label>
+                    </div>
+
+                    <div className="flex gap-3 pt-2">
+                        <Button 
+                            type="button" 
+                            variant="outline" 
+                            className="flex-1 h-12 font-bold uppercase text-xs" 
+                            onClick={() => setIsCancellingOp(null)}
+                        >
+                            VOLTAR
+                        </Button>
+                        <Button 
+                            type="submit" 
+                            disabled={loading || !isAcknowledgeCancel || !cancelReason.trim()} 
+                            className="flex-[2] h-12 bg-red-600 hover:bg-red-700 text-white font-black shadow-xl uppercase tracking-widest text-xs disabled:opacity-50"
+                        >
+                            {loading ? "PROCESSANDO..." : "CONFIRMAR CANCELAMENTO"}
+                        </Button>
                     </div>
                 </form>
             </Card>
