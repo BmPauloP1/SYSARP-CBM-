@@ -146,7 +146,7 @@ export default function OperationManagement() {
     description: '', status: 'active' as any, occurrence_number: ''
   };
   const [formData, setFormData] = useState(initialFormState);
-  const [finishData, setFinishData] = useState({ description: '', flight_hours: 0 });
+  const [finishData, setFinishData] = useState({ description: '', flight_hours: '00:00' });
 
   useEffect(() => { loadData(); const interval = setInterval(loadData, 30000); return () => clearInterval(interval); }, []);
 
@@ -195,7 +195,11 @@ export default function OperationManagement() {
     if (!isFinishing) return;
     setLoading(true);
     try {
-        const flightHours = Number(finishData.flight_hours) || 0;
+        // Converte HH:mm para horas decimais
+        const timeParts = finishData.flight_hours.split(':');
+        const h = parseInt(timeParts[0] || '0', 10);
+        const m = parseInt(timeParts[1] || '0', 10);
+        const flightHours = h + (m / 60);
         
         // 1. Atualiza a operação
         await base44.entities.Operation.update(isFinishing.id, {
@@ -218,7 +222,7 @@ export default function OperationManagement() {
 
         alert("Operação encerrada e horas de voo contabilizadas!"); 
         setIsFinishing(null); 
-        setFinishData({ description: '', flight_hours: 0 });
+        setFinishData({ description: '', flight_hours: '00:00' });
         loadData();
     } catch (e) { 
         alert("Erro ao encerrar."); 
@@ -274,17 +278,24 @@ export default function OperationManagement() {
                 <form onSubmit={handleFinishOperation} className="space-y-4">
                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-4">
                         <p className="text-xs font-bold text-slate-500 uppercase mb-2">Informação Importante</p>
-                        <p className="text-sm text-slate-600">Informe o tempo <strong>efetivo de voo</strong> abaixo. Este valor será adicionado ao histórico da aeronave.</p>
+                        <p className="text-sm text-slate-600">Informe o tempo <strong>efetivo de voo</strong> abaixo no formato Horas:Minutos.</p>
                     </div>
-                    <Input 
-                        label="Horas Totais de Voo (Tempo Efetivo)" 
-                        type="number" 
-                        step="0.1" 
-                        min="0"
-                        value={finishData.flight_hours} 
-                        onChange={e => setFinishData({...finishData, flight_hours: Number(e.target.value)})} 
-                        required 
-                    />
+                    <div className="space-y-1">
+                        <div className="flex justify-between items-center px-1">
+                            <label className="text-sm font-medium text-slate-700">Duração Efetiva de Voo (HH:mm)</label>
+                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Exemplo: 01:30</span>
+                        </div>
+                        <Input 
+                            type="text" 
+                            placeholder="00:00"
+                            value={finishData.flight_hours} 
+                            onChange={e => {
+                                const val = e.target.value.replace(/[^0-9:]/g, '');
+                                setFinishData({...finishData, flight_hours: val});
+                            }} 
+                            required 
+                        />
+                    </div>
                     <textarea className="w-full p-3 border rounded-lg text-sm h-24 resize-none bg-white" value={finishData.description} onChange={e => setFinishData({...finishData, description: e.target.value})} placeholder="Relato final da missão..." />
                     <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={() => setIsFinishing(null)}>Cancelar</Button><Button type="submit" disabled={loading} className="bg-green-600 text-white font-bold px-6">Encerrar e Contabilizar</Button></div>
                 </form>
