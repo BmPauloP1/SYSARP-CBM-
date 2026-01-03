@@ -444,8 +444,13 @@ export default function DroneManagement() {
   };
 
   const getTBOStatus = (totalHours: number) => {
-    const cycle = 50; const hoursInCycle = totalHours % cycle; const percentage = (hoursInCycle / cycle) * 100; const remaining = cycle - hoursInCycle;
-    let color = "bg-green-500"; if (percentage > 70) color = "bg-yellow-500"; if (percentage > 90) color = "bg-red-500";
+    const cycle = 50; 
+    const hoursInCycle = totalHours % cycle; 
+    const percentage = (hoursInCycle / cycle) * 100; 
+    const remaining = cycle - hoursInCycle;
+    let color = "bg-green-500"; 
+    if (percentage > 70) color = "bg-yellow-500"; 
+    if (percentage > 90) color = "bg-red-500";
     return { percentage, remaining, color };
   };
 
@@ -577,10 +582,22 @@ export default function DroneManagement() {
                        <div className="flex items-center justify-between"><span className={`text-xs font-bold ${checklist.color}`}>{checklist.label}</span>{checklist.daysLeft < 2 && <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span></span>}</div>
                        <div className="text-[9px] text-slate-400 mt-1">Último Check: <span className="font-bold">{checklist.lastDate}</span></div>
                     </div>
-                    <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                      <div className="flex justify-between items-center mb-1"><span className="text-[10px] font-bold text-slate-500 flex items-center gap-1"><Activity className="w-3 h-3" /> Manutenção (TBO)</span><span className="text-[10px] font-bold text-slate-700">{tbo.remaining.toFixed(1)}h rest.</span></div>
-                      <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden"><div className={`h-full ${tbo.color} transition-all duration-500`} style={{ width: `${tbo.percentage}%` }}></div></div>
-                      <div className="mt-1 flex justify-between"><span className="text-[9px] text-slate-400">Total Voo: {drone.total_flight_hours?.toFixed(1) || 0}h</span></div>
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1 uppercase tracking-wider">
+                          <Activity className="w-3 h-3" /> Manutenção TBO
+                        </span>
+                        <span className="text-[11px] font-bold text-slate-700 bg-white px-2 py-0.5 rounded border">
+                          {tbo.remaining.toFixed(1)}h rest.
+                        </span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden my-2">
+                        <div className={`h-full ${tbo.color} transition-all duration-500`} style={{ width: `${tbo.percentage}%` }}></div>
+                      </div>
+                      <div className="mt-1 flex justify-between items-center">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase">Total de Voo (Acumulado)</span>
+                        <span className="text-sm font-black text-slate-800">{drone.total_flight_hours?.toFixed(1) || 0}h</span>
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                         <Button onClick={() => setInventoryDrone(drone)} variant="outline" className="h-8 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200"><Box className="w-3 h-3 mr-1.5" /> Almoxarifado</Button>
@@ -602,13 +619,15 @@ export default function DroneManagement() {
       {documentsDrone && (<DroneDocumentsModal drone={documentsDrone} onClose={() => setDocumentsDrone(null)} onUpdate={loadData} />)}
       {selectedDrone && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <Card className="w-full max-w-md p-6 bg-white shadow-xl animate-fade-in">
-            <h2 className="text-xl font-bold text-red-700 mb-4 flex items-center gap-2"><AlertTriangle className="w-6 h-6" />Enviar para Manutenção</h2>
-            <p className="text-sm text-slate-600 mb-4">A aeronave <strong>{selectedDrone.prefix}</strong> ficará indisponível.</p>
+          <Card className="w-full max-w-md p-6 bg-white shadow-xl animate-fade-in border-t-8 border-orange-500">
+            <h2 className="text-xl font-bold text-orange-700 mb-4 flex items-center gap-2"><AlertTriangle className="w-6 h-6" />ALERTA DE MANUTENÇÃO</h2>
+            <div className="bg-orange-50 border border-orange-100 p-3 rounded-lg mb-4">
+              <p className="text-sm text-orange-800">Você está prestes a tornar a aeronave <strong>{selectedDrone.prefix}</strong> indisponível para operações.</p>
+            </div>
             <form onSubmit={handleSendToMaintenance} className="space-y-4">
-              <div><label className="text-sm font-medium text-slate-700 block mb-1">Motivo</label><textarea className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm h-24 focus:ring-2 focus:ring-red-500 outline-none resize-none bg-white" placeholder="Descreva o problema..." required value={maintReason} onChange={e => setMaintReason(e.target.value)} /></div>
-              <Select label="Piloto Responsável" value={maintPilot} onChange={e => setMaintPilot(e.target.value)}><option value="">Selecione...</option>{pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}</Select>
-              <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={() => setSelectedDrone(null)}>Cancelar</Button><Button type="submit" disabled={loading} className="bg-red-600 hover:bg-red-700 text-white">{loading ? 'Processando...' : 'Confirmar Envio'}</Button></div>
+              <div><label className="text-sm font-medium text-slate-700 block mb-1">Motivo / Problema Detectado</label><textarea className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm h-24 focus:ring-2 focus:ring-orange-500 outline-none resize-none bg-white" placeholder="Descreva detalhadamente o motivo do envio..." required value={maintReason} onChange={e => setMaintReason(e.target.value)} /></div>
+              <Select label="Piloto Responsável pela Solicitação" value={maintPilot} onChange={e => setMaintPilot(e.target.value)} required><option value="">Selecione...</option>{pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}</Select>
+              <div className="flex justify-end gap-2 pt-2"><Button type="button" variant="outline" onClick={() => setSelectedDrone(null)}>Voltar</Button><Button type="submit" disabled={loading} className="bg-orange-600 hover:bg-orange-700 text-white font-bold">{loading ? 'Sincronizando...' : 'Confirmar Envio'}</Button></div>
             </form>
           </Card>
         </div>

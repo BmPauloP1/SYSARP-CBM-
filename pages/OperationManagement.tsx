@@ -195,11 +195,17 @@ export default function OperationManagement() {
     if (!isFinishing) return;
     setLoading(true);
     try {
-        // Converte HH:mm para horas decimais
+        // Converte HH:mm para horas decimais com precisão
         const timeParts = finishData.flight_hours.split(':');
         const h = parseInt(timeParts[0] || '0', 10);
         const m = parseInt(timeParts[1] || '0', 10);
         const flightHours = h + (m / 60);
+
+        if (isNaN(flightHours) || flightHours < 0) {
+            alert("Duração de voo inválida. Use o formato HH:mm.");
+            setLoading(false);
+            return;
+        }
         
         // 1. Atualiza a operação
         await base44.entities.Operation.update(isFinishing.id, {
@@ -209,18 +215,25 @@ export default function OperationManagement() {
             end_time: new Date().toISOString()
         });
 
-        // 2. Atualiza a aeronave somando o tempo efetivo de voo e liberando o status
+        // 2. BUSCA O ESTADO MAIS ATUAL DO DRONE NO BANCO (Source of Truth)
         if (isFinishing.drone_id) {
-            const drone = drones.find(d => d.id === isFinishing.drone_id);
-            const currentTotal = drone?.total_flight_hours || 0;
+            // Recarregamos a lista para pegar o valor exato no banco antes da soma
+            const allDrones = await base44.entities.Drone.list();
+            const freshDrone = allDrones.find(d => d.id === isFinishing.drone_id);
             
-            await base44.entities.Drone.update(isFinishing.drone_id, { 
-                status: 'available',
-                total_flight_hours: currentTotal + flightHours
-            });
+            if (freshDrone) {
+                const currentTotal = freshDrone.total_flight_hours || 0;
+                const newTotal = currentTotal + flightHours;
+                
+                await base44.entities.Drone.update(isFinishing.drone_id, { 
+                    status: 'available',
+                    total_flight_hours: newTotal
+                });
+                console.log(`[TBO SYNC] Drone ${freshDrone.prefix}: Sincronizado ${currentTotal}h + ${flightHours}h = ${newTotal}h`);
+            }
         }
 
-        alert("Operação encerrada e horas de voo contabilizadas!"); 
+        alert("Operação encerrada e horas de voo sincronizadas no histórico da aeronave!"); 
         setIsFinishing(null); 
         setFinishData({ description: '', flight_hours: '00:00' });
         loadData();
@@ -277,13 +290,13 @@ export default function OperationManagement() {
                 </div>
                 <form onSubmit={handleFinishOperation} className="space-y-4">
                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-4">
-                        <p className="text-xs font-bold text-slate-500 uppercase mb-2">Informação Importante</p>
+                        <p className="text-xs font-bold text-slate-500 uppercase mb-2">Contabilização de TBO</p>
                         <p className="text-sm text-slate-600">Informe o tempo <strong>efetivo de voo</strong> abaixo no formato Horas:Minutos.</p>
                     </div>
                     <div className="space-y-1">
                         <div className="flex justify-between items-center px-1">
-                            <label className="text-sm font-medium text-slate-700">Duração Efetiva de Voo (HH:mm)</label>
-                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Exemplo: 01:30</span>
+                            <label className="text-sm font-medium text-slate-700">Duração Efetiva (HH:mm)</label>
+                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">Ex: 01:45</span>
                         </div>
                         <Input 
                             type="text" 
