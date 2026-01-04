@@ -11,7 +11,7 @@ import {
   Radio, Sun, Calendar, MapPin, Building2, 
   Navigation, Layers, MousePointer2, Users, 
   Pause, XCircle, Trash2, ChevronRight,
-  FileText, Send, Info, Video, Plane, AlertTriangle
+  FileText, Send, Info, Video, Plane, AlertTriangle, Map
 } from "lucide-react";
 import OperationDailyLog from "../components/OperationDailyLog";
 
@@ -168,7 +168,6 @@ export default function OperationManagement() {
     const drone = drones.find(d => d.id === op.drone_id);
     const startTime = new Date(op.start_time);
     
-    // Construção dinâmica das coordenadas (Multi-pontos)
     let locationDetails = `📍 *Ponto Principal:* ${op.latitude.toFixed(6)}, ${op.longitude.toFixed(6)}\n` +
                           `📏 *Raio:* ${op.radius}m | ✈️ *Alt:* ${op.flight_altitude || 60}m`;
 
@@ -410,7 +409,7 @@ export default function OperationManagement() {
                     </div>
                     
                     <form onSubmit={e => { e.preventDefault(); performSave(); }} className="space-y-5 pb-10">
-                        {/* Form sections (omitted for brevity but preserved) */}
+                        
                         <section className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
                             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Building2 className="w-3 h-3"/> 1. Lotação de Área</h3>
                             <div className="grid grid-cols-2 gap-3">
@@ -459,7 +458,7 @@ export default function OperationManagement() {
                         </section>
 
                         <section className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
-                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Geolocalização</h3>
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Geolocalização Principal</h3>
                             <div className="grid grid-cols-2 gap-4">
                                 <Input label="Latitude (Ponto Principal)" type="number" step="any" value={formData.latitude} onChange={e => setFormData({...formData, latitude: Number(e.target.value)})} />
                                 <Input label="Longitude (Ponto Principal)" type="number" step="any" value={formData.longitude} onChange={e => setFormData({...formData, longitude: Number(e.target.value)})} />
@@ -468,7 +467,26 @@ export default function OperationManagement() {
                                 <Input label="Raio (m)" type="number" value={formData.radius} onChange={e => setFormData({...formData, radius: Number(e.target.value)})} />
                                 <Input label="Altitude Máx (m)" type="number" value={formData.flight_altitude} onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})} />
                             </div>
+                            <Button type="button" variant="outline" onClick={addPointOfInterest} className="w-full h-10 border-blue-200 text-blue-600 bg-blue-50">
+                                <Plus className="w-4 h-4 mr-2" /> VINCULAR NOVA ÁREA DE VOO
+                            </Button>
                         </section>
+
+                        {formData.takeoff_points.length > 0 && (
+                            <section className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
+                                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><Layers className="w-3 h-3"/> Áreas Vinculadas ({formData.takeoff_points.length})</h3>
+                                {formData.takeoff_points.map((pt, idx) => (
+                                    <div key={idx} className="p-3 bg-slate-50 rounded-lg border space-y-3 relative group">
+                                        <button type="button" onClick={() => removePoint(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><X className="w-3 h-3" /></button>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <Input label={`Lat Ponto ${idx+1}`} type="number" step="any" value={pt.lat} onChange={e => updatePoint(idx, 'lat', Number(e.target.value))} />
+                                            <Input label={`Lng Ponto ${idx+1}`} type="number" step="any" value={pt.lng} onChange={e => updatePoint(idx, 'lng', Number(e.target.value))} />
+                                        </div>
+                                        <Input label={`Alt Máx Ponto ${idx+1}`} type="number" value={pt.alt} onChange={e => updatePoint(idx, 'alt', Number(e.target.value))} />
+                                    </div>
+                                ))}
+                            </section>
+                        )}
 
                         <section className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
                             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">DATA E HORÁRIO</h3>
@@ -570,7 +588,6 @@ export default function OperationManagement() {
         </div>
       </div>
 
-      {/* Modals remain unchanged */}
       {isFinishing && (
         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <Card className="w-full max-w-lg bg-white p-8 rounded-2xl shadow-2xl border-t-8 border-green-600 animate-fade-in">
