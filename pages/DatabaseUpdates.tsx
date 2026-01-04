@@ -11,6 +11,20 @@ interface SchemaMigration {
 
 const ALL_UPDATES = [
   {
+    id: 'multi_point_operations_v1.0',
+    title: 'Suporte a Operações Multi-Pontos',
+    description: 'Adiciona a coluna necessária para armazenar múltiplas coordenadas, raios e altitudes em uma única missão. Essencial para o novo sistema de compartilhamento.',
+    category: 'ops',
+    sql: `
+-- ADICIONA COLUNA DE MULTI-PONTOS (JSONB) NA TABELA DE OPERAÇÕES
+ALTER TABLE public.operations 
+ADD COLUMN IF NOT EXISTS takeoff_points jsonb DEFAULT '[]'::jsonb;
+
+-- RECARREGA O SCHEMA PARA O POSTGREST RECONHECER A COLUNA
+NOTIFY pgrst, 'reload schema';
+`
+  },
+  {
     id: 'formal_incident_reporting_v1.0',
     title: 'Suporte a Boletim de Ocorrência Formal',
     description: 'Adiciona campos de texto longo para narrativa operacional e ações tomadas, essenciais para a validade jurídica dos relatórios.',
