@@ -276,10 +276,11 @@ export default function OperationManagement() {
       const uiOnlyFields = ['date', 'start_time_local', 'end_time_local', 'summer_city', 'summer_pgv'];
       uiOnlyFields.forEach(f => delete finalPayload[f]);
 
-      // FIX: Sanitização de UUIDs vazios para evitar erro de sintaxe no banco
-      if (finalPayload.second_pilot_id === '') finalPayload.second_pilot_id = null;
-      if (finalPayload.pilot_id === '') finalPayload.pilot_id = null;
-      if (finalPayload.drone_id === '') finalPayload.drone_id = null;
+      // FIX: Sanitização de UUIDs vazios e tratamento para campos opcionais
+      // O Supabase rejeita string vazia "" para colunas UUID
+      if (!finalPayload.second_pilot_id) finalPayload.second_pilot_id = null;
+      if (!finalPayload.pilot_id) finalPayload.pilot_id = null;
+      if (!finalPayload.drone_id) finalPayload.drone_id = null;
 
       // 5. Persistência de Dados
       if (isEditing) {
@@ -419,20 +420,52 @@ export default function OperationManagement() {
              // VERIFICAÇÃO CRÍTICA: Se as coordenadas não forem válidas, não renderiza o marcador.
              if (!isValidCoord(op.latitude, op.longitude)) return null;
 
+             const pilot = pilots.find(p => p.id === op.pilot_id);
+             const drone = drones.find(d => d.id === op.drone_id);
              const opColor = MISSION_COLORS[op.mission_type] || '#ef4444';
-             // Se estiver pausada, pode mudar o ícone ou cor (opcional, aqui mantemos a cor da missão)
              
              return (
              <React.Fragment key={`map-op-${op.id}`}>
                <Marker position={[op.latitude, op.longitude]} icon={getIcon(opColor)}>
-                  <Popup>
-                    <div className="min-w-[200px] p-1">
-                        <h4 className="font-bold border-b pb-1 mb-1 uppercase text-xs">{op.name}</h4>
-                        <div className="flex gap-2 mb-2">
-                            <Badge variant="danger">{MISSION_HIERARCHY[op.mission_type]?.label}</Badge>
-                            {op.is_paused && <Badge variant="warning">PAUSADA</Badge>}
+                  <Popup className="custom-popup">
+                    <div className="min-w-[280px] p-0 font-sans">
+                        <div className="mb-3 border-b pb-2">
+                            <h3 className="font-bold text-slate-900 text-sm uppercase leading-tight">{op.name}</h3>
+                            <p className="text-[10px] text-slate-400 font-mono mt-1">#{op.occurrence_number}</p>
                         </div>
-                        <p className="text-[10px] mt-2 text-slate-500 font-mono">#{op.occurrence_number}</p>
+                        
+                        <div className="mb-3 flex items-center gap-2">
+                            <span className="bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100 shadow-sm">
+                                {MISSION_HIERARCHY[op.mission_type]?.label}
+                            </span>
+                            {op.is_paused && <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded-full text-[10px] font-bold border border-amber-200">PAUSADA</span>}
+                        </div>
+
+                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 space-y-2 mb-2">
+                            <div className="flex items-center gap-2 text-xs">
+                                <User className="w-3.5 h-3.5 text-slate-400"/>
+                                <span className="font-bold text-slate-700">Piloto:</span>
+                                <span className="text-slate-600 truncate">{pilot?.full_name || 'N/A'}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                                <Plane className="w-3.5 h-3.5 text-slate-400"/>
+                                <span className="font-bold text-slate-700">RPA:</span>
+                                <span className="text-slate-600 truncate">{drone ? `${drone.prefix} - ${drone.model}` : 'N/A'}</span>
+                            </div>
+                            <div className="flex items-start gap-2 text-xs">
+                                <Building2 className="w-3.5 h-3.5 text-slate-400 mt-0.5"/>
+                                <div className="flex flex-col">
+                                    <span className="font-bold text-slate-700">Área/Unidade:</span>
+                                    <span className="text-slate-600 leading-tight">{op.op_unit || pilot?.unit || 'N/A'}</span>
+                                    <span className="text-[9px] text-slate-400 mt-0.5">{op.op_crbm}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-between items-center pt-2 text-[10px] text-slate-400 font-bold uppercase border-t border-slate-100">
+                            <div className="flex items-center gap-1"><Clock className="w-3 h-3"/> {new Date(op.start_time).toLocaleTimeString()}</div>
+                            <div className="flex items-center gap-1"><Navigation className="w-3 h-3"/> RAIO: {op.radius}M</div>
+                        </div>
                     </div>
                   </Popup>
                </Marker>
@@ -442,7 +475,15 @@ export default function OperationManagement() {
                     if (!isValidCoord(pt.lat, pt.lng)) return null;
                     return (
                         <React.Fragment key={`${op.id}-pt-${i}`}>
-                            <Marker position={[pt.lat, pt.lng]} icon={getIcon(opColor)} opacity={0.8} />
+                            <Marker position={[pt.lat, pt.lng]} icon={getIcon(opColor)} opacity={0.8}>
+                                <Popup>
+                                    <div className="text-xs">
+                                        <strong className="block text-slate-700 uppercase mb-1">Ponto Secundário {i+1}</strong>
+                                        <span className="text-slate-500">Operação: {op.name}</span>
+                                        <div className="mt-1 text-[10px] text-slate-400 font-mono">Lat: {pt.lat.toFixed(5)}, Lng: {pt.lng.toFixed(5)}</div>
+                                    </div>
+                                </Popup>
+                            </Marker>
                             <Circle center={[pt.lat, pt.lng]} radius={op.radius || 500} pathOptions={{ color: opColor, fillOpacity: 0.05, dashArray: '5, 10', weight: 1 }} />
                         </React.Fragment>
                     );
