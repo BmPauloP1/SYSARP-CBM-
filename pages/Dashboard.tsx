@@ -3,10 +3,8 @@ import React, { useEffect, useState, useCallback, memo, useRef, useMemo } from "
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
-/* Fix: Added missing Maintenance type to the import list from types.ts */
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, MISSION_COLORS, MISSION_LABELS, ConflictNotification, Maintenance } from "../types";
 import { Badge, Button, Card } from "../components/ui_components";
-/* Fix: Added missing Clock icon to the import list from lucide-react */
 import { Radio, Video, AlertTriangle, Map as MapIcon, Wrench, List, Shield, Check, Info, Share2, User, Plane, Building2, UserCheck, Navigation, Clock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -43,7 +41,6 @@ const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
   useEffect(() => {
     if (!map) return;
 
-    // Ajusta o tamanho do mapa após o mount
     const timer = setTimeout(() => {
        if (map.getContainer()) map.invalidateSize();
     }, 250);

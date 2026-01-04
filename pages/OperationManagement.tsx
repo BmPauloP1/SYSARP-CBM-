@@ -6,14 +6,12 @@ import { base44 } from "../services/base44Client";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, MissionType, ORGANIZATION_CHART, MISSION_COLORS } from "../types";
 import { SUMMER_LOCATIONS } from "../types_summer";
 import { Button, Input, Select, Badge, Card } from "../components/ui_components";
-/* Added Activity to the imports to fix the error on line 480 */
 import { 
   Plus, Clock, User, Share2, Pencil, X, CheckSquare, 
   Radio, Sun, Calendar, MapPin, Building2, 
   Navigation, Layers, MousePointer2, Users, 
   Pause, XCircle, Trash2, ChevronRight,
-  FileText, Send, Info, Video, Plane, AlertTriangle, Shield, Check, Phone, Globe, Terminal,
-  Activity
+  FileText, Send, Info, Video, Plane, AlertTriangle, Shield, Check, Phone, Globe, Terminal, Hammer, Activity
 } from "lucide-react";
 import OperationDailyLog from "../components/OperationDailyLog";
 
@@ -49,7 +47,6 @@ const UNIT_COORDINATES: Record<string, [number, number]> = {
   "GOST - Socorro Tático": [-25.4397, -49.2719]
 };
 
-// --- HELPERS ---
 const cleanUnitString = (unit: string, crbm: string) => {
     const target = (unit && unit !== "") ? unit : (crbm && crbm !== "" ? crbm : "SOARP");
     const base = target.split(' - ')[0];
@@ -63,9 +60,9 @@ const generateNextProtocol = (operations: Operation[], unit: string, crbm: strin
     const unitOps = operations.filter(o => o.occurrence_number && o.occurrence_number.includes(`${year}${prefix}${cleanedUnit}`));
     let sequence = 1;
     if (unitOps.length > 0) {
-        const sorted = unitOps.sort((a, b) => b.occurrence_number.localeCompare(a.occurrence_number));
+        const sorted = unitOps.sort((a, b) => (b.occurrence_number || '').localeCompare(a.occurrence_number || ''));
         const lastProtocol = sorted[0].occurrence_number;
-        const match = lastProtocol.match(/(\d{5})$/);
+        const match = lastProtocol?.match(/(\d{5})$/);
         if (match) sequence = parseInt(match[1], 10) + 1;
     }
     return `${year}${prefix}${cleanedUnit}${String(sequence).padStart(5, '0')}`;
@@ -105,6 +102,12 @@ const createCustomIcon = (type: 'unit' | 'pilot' | 'drone', count: number = 0) =
   });
 };
 
+const isValidCoord = (lat: any, lng: any) => {
+  const nLat = Number(lat);
+  const nLng = Number(lng);
+  return !isNaN(nLat) && !isNaN(nLng) && nLat !== 0 && nLng !== 0;
+};
+
 const MapController = ({ isPanelCollapsed }: { isPanelCollapsed: boolean }) => {
   const map = useMap();
   useEffect(() => { 
@@ -119,7 +122,9 @@ const MapPanController = ({ lat, lng }: { lat: number, lng: number }) => {
     const lastPos = useRef({ lat, lng });
     useEffect(() => {
         if (lat !== lastPos.current.lat || lng !== lastPos.current.lng) {
-            map.flyTo([lat, lng], map.getZoom() > 10 ? map.getZoom() : 15);
+            if (isValidCoord(lat, lng)) {
+                map.flyTo([lat, lng], map.getZoom() > 10 ? map.getZoom() : 15);
+            }
             lastPos.current = { lat, lng };
         }
     }, [lat, lng, map]);
@@ -220,37 +225,75 @@ export default function OperationManagement() {
   const performSave = async () => {
     setLoading(true);
     try {
+      // 1. Preparação e Validação do Payload
       let finalPayload: any = { ...formData };
       
+      if (!finalPayload.pilot_id) throw new Error("Piloto PIC é obrigatório.");
+      if (!finalPayload.drone_id) throw new Error("Aeronave é obrigatória.");
+      if (!finalPayload.name && !formData.is_summer_op) throw new Error("Título da ocorrência é obrigatório.");
+
+      // 2. Lógica de Naming e Protocolo para Novos Registros
       if (formData.is_summer_op && formData.summer_city && formData.summer_pgv) {
           finalPayload.name = `VERÃO: ${formData.summer_city} - ${formData.summer_pgv}`;
       }
 
       if (!isEditing) {
-          const unitToUse = formData.op_unit || pilots.find(p => p.id === formData.pilot_id)?.unit || "";
-          const crbmToUse = formData.op_crbm || pilots.find(p => p.id === formData.pilot_id)?.crbm || "";
+          const pilotObj = pilots.find(p => p.id === formData.pilot_id);
+          const unitToUse = formData.op_unit || pilotObj?.unit || "";
+          const crbmToUse = formData.op_crbm || pilotObj?.crbm || "";
+          
           finalPayload.occurrence_number = generateNextProtocol(operations, unitToUse, crbmToUse);
+          
           const combinedDateTime = `${formData.date}T${formData.start_time_local}:00`;
-          finalPayload.start_time = new Date(combinedDateTime).toISOString();
+          const startDate = new Date(combinedDateTime);
+          if (isNaN(startDate.getTime())) throw new Error("Formato de hora de início inválido.");
+          finalPayload.start_time = startDate.toISOString();
           
           if (formData.end_time_local) {
               const endDateTime = `${formData.date}T${formData.end_time_local}:00`;
-              finalPayload.end_time = new Date(endDateTime).toISOString();
+              const endDate = new Date(endDateTime);
+              if (!isNaN(endDate.getTime())) {
+                finalPayload.end_time = endDate.toISOString();
+              }
           }
       }
       
-      const uiOnlyFields = ['date', 'start_time_local', 'end_time_local', 'summer_city', 'summer_pgv'];
-      uiOnlyFields.forEach(f => delete finalPayload[f]);
+      // 3. Conversão Numérica (Fix para erro de salvamento/banco)
       finalPayload.latitude = Number(finalPayload.latitude);
       finalPayload.longitude = Number(finalPayload.longitude);
+      finalPayload.radius = Number(finalPayload.radius) || 500;
+      finalPayload.flight_altitude = Number(finalPayload.flight_altitude) || 60;
 
-      if (isEditing) await base44.entities.Operation.update(isEditing, finalPayload);
-      else {
-          await base44.entities.Operation.create(finalPayload);
-          if (finalPayload.drone_id) await base44.entities.Drone.update(finalPayload.drone_id, { status: 'in_operation' });
+      if (isNaN(finalPayload.latitude) || isNaN(finalPayload.longitude)) {
+          throw new Error("Coordenadas geográficas inválidas.");
       }
-      setIsCreating(false); setIsEditing(null); loadData();
-    } catch (e) { alert("Erro ao salvar missão."); } finally { setLoading(false); }
+
+      // 4. Limpeza de campos exclusivos da Interface (UI-only)
+      const uiOnlyFields = ['date', 'start_time_local', 'end_time_local', 'summer_city', 'summer_pgv'];
+      uiOnlyFields.forEach(f => delete finalPayload[f]);
+
+      // 5. Persistência de Dados
+      if (isEditing) {
+          await base44.entities.Operation.update(isEditing, finalPayload);
+      } else {
+          await base44.entities.Operation.create(finalPayload);
+          // Marca drone como ocupado
+          if (finalPayload.drone_id) {
+              await base44.entities.Drone.update(finalPayload.drone_id, { status: 'in_operation' });
+          }
+      }
+
+      setIsCreating(false); 
+      setIsEditing(null); 
+      loadData();
+      alert("Missão RPA lançada com sucesso!");
+    } catch (e: any) { 
+        console.error("Erro técnico no salvamento:", e);
+        const errorMsg = e.message || "Erro inesperado ao salvar missão.";
+        alert(`ERRO AO SALVAR:\n\n${errorMsg}\n\nVerifique sua conexão ou se a aeronave selecionada já está sendo utilizada em outra missão.`); 
+    } finally { 
+        setLoading(false); 
+    }
   };
 
   const handleShareOp = (op: Operation) => {
@@ -296,6 +339,9 @@ export default function OperationManagement() {
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           
           {visibleLayers.missions && displayedOps.map(op => {
+             // VERIFICAÇÃO CRÍTICA: Se as coordenadas não forem válidas, não renderiza o marcador.
+             if (!isValidCoord(op.latitude, op.longitude)) return null;
+
              const opColor = MISSION_COLORS[op.mission_type] || '#ef4444';
              return (
              <React.Fragment key={`map-op-${op.id}`}>
@@ -309,12 +355,16 @@ export default function OperationManagement() {
                   </Popup>
                </Marker>
                <Circle center={[op.latitude, op.longitude]} radius={op.radius || 500} pathOptions={{ color: opColor, fillOpacity: 0.1, weight: 2 }} />
-               {(op.takeoff_points || []).map((pt: any, i: number) => (
-                    <React.Fragment key={`${op.id}-pt-${i}`}>
-                        <Marker position={[pt.lat, pt.lng]} icon={getIcon(opColor)} opacity={0.8} />
-                        <Circle center={[pt.lat, pt.lng]} radius={op.radius || 500} pathOptions={{ color: opColor, fillOpacity: 0.05, dashArray: '5, 10', weight: 1 }} />
-                    </React.Fragment>
-               ))}
+               {(op.takeoff_points || []).map((pt: any, i: number) => {
+                    // Também verificar pontos secundários
+                    if (!isValidCoord(pt.lat, pt.lng)) return null;
+                    return (
+                        <React.Fragment key={`${op.id}-pt-${i}`}>
+                            <Marker position={[pt.lat, pt.lng]} icon={getIcon(opColor)} opacity={0.8} />
+                            <Circle center={[pt.lat, pt.lng]} radius={op.radius || 500} pathOptions={{ color: opColor, fillOpacity: 0.05, dashArray: '5, 10', weight: 1 }} />
+                        </React.Fragment>
+                    );
+               })}
              </React.Fragment>
           )})}
 
@@ -361,7 +411,7 @@ export default function OperationManagement() {
               );
           })}
 
-          {isCreating && (
+          {isCreating && isValidCoord(formData.latitude, formData.longitude) && (
               <>
                 <Marker position={[formData.latitude, formData.longitude]} icon={getIcon('#dc2626')} />
                 <Circle center={[formData.latitude, formData.longitude]} radius={formData.radius} pathOptions={{ color: '#dc2626', dashArray: '5, 10', weight: 2 }} />
@@ -416,7 +466,7 @@ export default function OperationManagement() {
                         {/* 2. MISSÃO */}
                         <section className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
                             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b pb-2"><Navigation className="w-3 h-3"/> 2. Dados da Missão</h3>
-                            <Input label="Título da Ocorrência" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required placeholder="Ex: Incêndio Urbano..." />
+                            <Input label="Título da Ocorrência" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required={!formData.is_summer_op} placeholder="Ex: Incêndio Urbano..." />
                             <div className="grid grid-cols-2 gap-3">
                                <Select label="Natureza" value={formData.mission_type} onChange={e => setFormData({...formData, mission_type: e.target.value as any})} required>
                                   {Object.entries(MISSION_HIERARCHY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
@@ -441,58 +491,91 @@ export default function OperationManagement() {
                                 {drones.filter(d => d.status === 'available' || d.id === formData.drone_id).map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
                               </Select>
                             </div>
-                            <Input label="Observador / Auxiliar" value={formData.observer_name} onChange={e => setFormData({...formData, observer_name: e.target.value})} placeholder="Nome do Observador (Opcional)" />
+                            <Input label="Observador / Auxiliar" value={formData.observer_name} onChange={e => setFormData({...formData, observer_name: e.target.value})} placeholder="Nome do militar de apoio" />
                         </section>
 
-                        {/* 4. SUPORTE E INTEGRAÇÕES (Print do Usuário) */}
+                        {/* 4. LOCALIZAÇÃO */}
+                        <section className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><MapPin className="w-3 h-3"/> 4. Geolocalização</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <Input label="Latitude" type="number" step="any" value={formData.latitude} onChange={e => setFormData({...formData, latitude: Number(e.target.value)})} />
+                                <Input label="Longitude" type="number" step="any" value={formData.longitude} onChange={e => setFormData({...formData, longitude: Number(e.target.value)})} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <Input label="Raio de Voo (m)" type="number" value={formData.radius} onChange={e => setFormData({...formData, radius: Number(e.target.value)})} />
+                                <Input label="Altitude Máx (m)" type="number" value={formData.flight_altitude} onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})} />
+                            </div>
+                            <Button type="button" variant="outline" onClick={addPointOfInterest} className="w-full h-11 border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 transition-all font-bold">
+                                <Plus className="w-4 h-4 mr-2" /> VINCULAR ÁREA DE APOIO
+                            </Button>
+                        </section>
+
+                        {/* 5. CRONOGRAMA */}
+                        <section className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><Clock className="w-3 h-3"/> 5. Cronograma Operacional</h3>
+                            <div className="grid grid-cols-3 gap-3">
+                                <Input label="Data" type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
+                                <Input label="Início" type="time" value={formData.start_time_local} onChange={e => setFormData({...formData, start_time_local: e.target.value})} />
+                                <Input label="Término Previsto" type="time" value={formData.end_time_local} onChange={e => setFormData({...formData, end_time_local: e.target.value})} />
+                            </div>
+                        </section>
+
+                        {/* 6. DESCRIÇÃO / NOTAS (SOLICITADO APÓS CRONOGRAMA) */}
+                        <section className="bg-white p-4 rounded-xl shadow-sm border space-y-3">
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><FileText className="w-3 h-3"/> 6. Descrição / Notas Operacionais</h3>
+                            <textarea 
+                                className="w-full h-32 p-4 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-red-500 outline-none resize-none bg-white text-slate-900 shadow-inner"
+                                placeholder="Relate detalhes, obstáculos ou observações importantes da missão..."
+                                value={formData.description}
+                                onChange={e => setFormData({...formData, description: e.target.value})}
+                            />
+                        </section>
+
+                        {/* 7. TRANSMISSÃO */}
+                        <section className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><Video className="w-3 h-3"/> 7. Link de Transmissão</h3>
+                            <Input 
+                                value={formData.stream_url} 
+                                onChange={e => setFormData({...formData, stream_url: e.target.value})} 
+                                placeholder="Link RTMP / YouTube / DroneDeploy (Opcional)" 
+                                className="bg-white h-12"
+                            />
+                        </section>
+
+                        {/* 8. SARPAS */}
                         <section className="bg-white p-4 rounded-xl shadow-sm border space-y-5">
-                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b pb-2"><Globe className="w-3 h-3"/> 4. Integração e Transmissão</h3>
-                            
                             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 relative group">
                                 <div className="absolute -top-2 right-4">
-                                    <Badge variant="warning" className="text-[9px] flex items-center gap-1 shadow-sm"><Terminal className="w-2.5 h-2.5"/> Em Construção</Badge>
+                                    <Badge variant="warning" className="text-[9px] flex items-center gap-1 shadow-sm uppercase font-black px-2 py-0.5"><Hammer className="w-2.5 h-2.5"/> Em Construção</Badge>
                                 </div>
                                 <div className="flex items-center gap-2 mb-2">
                                     <Send className="w-4 h-4 text-blue-600" />
-                                    <span className="text-sm font-bold text-slate-700">Integração SARPAS</span>
+                                    <span className="text-sm font-bold text-slate-700">Integração SARPAS NG (Manual)</span>
                                 </div>
                                 <Input 
-                                    label="Protocolo SARPAS (Manual)" 
+                                    label="Protocolo SARPAS" 
                                     labelClassName="text-[10px] font-black text-slate-400 uppercase"
                                     value={formData.sarpas_protocol} 
                                     onChange={e => setFormData({...formData, sarpas_protocol: e.target.value})} 
                                     placeholder="Ex: BR-2024-..." 
                                 />
                             </div>
-
-                            <div>
-                                <label className="text-xs font-black text-slate-500 uppercase mb-1 block">Link de Transmissão (Opcional)</label>
-                                <Input 
-                                    value={formData.stream_url} 
-                                    onChange={e => setFormData({...formData, stream_url: e.target.value})} 
-                                    placeholder="RTMP / YouTube / DroneDeploy" 
-                                    className="bg-white"
-                                />
-                            </div>
                         </section>
 
-                        {/* 5. CONFIGURAÇÕES ESPECIAIS (Verão e Multidias) */}
+                        {/* 9. VINCULAR OPERAÇÃO VERÃO */}
                         <section className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
-                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex justify-between items-center border-b pb-2">
-                               <div className="flex items-center gap-2"><Activity className="w-3 h-3"/> 5. Configurações Especiais</div>
-                            </h3>
-
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><Sun className="w-3 h-3"/> 9. Operação Verão</h3>
                             <div className="space-y-3">
-                                <label className="flex items-center gap-3 p-3 bg-orange-50 border border-orange-100 rounded-xl cursor-pointer group transition-all hover:bg-orange-100/50">
+                                <label className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer group transition-all hover:bg-slate-50 shadow-sm">
                                     <input type="checkbox" checked={formData.is_summer_op} onChange={e => setFormData({...formData, is_summer_op: e.target.checked})} className="w-5 h-5 accent-orange-500 rounded" />
                                     <div className="flex items-center gap-2">
                                         <Sun className="w-5 h-5 text-orange-600" />
-                                        <span className="text-sm font-bold text-orange-900 uppercase">Vincular à Operação Verão</span>
+                                        <span className="text-sm font-bold text-slate-700 uppercase">Vincular à Operação Verão</span>
                                     </div>
                                 </label>
 
                                 {formData.is_summer_op && (
-                                    <div className="p-4 bg-white rounded-xl border border-orange-200 animate-fade-in grid grid-cols-2 gap-4 shadow-inner">
+                                    <div className="p-4 bg-orange-50 rounded-xl border border-orange-200 animate-fade-in grid grid-cols-2 gap-4 shadow-inner">
                                         <Select label="Cidade Verão" value={formData.summer_city} onChange={e => setFormData({...formData, summer_city: e.target.value, summer_pgv: ''})}>
                                             <option value="">Selecione...</option>
                                             {Object.keys(SUMMER_LOCATIONS).map(c => <option key={c} value={c}>{c}</option>)}
@@ -503,69 +586,26 @@ export default function OperationManagement() {
                                         </Select>
                                     </div>
                                 )}
-
-                                <label className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-100 rounded-xl cursor-pointer group transition-all hover:bg-blue-100/50">
-                                    <input type="checkbox" checked={formData.is_multi_day} onChange={e => setFormData({...formData, is_multi_day: e.target.checked})} className="w-5 h-5 accent-blue-600 rounded" />
-                                    <div className="flex items-center gap-2">
-                                        <Calendar className="w-5 h-5 text-blue-600" />
-                                        <span className="text-sm font-bold text-blue-900 uppercase">Ativar Modo Multidias (Diário de Bordo)</span>
-                                    </div>
-                                </label>
-
-                                {formData.is_multi_day && (
-                                    <div className="p-4 bg-white rounded-xl border border-blue-200 animate-fade-in text-xs text-blue-800 flex items-start gap-3 shadow-inner">
-                                        <Info className="w-5 h-5 shrink-0" />
-                                        <div>
-                                            <p className="font-bold">Modo Avançado de Gerenciamento</p>
-                                            <p className="opacity-80">Permite designar pilotos, drones e relatos individuais para cada dia da missão.</p>
-                                        </div>
-                                    </div>
-                                )}
                             </div>
                         </section>
 
-                        {/* 6. LOCALIZAÇÃO */}
+                        {/* 10. MODO MULTIDIAS */}
                         <section className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
-                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><MapPin className="w-3 h-3"/> 6. Geolocalização</h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <Input label="Latitude" type="number" step="any" value={formData.latitude} onChange={e => setFormData({...formData, latitude: Number(e.target.value)})} />
-                                <Input label="Longitude" type="number" step="any" value={formData.longitude} onChange={e => setFormData({...formData, longitude: Number(e.target.value)})} />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <Input label="Raio de Voo (m)" type="number" value={formData.radius} onChange={e => setFormData({...formData, radius: Number(e.target.value)})} />
-                                <Input label="Altitude Máx (m AGL)" type="number" value={formData.flight_altitude} onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})} />
-                            </div>
-                            <Button type="button" variant="outline" onClick={addPointOfInterest} className="w-full h-11 border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100 transition-all font-bold">
-                                <Plus className="w-4 h-4 mr-2" /> VINCULAR ÁREA DE APOIO
-                            </Button>
-                        </section>
-
-                        {/* 7. CRONOGRAMA */}
-                        <section className="bg-white p-4 rounded-xl shadow-sm border space-y-4">
-                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><Clock className="w-3 h-3"/> 7. Cronograma Operacional</h3>
-                            <div className="grid grid-cols-3 gap-3">
-                                <Input label="Data" type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
-                                <Input label="Início" type="time" value={formData.start_time_local} onChange={e => setFormData({...formData, start_time_local: e.target.value})} />
-                                <Input label="Término Previsto" type="time" value={formData.end_time_local} onChange={e => setFormData({...formData, end_time_local: e.target.value})} />
-                            </div>
-                        </section>
-
-                        {/* 8. DESCRIÇÃO / NOTAS (Print do Usuário) */}
-                        <section className="bg-white p-4 rounded-xl shadow-sm border space-y-3">
-                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><FileText className="w-3 h-3"/> 8. Descrição / Notas</h3>
-                            <textarea 
-                                className="w-full h-32 p-4 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-red-500 outline-none resize-none bg-white text-slate-900"
-                                placeholder="Detalhes da operação..."
-                                value={formData.description}
-                                onChange={e => setFormData({...formData, description: e.target.value})}
-                            />
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2 flex items-center gap-2"><Calendar className="w-3 h-3"/> 10. Diário de Bordo</h3>
+                            <label className="flex items-center gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer group transition-all hover:bg-slate-50 shadow-sm">
+                                <input type="checkbox" checked={formData.is_multi_day} onChange={e => setFormData({...formData, is_multi_day: e.target.checked})} className="w-5 h-5 accent-blue-600 rounded" />
+                                <div className="flex items-center gap-2">
+                                    <Calendar className="w-5 h-5 text-blue-600" />
+                                    <span className="text-sm font-bold text-slate-700 uppercase">Ativar Modo Multidias</span>
+                                </div>
+                            </label>
                         </section>
 
                         {/* AÇÕES FINAIS */}
                         <div className="pt-6 border-t flex gap-4">
                            <Button variant="outline" className="flex-1 h-12 font-bold uppercase text-xs" type="button" onClick={() => setIsCreating(false)}>Cancelar</Button>
                            <Button type="submit" className="flex-[2] h-12 bg-red-700 text-white font-black shadow-lg uppercase tracking-widest text-xs" disabled={loading}>
-                               {loading ? 'Salvando...' : 'INICIAR MISSÃO RPA'}
+                               {loading ? 'Sincronizando...' : 'INICIAR MISSÃO RPA'}
                            </Button>
                         </div>
                     </form>
