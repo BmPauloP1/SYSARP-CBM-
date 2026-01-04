@@ -10,7 +10,7 @@ import {
   Plus, Clock, User, Share2, Pencil, X, CheckSquare, 
   Radio, Sun, Calendar, MapPin, Building2, 
   Navigation, Layers, MousePointer2, Users, 
-  Pause, XCircle, Trash2, ChevronRight,
+  Pause, Play, XCircle, Trash2, ChevronRight,
   FileText, Send, Info, Video, Plane, AlertTriangle, Shield, Check, Phone, Globe, Terminal, Hammer, Activity
 } from "lucide-react";
 import OperationDailyLog from "../components/OperationDailyLog";
@@ -165,6 +165,10 @@ export default function OperationManagement() {
   const [cancelReason, setCancelReason] = useState("");
   const [isAcknowledgeCancel, setIsAcknowledgeCancel] = useState(false);
   const [viewingLogOp, setViewingLogOp] = useState<Operation | null>(null);
+  
+  // Pause State
+  const [isPausingOp, setIsPausingOp] = useState<Operation | null>(null);
+  const [pauseReason, setPauseReason] = useState("");
 
   const initialFormState = {
     name: '', pilot_id: '', second_pilot_id: '', observer_name: '', drone_id: '',
@@ -272,6 +276,11 @@ export default function OperationManagement() {
       const uiOnlyFields = ['date', 'start_time_local', 'end_time_local', 'summer_city', 'summer_pgv'];
       uiOnlyFields.forEach(f => delete finalPayload[f]);
 
+      // FIX: Sanitização de UUIDs vazios para evitar erro de sintaxe no banco
+      if (finalPayload.second_pilot_id === '') finalPayload.second_pilot_id = null;
+      if (finalPayload.pilot_id === '') finalPayload.pilot_id = null;
+      if (finalPayload.drone_id === '') finalPayload.drone_id = null;
+
       // 5. Persistência de Dados
       if (isEditing) {
           await base44.entities.Operation.update(isEditing, finalPayload);
@@ -308,6 +317,74 @@ export default function OperationManagement() {
     const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n🚁 *Ocorrência:* ${op.name.toUpperCase()}\n🔢 *Protocolo:* ${op.occurrence_number}\n📋 *Natureza:* ${MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}\n\n👤 *PIC:* ${pilot?.full_name || 'N/A'}\n🛡️ *Aeronave:* ${drone ? `${drone.prefix} (${drone.model})` : 'N/A'}\n\n${locStr}\n\n🕒 *Início:* ${startTime.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
+  
+  const handleTogglePause = async (op: Operation) => {
+      // Se já estiver pausada, retoma imediatamente
+      if (op.is_paused) {
+          setLoading(true);
+          try {
+              const now = new Date();
+              const start = op.last_pause_start ? new Date(op.last_pause_start) : now;
+              const durationMs = now.getTime() - start.getTime();
+              
+              // Atualiza logs locais
+              const logs = [...(op.pause_logs || [])];
+              if (logs.length > 0) {
+                  logs[logs.length - 1] = {
+                      ...logs[logs.length - 1],
+                      end: now.toISOString(),
+                      duration: durationMs
+                  };
+              }
+              
+              const newTotal = (op.total_pause_duration || 0) + durationMs;
+              
+              await base44.entities.Operation.update(op.id, {
+                  is_paused: false,
+                  last_pause_start: null,
+                  total_pause_duration: newTotal,
+                  pause_logs: logs
+              });
+              loadData();
+          } catch (e) {
+              console.error(e);
+              alert("Erro ao retomar operação.");
+          } finally {
+              setLoading(false);
+          }
+      } else {
+          // Se estiver rodando, abre modal para pedir motivo
+          setIsPausingOp(op);
+          setPauseReason("");
+      }
+  };
+  
+  const confirmPause = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!isPausingOp || !pauseReason.trim()) return;
+      setLoading(true);
+      try {
+          const logs = [...(isPausingOp.pause_logs || [])];
+          logs.push({
+              start: new Date().toISOString(),
+              reason: pauseReason
+          });
+          
+          await base44.entities.Operation.update(isPausingOp.id, {
+              is_paused: true,
+              last_pause_start: new Date().toISOString(),
+              pause_logs: logs
+          });
+          
+          setIsPausingOp(null);
+          loadData();
+      } catch (e) {
+          console.error(e);
+          alert("Erro ao pausar operação.");
+      } finally {
+          setLoading(false);
+      }
+  };
 
   const groupedResources = useMemo(() => {
     const groups: Record<string, { pilots: Pilot[], drones: Drone[] }> = {};
@@ -343,13 +420,18 @@ export default function OperationManagement() {
              if (!isValidCoord(op.latitude, op.longitude)) return null;
 
              const opColor = MISSION_COLORS[op.mission_type] || '#ef4444';
+             // Se estiver pausada, pode mudar o ícone ou cor (opcional, aqui mantemos a cor da missão)
+             
              return (
              <React.Fragment key={`map-op-${op.id}`}>
                <Marker position={[op.latitude, op.longitude]} icon={getIcon(opColor)}>
                   <Popup>
                     <div className="min-w-[200px] p-1">
                         <h4 className="font-bold border-b pb-1 mb-1 uppercase text-xs">{op.name}</h4>
-                        <Badge variant="danger">{MISSION_HIERARCHY[op.mission_type]?.label}</Badge>
+                        <div className="flex gap-2 mb-2">
+                            <Badge variant="danger">{MISSION_HIERARCHY[op.mission_type]?.label}</Badge>
+                            {op.is_paused && <Badge variant="warning">PAUSADA</Badge>}
+                        </div>
                         <p className="text-[10px] mt-2 text-slate-500 font-mono">#{op.occurrence_number}</p>
                     </div>
                   </Popup>
@@ -635,14 +717,17 @@ export default function OperationManagement() {
                     </div>
                     <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50/30">
                         {displayedOps.map(op => (
-                            <Card key={op.id} className={`bg-white border rounded-xl overflow-hidden shadow-sm border-l-4 ${op.status === 'active' ? 'border-l-red-600' : 'border-l-slate-400'} hover:shadow-md transition-all`}>
+                            <Card key={op.id} className={`bg-white border rounded-xl overflow-hidden shadow-sm border-l-4 ${op.status === 'active' ? 'border-l-red-600' : 'border-l-slate-400'} ${op.is_paused ? 'border-l-amber-500 bg-amber-50/30' : ''} hover:shadow-md transition-all`}>
                                 <div className="p-4">
                                     <div className="flex justify-between items-start mb-3">
                                         <div className="flex-1 pr-3">
                                             <h3 className="font-bold text-slate-800 text-base leading-tight uppercase">{op.name}</h3>
                                             <p className="text-[9px] font-mono text-slate-400 mt-0.5">#{op.occurrence_number}</p>
                                         </div>
-                                        <Badge variant={op.status === 'active' ? 'success' : op.status === 'completed' ? 'default' : 'danger'}>{op.status === 'active' ? 'EM ANDAMENTO' : op.status.toUpperCase()}</Badge>
+                                        <div className="flex gap-2">
+                                            {op.is_paused && <Badge variant="warning" className="animate-pulse">PAUSADA</Badge>}
+                                            <Badge variant={op.status === 'active' ? 'success' : op.status === 'completed' ? 'default' : 'danger'}>{op.status === 'active' ? 'EM ANDAMENTO' : op.status.toUpperCase()}</Badge>
+                                        </div>
                                     </div>
                                     <div className="text-[11px] font-bold text-slate-500 space-y-1.5 mb-5">
                                         <div className="flex items-center gap-2"><Clock className="w-3.5 h-3.5 text-slate-300" /> {new Date(op.start_time).toLocaleString()}</div>
@@ -653,7 +738,13 @@ export default function OperationManagement() {
                                         <div className="space-y-3 pt-3 border-t border-slate-100">
                                             <div className="flex gap-2">
                                                 <button onClick={() => handleShareOp(op)} className="p-2.5 rounded-lg border bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"><Share2 className="w-4 h-4" /></button>
-                                                <button onClick={() => alert("Recurso em desenvolvimento...")} className="p-2.5 rounded-lg border bg-slate-50 text-slate-500 hover:bg-slate-100 transition-colors"><Pause className="w-4 h-4" /></button>
+                                                <button 
+                                                    onClick={() => handleTogglePause(op)} 
+                                                    className={`p-2.5 rounded-lg border transition-colors ${op.is_paused ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200' : 'bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100'}`}
+                                                    title={op.is_paused ? "Retomar Operação" : "Pausar Operação"}
+                                                >
+                                                    {op.is_paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                                                </button>
                                                 <button onClick={() => { setFormData({...op} as any); setIsEditing(op.id); setIsCreating(true); }} className="p-2.5 rounded-lg border bg-slate-50 text-slate-500 hover:bg-slate-100 transition-colors"><Pencil className="w-4 h-4" /></button>
                                                 {op.is_multi_day && <button onClick={() => setViewingLogOp(op)} className="flex-1 flex items-center justify-center gap-2 p-2.5 rounded-lg border bg-blue-600 text-white hover:bg-blue-700 transition-colors text-[10px] font-black uppercase"><FileText className="w-4 h-4"/> Diário Bordo <ChevronRight className="w-3 h-3"/></button>}
                                             </div>
@@ -722,6 +813,37 @@ export default function OperationManagement() {
                     <textarea className="w-full p-4 border rounded-xl text-sm h-32 outline-none resize-none bg-white" placeholder="Motivo..." required value={cancelReason} onChange={e => setCancelReason(e.target.value)} />
                     <label className="flex items-start gap-3 cursor-pointer p-4 bg-slate-50 rounded-xl border"><input type="checkbox" className="mt-1 w-5 h-5 accent-red-600 rounded" checked={isAcknowledgeCancel} onChange={e => setIsAcknowledgeCancel(e.target.checked)} required /><span className="text-xs font-bold text-slate-600">Estou ciente que esta ação é irreversível.</span></label>
                     <div className="flex gap-3 pt-2"><Button type="button" variant="outline" className="flex-1 h-12 font-bold" onClick={() => setIsCancellingOp(null)}>VOLTAR</Button><Button type="submit" disabled={loading || !isAcknowledgeCancel} className="flex-[2] h-12 bg-red-600 text-white font-black shadow-xl uppercase text-xs">CONFIRMAR</Button></div>
+                </form>
+            </Card>
+        </div>
+      )}
+      {/* MODAL DE PAUSA */}
+      {isPausingOp && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <Card className="w-full max-w-lg bg-white p-8 rounded-2xl shadow-2xl border-t-8 border-amber-500 animate-fade-in">
+                <div className="flex justify-between items-start mb-6">
+                    <h2 className="text-2xl font-black text-amber-700 flex items-center gap-2"><Pause className="w-6 h-6" /> PAUSAR OPERAÇÃO</h2>
+                    <button onClick={() => setIsPausingOp(null)} className="text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button>
+                </div>
+                <form onSubmit={confirmPause} className="space-y-6">
+                    <div className="bg-amber-50 p-4 rounded-xl border border-amber-100">
+                        <p className="text-sm text-amber-800">Você está prestes a pausar a missão: <strong>{isPausingOp.name}</strong>.</p>
+                        <p className="text-xs text-amber-600 mt-1">O tempo decorrido durante a pausa não será contabilizado como hora de voo.</p>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Motivo da Pausa</label>
+                        <textarea 
+                            className="w-full p-4 border border-slate-300 rounded-xl text-sm h-32 outline-none resize-none bg-white focus:ring-2 focus:ring-amber-500" 
+                            placeholder="Ex: Troca de Bateria, Condições Climáticas, Almoço..." 
+                            required 
+                            value={pauseReason} 
+                            onChange={e => setPauseReason(e.target.value)} 
+                        />
+                    </div>
+                    <div className="flex gap-3 pt-2">
+                        <Button type="button" variant="outline" className="flex-1 h-12 font-bold uppercase text-xs" onClick={() => setIsPausingOp(null)}>CANCELAR</Button>
+                        <Button type="submit" disabled={loading} className="flex-[2] h-12 bg-amber-500 hover:bg-amber-600 text-white font-black shadow-xl uppercase tracking-widest text-xs">CONFIRMAR PAUSA</Button>
+                    </div>
                 </form>
             </Card>
         </div>
