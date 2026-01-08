@@ -1,7 +1,6 @@
-
-
 import { supabase, isConfigured } from './supabase';
 import { SummerFlight, SummerStats, SummerAuditLog } from '../types_summer';
+import { base44 } from './base44Client';
 
 const TABLE = 'op_summer_flights';
 const AUDIT_TABLE = 'op_summer_audit';
@@ -26,7 +25,6 @@ export const operationSummerService = {
       if (error) throw error;
       
       // Flatten the join result to attach coordinates directly
-      // FIX: Add null check for data to prevent .map error on empty results
       const flattenedData = (data || []).map((f: any) => {
         const { operation, ...rest } = f;
         if (operation) {
@@ -47,8 +45,13 @@ export const operationSummerService = {
       const today = new Date().toISOString().split('T')[0];
       const start = new Date(`${today}T${flight.start_time}`);
       const end = new Date(`${today}T${flight.end_time}`);
-      flight.flight_duration = Math.round((end.getTime() - start.getTime()) / 60000);
-      if (flight.flight_duration < 0) flight.flight_duration += 1440; // Ajuste virada de dia
+      // Fallback para duração se as datas forem inválidas
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+          flight.flight_duration = Math.round((end.getTime() - start.getTime()) / 60000);
+          if (flight.flight_duration < 0) flight.flight_duration += 1440; // Ajuste virada de dia
+      } else {
+          flight.flight_duration = 0;
+      }
     }
 
     const auditEntry = {
@@ -72,11 +75,21 @@ export const operationSummerService = {
       return newItem as SummerFlight;
     }
 
-    const { data, error } = await supabase
-      .from(TABLE)
-      .insert([flight])
-      .select()
-      .single();
+    // Tenta upsert para evitar duplicidade se já existir ID da operação
+    let query = supabase.from(TABLE).insert([flight]);
+    
+    // Se tiver operation_id, verifica antes (opcional, mas seguro)
+    if (flight.operation_id) {
+        const { data: existing } = await supabase.from(TABLE).select('id').eq('operation_id', flight.operation_id).single();
+        if (existing) {
+            // Atualiza se já existe
+            const { data, error } = await supabase.from(TABLE).update(flight).eq('id', existing.id).select().single();
+            if (error) throw error;
+            return data as SummerFlight;
+        }
+    }
+
+    const { data, error } = await query.select().single();
 
     if (error) throw error;
 
@@ -93,28 +106,102 @@ export const operationSummerService = {
     return data as SummerFlight;
   },
 
+  // NOVA FUNÇÃO: Sincroniza operações marcadas como 'is_summer_op' que não estão na tabela de verão
+  syncMissingFlights: async (userId: string): Promise<number> => {
+    if (!isConfigured) return 0;
+
+    try {
+        // 1. Buscar todas as operações marcadas como verão na tabela principal
+        const { data: allOps, error: opError } = await supabase
+            .from('operations')
+            .select('*')
+            .eq('is_summer_op', true);
+        
+        if (opError) throw opError;
+        if (!allOps || allOps.length === 0) return 0;
+
+        // 2. Buscar IDs que já existem na tabela summer
+        const { data: existingSummer, error: sumError } = await supabase
+            .from(TABLE)
+            .select('operation_id');
+            
+        if (sumError) throw sumError;
+        
+        const existingOpIds = new Set(existingSummer?.map((s: any) => s.operation_id).filter(Boolean));
+
+        // 3. Identificar faltantes
+        const missingOps = allOps.filter((op: any) => !existingOpIds.has(op.id));
+
+        if (missingOps.length === 0) return 0;
+
+        // 4. Criar registros faltantes
+        let createdCount = 0;
+        for (const op of missingOps) {
+            try {
+                // Extrair data e hora do start_time ISO string
+                const dateObj = new Date(op.start_time);
+                const dateStr = dateObj.toISOString().split('T')[0];
+                const timeStr = dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                
+                // Extrair location do nome (remove 'VERÃO: ' se existir)
+                let loc = op.name.replace('VERÃO: ', '').replace('VERÃO ', '').trim();
+                if (!loc) loc = "Local não especificado";
+                
+                // Calcular duração aproximada
+                let duration = 0;
+                let endTimeStr = '23:59';
+                
+                if (op.end_time) {
+                    const endObj = new Date(op.end_time);
+                    duration = Math.round((endObj.getTime() - dateObj.getTime()) / 60000);
+                    endTimeStr = endObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                } else if (op.flight_hours) {
+                    duration = Math.round(op.flight_hours * 60);
+                    // Estima fim
+                    const endObj = new Date(dateObj.getTime() + duration * 60000);
+                    endTimeStr = endObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                }
+
+                const payload = {
+                    operation_id: op.id,
+                    pilot_id: op.pilot_id,
+                    drone_id: op.drone_id,
+                    mission_type: op.mission_type,
+                    location: loc,
+                    date: dateStr,
+                    start_time: timeStr,
+                    end_time: endTimeStr,
+                    flight_duration: duration > 0 ? duration : 0,
+                    notes: op.description || "Recuperado via Sincronização",
+                    evidence_photos: [],
+                    evidence_videos: []
+                };
+
+                // Usa a função create que já temos, que trata auditoria
+                await operationSummerService.create(payload as any, userId);
+                createdCount++;
+            } catch (err) {
+                console.error(`Erro ao sincronizar operação ${op.id}:`, err);
+            }
+        }
+
+        return createdCount;
+
+    } catch (e) {
+        console.error("Erro geral na sincronização:", e);
+        throw e;
+    }
+  },
+
   delete: async (ids: string[], userId: string): Promise<void> => {
     if (!isConfigured) {
       const items = getLocal(STORAGE_KEY);
       const filtered = items.filter((i: any) => !ids.includes(i.id));
       setLocal(STORAGE_KEY, filtered);
-
-      // Local Audit
-      const audits = getLocal(AUDIT_STORAGE_KEY);
-      audits.push({ 
-        user_id: userId,
-        action: 'DELETE',
-        details: `Exclusão local de ${ids.length} registro(s)`,
-        timestamp: new Date().toISOString(),
-        id: crypto.randomUUID(), 
-        flight_id: 'local-bulk' 
-      });
-      setLocal(AUDIT_STORAGE_KEY, audits);
       return;
     }
 
     try {
-      // 1. Delete flights
       const { error } = await supabase
         .from(TABLE)
         .delete()
@@ -122,14 +209,11 @@ export const operationSummerService = {
 
       if (error) throw error;
 
-      // 2. Audit Log (Safe execution - does not block deletion success)
       try {
         await supabase.from(AUDIT_TABLE).insert({
-          // Removed flight_id here to avoid UUID type mismatch error ('bulk-delete' is not UUID)
-          // Also, referencing deleted rows via FK would fail anyway.
           user_id: userId,
           action: 'DELETE',
-          details: `Exclusão de ${ids.length} registro(s) de voo. IDs: ${ids.join(', ')}`,
+          details: `Exclusão de ${ids.length} registro(s).`,
           timestamp: new Date().toISOString()
         });
       } catch (auditError: any) {
@@ -138,7 +222,7 @@ export const operationSummerService = {
 
     } catch (e: any) {
       console.error("Erro crítico ao excluir voos:", e);
-      throw new Error(e.message || "Erro desconhecido ao excluir registros no banco de dados.");
+      throw new Error(e.message || "Erro desconhecido ao excluir registros.");
     }
   },
 

@@ -9,7 +9,7 @@ import {
   Sun, Clock, MapPin, Activity, Filter, Search, RefreshCcw, 
   Map as MapIcon, ChevronDown, Download, FileText, Shield, 
   Trash2, CheckSquare, Square, Loader2, PieChart as PieChartIcon,
-  LayoutGrid, TrendingUp, Users, Calendar
+  LayoutGrid, TrendingUp, Users, Calendar, RefreshCw
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -53,6 +53,7 @@ export default function SummerOperationCenter() {
   // Selection/Actions State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Filters State
   const [filterMission, setFilterMission] = useState('all');
@@ -85,6 +86,25 @@ export default function SummerOperationCenter() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSyncData = async () => {
+      if (!currentUser) return;
+      setIsSyncing(true);
+      try {
+          const count = await operationSummerService.syncMissingFlights(currentUser.id);
+          if (count > 0) {
+              alert(`Sincronização concluída! ${count} registros recuperados da base geral.`);
+              loadData();
+          } else {
+              alert("Sincronização concluída. Nenhum registro pendente encontrado.");
+          }
+      } catch (e) {
+          console.error(e);
+          alert("Erro ao sincronizar dados. Verifique o console.");
+      } finally {
+          setIsSyncing(false);
+      }
   };
 
   const filteredFlights = useMemo(() => {
@@ -135,7 +155,6 @@ export default function SummerOperationCenter() {
         const { default: autoTable } = await import('jspdf-autotable');
         const doc = new jsPDF();
         
-        // Definição dos dados a serem exportados: Seleção ou Filtro Atual
         const flightsToExport = selectedIds.size > 0 
             ? filteredFlights.filter(f => selectedIds.has(f.id))
             : filteredFlights;
@@ -217,6 +236,17 @@ export default function SummerOperationCenter() {
             </div>
 
             <div className="flex gap-2 items-center">
+                {/* SYNC BUTTON */}
+                <Button 
+                    onClick={handleSyncData} 
+                    disabled={isSyncing} 
+                    className="bg-blue-600 hover:bg-blue-700 border-none text-[10px] h-7 px-3 font-bold uppercase"
+                    title="Buscar voos da operação geral que não aparecem aqui"
+                >
+                    <RefreshCw className={`w-3 h-3 mr-1.5 ${isSyncing ? 'animate-spin' : ''}`} /> 
+                    {isSyncing ? 'Sincronizando...' : 'Sincronizar'}
+                </Button>
+
                 {activeTab === 'flights' && selectedIds.size > 0 && currentUser?.role === 'admin' && (
                     <Button onClick={handleDeleteSelected} variant="danger" size="sm" className="h-7 px-3 text-[10px] font-bold uppercase">
                         <Trash2 className="w-3 h-3 mr-1.5" /> Excluir ({selectedIds.size})

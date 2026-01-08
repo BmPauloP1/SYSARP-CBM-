@@ -306,39 +306,47 @@ export default function OperationManagement() {
       if (!finalPayload.drone_id) finalPayload.drone_id = null;
 
       // 5. Persistência de Dados
+      let operationId: string;
       if (isEditing) {
           await base44.entities.Operation.update(isEditing, finalPayload);
+          operationId = isEditing;
       } else {
           const createdOp = await base44.entities.Operation.create(finalPayload);
+          operationId = createdOp.id;
           
           // Marca drone como ocupado
           if (finalPayload.drone_id) {
               await base44.entities.Drone.update(finalPayload.drone_id, { status: 'in_operation' });
           }
+      }
 
-          // FIX: Sincronização com Estatísticas da Operação Verão
-          // Garante que o registro seja criado na tabela 'op_summer_flights'
-          if (finalPayload.is_summer_op) {
-              try {
-                  await operationSummerService.create({
-                      operation_id: createdOp.id,
-                      pilot_id: finalPayload.pilot_id,
-                      drone_id: finalPayload.drone_id,
-                      mission_type: finalPayload.mission_type,
-                      // Remove prefixo para manter o nome da localidade limpo no relatório específico
-                      location: finalPayload.name.replace('VERÃO: ', ''), 
-                      date: formData.date,
-                      start_time: formData.start_time_local,
-                      end_time: formData.end_time_local || '23:59',
-                      flight_duration: 0, // Será calculado pelo serviço
-                      notes: finalPayload.description,
-                      evidence_photos: [],
-                      evidence_videos: []
-                  }, currentUser?.id || 'system');
-              } catch (summerErr) {
-                  console.error("Erro silencioso ao sincronizar estatísticas de Verão:", summerErr);
-                  // Não bloqueia o fluxo, pois a operação principal já foi salva
+      // FIX: Sincronização com Estatísticas da Operação Verão
+      // Agora chamamos a sincronização mesmo na edição para atualizar dados
+      if (finalPayload.is_summer_op) {
+          try {
+              // Constrói nome do local explicitamente se disponível, senão usa o nome da operação
+              let summerLoc = finalPayload.name.replace('VERÃO: ', '');
+              if (formData.summer_city && formData.summer_pgv) {
+                  summerLoc = `${formData.summer_city} - ${formData.summer_pgv}`;
               }
+
+              await operationSummerService.create({
+                  operation_id: operationId,
+                  pilot_id: finalPayload.pilot_id,
+                  drone_id: finalPayload.drone_id,
+                  mission_type: finalPayload.mission_type,
+                  location: summerLoc, 
+                  date: formData.date,
+                  start_time: formData.start_time_local,
+                  end_time: formData.end_time_local || '23:59',
+                  flight_duration: 0, // Será calculado pelo serviço
+                  notes: finalPayload.description,
+                  evidence_photos: [],
+                  evidence_videos: []
+              }, currentUser?.id || 'system');
+          } catch (summerErr) {
+              console.error("Erro silencioso ao sincronizar estatísticas de Verão:", summerErr);
+              // Não bloqueia o fluxo, pois a operação principal já foi salva
           }
       }
 
