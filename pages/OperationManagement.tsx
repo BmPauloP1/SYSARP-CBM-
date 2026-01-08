@@ -1,8 +1,8 @@
-
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
+import { operationSummerService } from "../services/operationSummerService";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, MissionType, ORGANIZATION_CHART, MISSION_COLORS } from "../types";
 import { SUMMER_LOCATIONS } from "../types_summer";
 import { Button, Input, Select, Badge, Card } from "../components/ui_components";
@@ -43,6 +43,7 @@ const UNIT_COORDINATES: Record<string, [number, number]> = {
   "2º BBM - Ponta Grossa": [-25.0990, -50.1650],
   "12º BBM - Guarapuava": [-25.3935, -51.4627],
   "6ª CIBM - Irati": [-25.4673, -50.6514],
+  "2ª CIA/1º PEL - Telêmaco Borba": [-24.3238, -50.6156],
   "BOA - Batalhão de Operações Aéreas": [-25.4284, -49.2733],
   "GOST - Socorro Tático": [-25.4397, -49.2719]
 };
@@ -68,38 +69,50 @@ const generateNextProtocol = (operations: Operation[], unit: string, crbm: strin
     return `${year}${prefix}${cleanedUnit}${String(sequence).padStart(5, '0')}`;
 };
 
+// --- ICON CACHING TO PREVENT _leaflet_pos ERRORS ---
+const iconCache: Record<string, L.DivIcon> = {};
+const resourceIconCache: Record<string, L.DivIcon> = {};
+
 const getIcon = (color: string) => {
-  return L.divIcon({
-    className: "custom-div-icon",
-    html: `<div style="background-color: ${color}; width: 14px; height: 14px; border: 2.5px solid white; border-radius: 50%; box-shadow: 0 0 6px rgba(0,0,0,0.4);"></div>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7]
-  });
+  if (!iconCache[color]) {
+    iconCache[color] = L.divIcon({
+      className: "custom-div-icon",
+      html: `<div style="background-color: ${color}; width: 14px; height: 14px; border: 2.5px solid white; border-radius: 50%; box-shadow: 0 0 6px rgba(0,0,0,0.4);"></div>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7]
+    });
+  }
+  return iconCache[color];
 };
 
 const createCustomIcon = (type: 'unit' | 'pilot' | 'drone', count: number = 0) => {
-  let bgColor = "#1e293b"; 
-  let iconHtml = "";
-  if (type === 'unit') {
-    bgColor = "#b91c1c";
-    iconHtml = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="white" stroke-width="2.5" fill="none"><path d="M3 21h18M3 7v1a3 3 0 0 0 6 0V7m0 0v1a3 3 0 0 0 6 0V7m0 0v1a3 3 0 0 0 6 0V7M4 21V4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v17"/></svg>`;
-  } else if (type === 'pilot') {
-    bgColor = "#2563eb";
-    iconHtml = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="white" stroke-width="2.5" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
-  } else if (type === 'drone') {
-    bgColor = "#ea580c";
-    iconHtml = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="white" stroke-width="2.5" fill="none"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" /><path d="M12 12v-4" /><path d="M4.5 9m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" /><path d="M19.5 9m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" /><path d="M4.5 15m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" /><path d="M19.5 15m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" /></svg>`;
+  const key = `${type}-${count}`;
+  if (!resourceIconCache[key]) {
+      let bgColor = "#1e293b"; 
+      let iconHtml = "";
+      if (type === 'unit') {
+        bgColor = "#b91c1c";
+        iconHtml = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="white" stroke-width="2.5" fill="none"><path d="M3 21h18M3 7v1a3 3 0 0 0 6 0V7m0 0v1a3 3 0 0 0 6 0V7m0 0v1a3 3 0 0 0 6 0V7M4 21V4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v17"/></svg>`;
+      } else if (type === 'pilot') {
+        bgColor = "#2563eb";
+        iconHtml = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="white" stroke-width="2.5" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+      } else if (type === 'drone') {
+        bgColor = "#ea580c";
+        iconHtml = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="white" stroke-width="2.5" fill="none"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" /><path d="M12 12v-4" /><path d="M4.5 9m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" /><path d="M19.5 9m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" /><path d="M4.5 15m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" /><path d="M19.5 15m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" /></svg>`;
+      }
+      const badgeHtml = count > 1 ? `
+        <div style="position: absolute; top: -10px; right: -10px; background-color: #ef4444; color: white; font-size: 10px; font-weight: 900; width: 18px; height: 18px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; z-index: 1000; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">
+          ${count}
+        </div>` : "";
+      
+      resourceIconCache[key] = L.divIcon({
+        className: "custom-resource-icon",
+        html: `<div style="position: relative; background-color: ${bgColor}; width: 28px; height: 28px; border-radius: 8px; border: 2px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 6px rgba(0,0,0,0.3);">${iconHtml}${badgeHtml}</div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14]
+      });
   }
-  const badgeHtml = count > 1 ? `
-    <div style="position: absolute; top: -10px; right: -10px; background-color: #ef4444; color: white; font-size: 10px; font-weight: 900; width: 18px; height: 18px; border-radius: 50%; border: 2px solid white; display: flex; align-items: center; justify-content: center; z-index: 1000; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">
-      ${count}
-    </div>` : "";
-  return L.divIcon({
-    className: "custom-resource-icon",
-    html: `<div style="position: relative; background-color: ${bgColor}; width: 28px; height: 28px; border-radius: 8px; border: 2px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 6px rgba(0,0,0,0.3);">${iconHtml}${badgeHtml}</div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14]
-  });
+  return resourceIconCache[key];
 };
 
 const isValidCoord = (lat: any, lng: any) => {
@@ -117,13 +130,28 @@ const MapController = ({ isPanelCollapsed }: { isPanelCollapsed: boolean }) => {
   return null;
 };
 
+// Componente para centralizar no usuário ao iniciar uma nova operação
+const InitialUserLocator = ({ isCreating, onFound }: { isCreating: boolean, onFound: (lat: number, lng: number) => void }) => {
+    const map = useMap();
+    useEffect(() => {
+        if (isCreating) {
+            map.locate().on("locationfound", (e) => {
+                onFound(e.latlng.lat, e.latlng.lng);
+                map.flyTo(e.latlng, 16);
+            });
+        }
+    }, [isCreating, map]);
+    return null;
+};
+
 const MapPanController = ({ lat, lng }: { lat: number, lng: number }) => {
     const map = useMap();
     const lastPos = useRef({ lat, lng });
     useEffect(() => {
+        if (!map) return;
         if (lat !== lastPos.current.lat || lng !== lastPos.current.lng) {
             if (isValidCoord(lat, lng)) {
-                map.flyTo([lat, lng], map.getZoom() > 10 ? map.getZoom() : 15);
+                map.flyTo([lat, lng], 18, { duration: 1.5 }); 
             }
             lastPos.current = { lat, lng };
         }
@@ -209,12 +237,7 @@ export default function OperationManagement() {
     setFormData(initialFormState);
     setIsEditing(null);
     setIsCreating(true);
-    if ("geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition(
-            (pos) => setFormData(prev => ({ ...prev, latitude: pos.coords.latitude, longitude: pos.coords.longitude })),
-            null, { enableHighAccuracy: true }
-        );
-    }
+    // Note: InitialUserLocator inside MapContainer handles the actual centering and formData update
   };
 
   const handleMapClick = (lat: number, lng: number) => {
@@ -286,10 +309,36 @@ export default function OperationManagement() {
       if (isEditing) {
           await base44.entities.Operation.update(isEditing, finalPayload);
       } else {
-          await base44.entities.Operation.create(finalPayload);
+          const createdOp = await base44.entities.Operation.create(finalPayload);
+          
           // Marca drone como ocupado
           if (finalPayload.drone_id) {
               await base44.entities.Drone.update(finalPayload.drone_id, { status: 'in_operation' });
+          }
+
+          // FIX: Sincronização com Estatísticas da Operação Verão
+          // Garante que o registro seja criado na tabela 'op_summer_flights'
+          if (finalPayload.is_summer_op) {
+              try {
+                  await operationSummerService.create({
+                      operation_id: createdOp.id,
+                      pilot_id: finalPayload.pilot_id,
+                      drone_id: finalPayload.drone_id,
+                      mission_type: finalPayload.mission_type,
+                      // Remove prefixo para manter o nome da localidade limpo no relatório específico
+                      location: finalPayload.name.replace('VERÃO: ', ''), 
+                      date: formData.date,
+                      start_time: formData.start_time_local,
+                      end_time: formData.end_time_local || '23:59',
+                      flight_duration: 0, // Será calculado pelo serviço
+                      notes: finalPayload.description,
+                      evidence_photos: [],
+                      evidence_videos: []
+                  }, currentUser?.id || 'system');
+              } catch (summerErr) {
+                  console.error("Erro silencioso ao sincronizar estatísticas de Verão:", summerErr);
+                  // Não bloqueia o fluxo, pois a operação principal já foi salva
+              }
           }
       }
 
@@ -412,10 +461,41 @@ export default function OperationManagement() {
       <div className="flex-1 w-full relative z-0 order-1 lg:order-1 border-b lg:border-r border-slate-200 min-h-0">
         <MapContainer center={[-25.2521, -52.0215]} zoom={8} style={{ height: '100%', width: '100%' }}>
           <MapController isPanelCollapsed={isPanelCollapsed} />
+          {isCreating && (
+            <InitialUserLocator 
+                isCreating={isCreating} 
+                onFound={(lat, lng) => setFormData(prev => ({...prev, latitude: lat, longitude: lng}))} 
+            />
+          )}
           {isCreating && <MapPanController lat={formData.latitude} lng={formData.longitude} />}
           {isCreating && <MapEventsHandler onMapClick={handleMapClick} />}
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           
+          {/* RENDERIZAÇÃO DA NOVA OPERAÇÃO EM TEMPO REAL */}
+          {isCreating && (
+            <>
+                {/* PONTO PRINCIPAL ATUAL */}
+                {isValidCoord(formData.latitude, formData.longitude) && (
+                  <>
+                    <Marker position={[formData.latitude, formData.longitude]} icon={getIcon('#dc2626')} zIndexOffset={1000}>
+                        <Popup><span className="font-bold text-red-600">NOVA OPERAÇÃO (Principal)</span></Popup>
+                    </Marker>
+                    <Circle center={[formData.latitude, formData.longitude]} radius={formData.radius} pathOptions={{ color: '#dc2626', dashArray: '5, 10', weight: 2 }} />
+                  </>
+                )}
+
+                {/* PONTOS DE APOIO JÁ VINCULADOS */}
+                {formData.takeoff_points.map((pt, idx) => (
+                    <React.Fragment key={`new-support-${idx}`}>
+                        <Marker position={[pt.lat, pt.lng]} icon={getIcon('#2563eb')} opacity={0.8}>
+                            <Popup><span className="font-bold text-blue-600">Área de Apoio #{idx + 1}</span></Popup>
+                        </Marker>
+                        <Circle center={[pt.lat, pt.lng]} radius={formData.radius} pathOptions={{ color: '#2563eb', dashArray: '5, 5', weight: 1, fillOpacity: 0.1 }} />
+                    </React.Fragment>
+                ))}
+            </>
+          )}
+
           {visibleLayers.missions && displayedOps.map(op => {
              // VERIFICAÇÃO CRÍTICA: Se as coordenadas não forem válidas, não renderiza o marcador.
              if (!isValidCoord(op.latitude, op.longitude)) return null;
@@ -534,13 +614,6 @@ export default function OperationManagement() {
               );
           })}
 
-          {isCreating && isValidCoord(formData.latitude, formData.longitude) && (
-              <>
-                <Marker position={[formData.latitude, formData.longitude]} icon={getIcon('#dc2626')} />
-                <Circle center={[formData.latitude, formData.longitude]} radius={formData.radius} pathOptions={{ color: '#dc2626', dashArray: '5, 10', weight: 2 }} />
-              </>
-          )}
-
           {/* CONTROLES (BOTTOM LEFT) */}
           <div className="leaflet-bottom leaflet-left" style={{ marginBottom: '25px', marginLeft: '15px', pointerEvents: 'auto' }}>
               <div className="bg-white/95 backdrop-blur-md p-2 rounded-2xl shadow-2xl border border-slate-200 flex flex-col gap-2">
@@ -591,7 +664,7 @@ export default function OperationManagement() {
                             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b pb-2"><Navigation className="w-3 h-3"/> 2. Dados da Missão</h3>
                             <Input label="Título da Ocorrência" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required={!formData.is_summer_op} placeholder="Ex: Incêndio Urbano..." />
                             <div className="grid grid-cols-2 gap-3">
-                               <Select label="Natureza" value={formData.mission_type} onChange={e => setFormData({...formData, mission_type: e.target.value as any})} required>
+                                <Select label="Natureza" value={formData.mission_type} onChange={e => setFormData({...formData, mission_type: e.target.value as any})} required>
                                   {Object.entries(MISSION_HIERARCHY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                                </Select>
                                <Select label="Subnatureza" value={formData.sub_mission_type} onChange={e => setFormData({...formData, sub_mission_type: e.target.value})} required>
@@ -728,7 +801,7 @@ export default function OperationManagement() {
                         <div className="pt-6 border-t flex gap-4">
                            <Button variant="outline" className="flex-1 h-12 font-bold uppercase text-xs" type="button" onClick={() => setIsCreating(false)}>Cancelar</Button>
                            <Button type="submit" className="flex-[2] h-12 bg-red-700 text-white font-black shadow-lg uppercase tracking-widest text-xs" disabled={loading}>
-                               {loading ? 'Sincronizando...' : 'INICIAR MISSÃO RPA'}
+                               {loading ? 'Sincronizando...' : (isEditing ? 'ATUALIZAR MISSÃO' : 'INICIAR MISSÃO RPA')}
                            </Button>
                         </div>
                     </form>
@@ -789,9 +862,9 @@ export default function OperationManagement() {
                                                 <button onClick={() => { setFormData({...op} as any); setIsEditing(op.id); setIsCreating(true); }} className="p-2.5 rounded-lg border bg-slate-50 text-slate-500 hover:bg-slate-100 transition-colors"><Pencil className="w-4 h-4" /></button>
                                                 {op.is_multi_day && <button onClick={() => setViewingLogOp(op)} className="flex-1 flex items-center justify-center gap-2 p-2.5 rounded-lg border bg-blue-600 text-white hover:bg-blue-700 transition-colors text-[10px] font-black uppercase"><FileText className="w-4 h-4"/> Diário Bordo <ChevronRight className="w-3 h-3"/></button>}
                                             </div>
-                                            <div className="flex gap-3">
-                                                <Button onClick={() => setIsCancellingOp(op)} variant="outline" className="flex-1 h-11 border-red-600 text-red-600 hover:bg-red-50 text-[10px] font-black uppercase shadow-sm"><XCircle className="w-4 h-4 mr-1.5" /> Cancelar</Button>
-                                                <Button onClick={() => setIsFinishing(op)} className="flex-1 h-11 bg-red-600 hover:bg-red-700 text-white text-[10px] font-black uppercase shadow-md"><CheckSquare className="w-4 h-4 mr-1.5" /> Encerrar</Button>
+                                            <div className="flex gap-2">
+                                                <Button onClick={() => setIsCancellingOp(op)} variant="outline" className="flex-1 h-8 border-red-600 text-red-600 hover:bg-red-50 text-[10px] font-black uppercase shadow-sm"><XCircle className="w-3.5 h-3.5 mr-1.5" /> Cancelar</Button>
+                                                <Button onClick={() => setIsFinishing(op)} className="flex-1 h-8 bg-red-600 hover:bg-red-700 text-white text-[10px] font-black uppercase shadow-md"><CheckSquare className="w-3.5 h-3.5 mr-1.5" /> Encerrar</Button>
                                             </div>
                                         </div>
                                     )}
