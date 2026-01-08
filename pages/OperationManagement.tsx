@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -898,15 +899,26 @@ export default function OperationManagement() {
                     setLoading(true);
                     try {
                         const timeParts = finishData.flight_hours.split(':');
-                        const flightHours = parseInt(timeParts[0] || '0', 10) + (parseInt(timeParts[1] || '0', 10) / 60);
+                        const hours = parseInt(timeParts[0] || '0', 10);
+                        const minutes = parseInt(timeParts[1] || '0', 10);
+                        const flightHours = hours + (minutes / 60); // Conversão correta para decimal
+
                         await base44.entities.Operation.update(isFinishing.id, { status: 'completed', flight_hours: flightHours, actions_taken: finishData.description, end_time: new Date().toISOString() });
                         if (isFinishing.drone_id) await base44.entities.Drone.update(isFinishing.drone_id, { status: 'available', total_flight_hours: (drones.find(d => d.id === isFinishing.drone_id)?.total_flight_hours || 0) + flightHours });
                         setIsFinishing(null); loadData();
                     } catch (e) { alert("Erro ao encerrar."); } finally { setLoading(false); }
                 }} className="space-y-5">
                     <div className="bg-slate-50 p-4 rounded-xl border">
-                        <label className="text-xs font-black text-slate-500 uppercase mb-2 block">Duração Efetiva (HH:mm)</label>
-                        <Input type="text" placeholder="00:00" value={finishData.flight_hours} onChange={e => setFinishData({...finishData, flight_hours: e.target.value.replace(/[^0-9:]/g, '')})} required className="text-2xl font-mono text-center h-16 shadow-inner" />
+                        <label className="text-xs font-black text-slate-500 uppercase mb-2 block">Duração Efetiva do Voo (Motor ligado) - HH:mm</label>
+                        <Input 
+                            type="text" 
+                            placeholder="00:00" 
+                            value={finishData.flight_hours} 
+                            onChange={e => setFinishData({...finishData, flight_hours: e.target.value.replace(/[^0-9:]/g, '')})} 
+                            required 
+                            className="text-2xl font-mono text-center h-16 shadow-inner" 
+                        />
+                        <p className="text-[10px] text-slate-400 text-center mt-1">Este valor será utilizado para a contagem de horas da aeronave.</p>
                     </div>
                     <textarea className="w-full p-4 border rounded-xl text-sm h-32 outline-none resize-none bg-white" value={finishData.description} onChange={e => setFinishData({...finishData, description: e.target.value})} placeholder="Relate o desfecho operacional..." />
                     <div className="flex gap-3 pt-2">

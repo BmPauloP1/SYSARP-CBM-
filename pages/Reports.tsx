@@ -9,7 +9,7 @@ import {
   FileText, Download, Filter, Search, Calendar, Map as MapIcon, 
   RefreshCcw, BarChart3, PieChart as PieChartIcon, LayoutGrid, 
   TrendingUp, Users, Plane, ClipboardList, ChevronDown, Activity,
-  CheckSquare, Square, FileSignature, Printer, Info, Shield, Clock, Flame
+  CheckSquare, Square, FileSignature, Printer, Info, Shield, Clock, Flame, Pencil, Save, X
 } from "lucide-react";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -41,6 +41,16 @@ const MapController = ({ activeTab }: { activeTab: string }) => {
   return null;
 };
 
+// Helper date
+const toLocalISO = (isoStr: string) => {
+  if(!isoStr) return '';
+  const d = new Date(isoStr);
+  const pad = (n: number) => n < 10 ? '0'+n : n;
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${hours}:${minutes}`;
+};
+
 type ReportTab = 'statistical' | 'heatmap' | 'specific' | 'managerial';
 
 export default function Reports() {
@@ -51,9 +61,15 @@ export default function Reports() {
   const [drones, setDrones] = useState<Drone[]>([]);
   const [loading, setLoading] = useState(true);
   const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   
   // State para seleção múltipla
   const [selectedOpIds, setSelectedOpIds] = useState<Set<string>>(new Set());
+
+  // Edit State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingOp, setEditingOp] = useState<Operation | null>(null);
+  const [editForm, setEditForm] = useState<Partial<Operation> & { start_time_local?: string, end_time_local?: string }>({});
 
   // Filters State
   const [searchTerm, setSearchTerm] = useState("");
@@ -69,14 +85,16 @@ export default function Reports() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [ops, pils, drns] = await Promise.all([
+      const [ops, pils, drns, me] = await Promise.all([
         base44.entities.Operation.list("-created_at"),
         base44.entities.Pilot.list(),
-        base44.entities.Drone.list()
+        base44.entities.Drone.list(),
+        base44.auth.me()
       ]);
       setOperations(ops);
       setPilots(pils);
       setDrones(drns);
+      setCurrentUser(me);
     } catch (e) {
       console.error(e);
     } finally {
@@ -120,6 +138,58 @@ export default function Reports() {
     } else {
         setSelectedOpIds(new Set(filteredOps.map(o => o.id)));
     }
+  };
+
+  // Edit Logic
+  const handleEditSelected = () => {
+      if (selectedOpIds.size !== 1) return;
+      const opId = Array.from(selectedOpIds)[0];
+      const op = operations.find(o => o.id === opId);
+      if (op) {
+          setEditingOp(op);
+          setEditForm({
+              ...op,
+              start_time_local: toLocalISO(op.start_time),
+              end_time_local: op.end_time ? toLocalISO(op.end_time) : ''
+          });
+          setIsEditModalOpen(true);
+      }
+  };
+
+  const handleEditTimeChange = (field: 'start_time_local' | 'end_time_local', value: string) => {
+      const newData = { ...editForm, [field]: value };
+      // REMOVED AUTO CALCULATION TO PREVENT OVERWRITING MANUAL INPUT
+      // Flight hours should be treated as engine hours (independent of operation duration)
+      setEditForm(newData);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!editingOp) return;
+      setLoading(true);
+      try {
+          const payload: Partial<Operation> = {
+              name: editForm.name,
+              description: editForm.description,
+              actions_taken: editForm.actions_taken,
+              start_time: new Date(editForm.start_time_local!).toISOString(),
+              end_time: editForm.end_time_local ? new Date(editForm.end_time_local).toISOString() : undefined,
+              flight_hours: Number(editForm.flight_hours),
+              pilot_id: editForm.pilot_id,
+              drone_id: editForm.drone_id,
+              mission_type: editForm.mission_type
+          };
+
+          await base44.entities.Operation.update(editingOp.id, payload);
+          alert("Registro atualizado com sucesso!");
+          setIsEditModalOpen(false);
+          setEditingOp(null);
+          loadData();
+      } catch (err: any) {
+          alert(`Erro ao atualizar: ${err.message}`);
+      } finally {
+          setLoading(false);
+      }
   };
 
   // Agregações Estatísticas
@@ -264,6 +334,11 @@ export default function Reports() {
             </div>
 
             <div className="py-2 md:py-0 flex gap-2">
+                {activeTab === 'specific' && selectedOpIds.size === 1 && currentUser?.role === 'admin' && (
+                    <Button onClick={handleEditSelected} className="bg-amber-600 hover:bg-amber-700 text-xs h-9 px-4 font-bold shadow-md">
+                        <Pencil className="w-3.5 h-3.5 mr-2" /> Editar
+                    </Button>
+                )}
                 {activeTab === 'specific' && selectedOpIds.size > 0 && (
                     <Button onClick={handleExportBoletim} disabled={generatingPdf} className="bg-blue-600 hover:bg-blue-700 text-xs h-9 px-4 font-bold shadow-md">
                         <FileSignature className="w-3.5 h-3.5 mr-2" /> {generatingPdf ? 'Gerando...' : `Gerar Boletim (${selectedOpIds.size})`}
@@ -376,7 +451,7 @@ export default function Reports() {
                                 <span>Resultados Filtrados ({filteredOps.length})</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <Badge variant="danger">{selectedOpIds.size} Selecionados para BO</Badge>
+                                <Badge variant="danger">{selectedOpIds.size} Selecionados</Badge>
                             </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-0 divide-y md:divide-y-0 md:gap-px bg-slate-200">
@@ -469,6 +544,118 @@ export default function Reports() {
             )}
         </div>
       </main>
+
+      {/* MODAL DE EDIÇÃO */}
+      {isEditModalOpen && editForm && (
+          <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+              <Card className="w-full max-w-lg bg-white shadow-2xl p-6">
+                  <div className="flex justify-between items-center mb-6 border-b pb-3">
+                      <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                          <Pencil className="w-5 h-5 text-blue-600" /> Editar Registro Operacional
+                      </h2>
+                      <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                          <X className="w-6 h-6" />
+                      </button>
+                  </div>
+                  
+                  <form onSubmit={handleSaveEdit} className="space-y-4">
+                      
+                      <div>
+                          <Input 
+                              label="Título da Operação" 
+                              value={editForm.name || ''} 
+                              onChange={e => setEditForm({...editForm, name: e.target.value})} 
+                              required 
+                          />
+                      </div>
+
+                      <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 grid grid-cols-2 gap-3">
+                          <Input 
+                              label="Início" 
+                              type="datetime-local" 
+                              value={editForm.start_time_local || ''} 
+                              onChange={e => handleEditTimeChange('start_time_local', e.target.value)} 
+                              required 
+                          />
+                          <Input 
+                              label="Término" 
+                              type="datetime-local" 
+                              value={editForm.end_time_local || ''} 
+                              onChange={e => handleEditTimeChange('end_time_local', e.target.value)} 
+                          />
+                          <div className="bg-white p-2 rounded border border-slate-200 col-span-2 flex items-center justify-between">
+                              <label className="text-xs font-bold text-slate-500 uppercase">Horas Voadas (Decimal)</label>
+                              <input 
+                                  type="number" 
+                                  step="0.1"
+                                  className="w-24 font-mono font-bold text-lg text-right outline-none text-blue-600"
+                                  value={editForm.flight_hours || 0} 
+                                  onChange={e => setEditForm({...editForm, flight_hours: Number(e.target.value)})}
+                              />
+                          </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                          <Select 
+                              label="Piloto" 
+                              value={editForm.pilot_id || ''} 
+                              onChange={e => setEditForm({...editForm, pilot_id: e.target.value})} 
+                              required
+                          >
+                              {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                          </Select>
+                          <Select 
+                              label="Aeronave" 
+                              value={editForm.drone_id || ''} 
+                              onChange={e => setEditForm({...editForm, drone_id: e.target.value})} 
+                              required
+                          >
+                              {drones.map(d => <option key={d.id} value={d.id}>{d.prefix}</option>)}
+                          </Select>
+                      </div>
+
+                      <div>
+                          <label className="text-sm font-medium text-slate-700 mb-1 block">Natureza</label>
+                          <select 
+                              className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white"
+                              value={editForm.mission_type} 
+                              onChange={e => setEditForm({...editForm, mission_type: e.target.value as any})}
+                          >
+                              {Object.entries(MISSION_HIERARCHY).map(([key, val]) => (
+                                  <option key={key} value={key}>{val.label}</option>
+                              ))}
+                          </select>
+                      </div>
+
+                      <div>
+                          <label className="text-sm font-medium text-slate-700 mb-1 block">Descrição / Relato</label>
+                          <textarea 
+                              className="w-full p-2 border border-slate-300 rounded-lg text-sm h-20 resize-none"
+                              value={editForm.description || ''}
+                              onChange={e => setEditForm({...editForm, description: e.target.value})}
+                          />
+                      </div>
+
+                      <div>
+                          <label className="text-sm font-medium text-slate-700 mb-1 block">Ações Tomadas</label>
+                          <textarea 
+                              className="w-full p-2 border border-slate-300 rounded-lg text-sm h-20 resize-none"
+                              value={editForm.actions_taken || ''}
+                              onChange={e => setEditForm({...editForm, actions_taken: e.target.value})}
+                          />
+                      </div>
+
+                      <div className="flex justify-end gap-3 pt-2">
+                          <Button type="button" variant="outline" onClick={() => setIsEditModalOpen(false)}>Cancelar</Button>
+                          <Button type="submit" disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white shadow-md">
+                              <Save className="w-4 h-4 mr-2" /> Salvar Alterações
+                          </Button>
+                      </div>
+                  </form>
+              </Card>
+          </div>
+      )}
+
     </div>
   );
 }

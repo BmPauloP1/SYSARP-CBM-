@@ -9,7 +9,7 @@ import {
   Sun, Clock, MapPin, Activity, Filter, Search, RefreshCcw, 
   Map as MapIcon, ChevronDown, Download, FileText, Shield, 
   Trash2, CheckSquare, Square, Loader2, PieChart as PieChartIcon,
-  LayoutGrid, TrendingUp, Users, Calendar, RefreshCw
+  LayoutGrid, TrendingUp, Users, Calendar, RefreshCw, Pencil, Save, X
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -55,6 +55,11 @@ export default function SummerOperationCenter() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // Edit State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingFlight, setEditingFlight] = useState<SummerFlight | null>(null);
+  const [editFormData, setEditFormData] = useState<Partial<SummerFlight>>({});
+
   // Filters State
   const [filterMission, setFilterMission] = useState('all');
   const [filterLocation, setFilterLocation] = useState('all');
@@ -77,7 +82,7 @@ export default function SummerOperationCenter() {
         operationSummerService.getAuditLogs()
       ]);
       setFlights(f);
-      setPilots(p);
+      setPilots(p.sort((a,b) => a.full_name.localeCompare(b.full_name)));
       setDrones(d);
       setCurrentUser(me);
       setAuditLogs(logs);
@@ -97,11 +102,10 @@ export default function SummerOperationCenter() {
               alert(`Sincronização concluída! ${count} registros recuperados da base geral.`);
               loadData();
           } else {
-              alert("Sincronização concluída. Nenhum registro pendente encontrado.");
+              alert("Todos os dados já estão sincronizados.");
           }
       } catch (e) {
-          console.error(e);
-          alert("Erro ao sincronizar dados. Verifique o console.");
+          alert("Erro ao sincronizar dados.");
       } finally {
           setIsSyncing(false);
       }
@@ -209,6 +213,51 @@ export default function SummerOperationCenter() {
     }
   };
 
+  const handleEditSelected = () => {
+      if (selectedIds.size !== 1) return;
+      const flightId = Array.from(selectedIds)[0];
+      const flight = flights.find(f => f.id === flightId);
+      if (flight) {
+          setEditingFlight(flight);
+          setEditFormData({...flight});
+          setIsEditModalOpen(true);
+      }
+  };
+
+  const handleEditTimeChange = (field: 'start_time' | 'end_time', value: string) => {
+      const newData = { ...editFormData, [field]: value };
+      
+      if (newData.start_time && newData.end_time) {
+          const dummyDate = '2024-01-01';
+          const start = new Date(`${dummyDate}T${newData.start_time}`);
+          const end = new Date(`${dummyDate}T${newData.end_time}`);
+          
+          if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+              let diff = Math.round((end.getTime() - start.getTime()) / 60000);
+              if (diff < 0) diff += 1440; // Ajuste para virada de dia
+              newData.flight_duration = diff;
+          }
+      }
+      setEditFormData(newData);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!editingFlight || !currentUser) return;
+      setLoading(true);
+      try {
+          await operationSummerService.update(editingFlight.id, editFormData, currentUser.id);
+          alert("Registro atualizado com sucesso!");
+          setIsEditModalOpen(false);
+          setEditingFlight(null);
+          loadData();
+      } catch (e) {
+          alert("Erro ao atualizar registro.");
+      } finally {
+          setLoading(false);
+      }
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-100 overflow-hidden font-sans">
       
@@ -236,7 +285,6 @@ export default function SummerOperationCenter() {
             </div>
 
             <div className="flex gap-2 items-center">
-                {/* SYNC BUTTON */}
                 <Button 
                     onClick={handleSyncData} 
                     disabled={isSyncing} 
@@ -244,8 +292,14 @@ export default function SummerOperationCenter() {
                     title="Buscar voos da operação geral que não aparecem aqui"
                 >
                     <RefreshCw className={`w-3 h-3 mr-1.5 ${isSyncing ? 'animate-spin' : ''}`} /> 
-                    {isSyncing ? 'Sincronizando...' : 'Sincronizar'}
+                    {isSyncing ? 'Buscando...' : 'Sincronizar'}
                 </Button>
+
+                {activeTab === 'flights' && selectedIds.size === 1 && currentUser?.role === 'admin' && (
+                    <Button onClick={handleEditSelected} className="bg-amber-600 hover:bg-amber-700 border-none text-[10px] h-7 px-3 font-bold uppercase text-white shadow-sm">
+                        <Pencil className="w-3 h-3 mr-1.5" /> Editar
+                    </Button>
+                )}
 
                 {activeTab === 'flights' && selectedIds.size > 0 && currentUser?.role === 'admin' && (
                     <Button onClick={handleDeleteSelected} variant="danger" size="sm" className="h-7 px-3 text-[10px] font-bold uppercase">
@@ -494,6 +548,127 @@ export default function SummerOperationCenter() {
 
         </div>
       </main>
+
+      {/* EDIT MODAL */}
+      {isEditModalOpen && editingFlight && (
+          <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+              <Card className="w-full max-w-lg bg-white shadow-2xl p-6">
+                  <div className="flex justify-between items-center mb-6 border-b pb-3">
+                      <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                          <Pencil className="w-5 h-5 text-blue-600" /> Editar Registro de Voo
+                      </h2>
+                      <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                          <X className="w-6 h-6" />
+                      </button>
+                  </div>
+                  
+                  <form onSubmit={handleSaveEdit} className="space-y-4">
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                          <Input 
+                              label="Data" 
+                              type="date" 
+                              value={editFormData.date} 
+                              onChange={e => setEditFormData({...editFormData, date: e.target.value})} 
+                              required 
+                          />
+                          <Select 
+                              label="Localidade Base" 
+                              value={Object.keys(SUMMER_LOCATIONS).find(key => editFormData.location?.includes(key)) ? 'Outro' : 'Outro'}
+                              onChange={e => {
+                                  // Simplified logic: Just clear if 'Outro' is picked, or set value if a city key was real
+                                  if(e.target.value !== 'Outro') setEditFormData({...editFormData, location: e.target.value});
+                              }}
+                          >
+                              <option value="Outro">Manual / Específico</option>
+                              {Object.keys(SUMMER_LOCATIONS).map(city => <option key={city} value={city}>{city}</option>)}
+                          </Select>
+                      </div>
+
+                      <Input 
+                          label="Local Específico (PGV / Praia)" 
+                          value={editFormData.location} 
+                          onChange={e => setEditFormData({...editFormData, location: e.target.value})} 
+                          required 
+                      />
+
+                      <div className="grid grid-cols-2 gap-4">
+                          <Select 
+                              label="Piloto" 
+                              value={editFormData.pilot_id} 
+                              onChange={e => setEditFormData({...editFormData, pilot_id: e.target.value})} 
+                              required
+                          >
+                              {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                          </Select>
+                          <Select 
+                              label="Aeronave" 
+                              value={editFormData.drone_id} 
+                              onChange={e => setEditFormData({...editFormData, drone_id: e.target.value})} 
+                              required
+                          >
+                              {drones.map(d => <option key={d.id} value={d.id}>{d.prefix}</option>)}
+                          </Select>
+                      </div>
+
+                      <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 grid grid-cols-3 gap-3">
+                          <Input 
+                              label="Início" 
+                              type="time" 
+                              value={editFormData.start_time} 
+                              onChange={e => handleEditTimeChange('start_time', e.target.value)} 
+                              required 
+                          />
+                          <Input 
+                              label="Término" 
+                              type="time" 
+                              value={editFormData.end_time} 
+                              onChange={e => handleEditTimeChange('end_time', e.target.value)} 
+                              required 
+                          />
+                          <div className="bg-white p-1 rounded border border-slate-200">
+                              <label className="text-xs font-bold text-slate-500 block mb-1">Duração (min)</label>
+                              <input 
+                                  type="number" 
+                                  className="w-full font-mono font-bold text-lg text-center outline-none text-blue-600 bg-transparent"
+                                  value={editFormData.flight_duration} 
+                                  onChange={e => setEditFormData({...editFormData, flight_duration: Number(e.target.value)})}
+                              />
+                          </div>
+                      </div>
+
+                      <div>
+                          <label className="text-sm font-medium text-slate-700 mb-1 block">Natureza da Missão</label>
+                          <select 
+                              className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white"
+                              value={editFormData.mission_type} 
+                              onChange={e => setEditFormData({...editFormData, mission_type: e.target.value as any})}
+                          >
+                              {Object.entries(MISSION_HIERARCHY).map(([key, val]) => (
+                                  <option key={key} value={key}>{val.label}</option>
+                              ))}
+                          </select>
+                      </div>
+
+                      <div>
+                          <label className="text-sm font-medium text-slate-700 mb-1 block">Observações</label>
+                          <textarea 
+                              className="w-full p-2 border border-slate-300 rounded-lg text-sm h-20 resize-none bg-white"
+                              value={editFormData.notes || ''}
+                              onChange={e => setEditFormData({...editFormData, notes: e.target.value})}
+                          />
+                      </div>
+
+                      <div className="flex justify-end gap-3 pt-2">
+                          <Button type="button" variant="outline" onClick={() => setIsEditModalOpen(false)}>Cancelar</Button>
+                          <Button type="submit" disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white shadow-md">
+                              <Save className="w-4 h-4 mr-2" /> Salvar Alterações
+                          </Button>
+                      </div>
+                  </form>
+              </Card>
+          </div>
+      )}
     </div>
   );
 }

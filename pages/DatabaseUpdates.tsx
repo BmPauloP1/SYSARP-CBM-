@@ -51,6 +51,67 @@ NOTIFY pgrst, 'reload schema';
 ALTER TABLE public.drones ADD COLUMN IF NOT EXISTS documents jsonb DEFAULT '{}'::jsonb;
 NOTIFY pgrst, 'reload schema';
 `
+  },
+  {
+    id: 'summer_op_permissions_v1.0',
+    title: 'Permissões de Edição - Operação Verão',
+    description: 'Habilita a permissão de UPDATE na tabela de voos de verão para que o recurso de edição funcione corretamente.',
+    category: 'permissions',
+    sql: `
+-- HABILITA RLS E CRIA POLÍTICA DE ATUALIZAÇÃO
+ALTER TABLE public.op_summer_flights ENABLE ROW LEVEL SECURITY;
+
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies 
+        WHERE tablename = 'op_summer_flights' 
+        AND policyname = 'Permitir atualizar voos verao'
+    ) THEN
+        CREATE POLICY "Permitir atualizar voos verao" 
+        ON public.op_summer_flights 
+        FOR UPDATE 
+        TO authenticated 
+        USING (true) 
+        WITH CHECK (true);
+    END IF;
+END $$;
+
+NOTIFY pgrst, 'reload schema';
+`
+  },
+  {
+    id: 'general_ops_permissions_v1.0',
+    title: 'Permissões de Edição - Operações Gerais',
+    description: 'Habilita a permissão de UPDATE na tabela principal de operações, permitindo que administradores editem registros de outros pilotos.',
+    category: 'permissions',
+    sql: `
+-- GARANTE QUE A TABELA TENHA RLS HABILITADO
+ALTER TABLE public.operations ENABLE ROW LEVEL SECURITY;
+
+DO $$ 
+BEGIN
+    -- REMOVE POLÍTICA RESTRITIVA ANTIGA SE EXISTIR PARA EVITAR CONFLITOS
+    IF EXISTS (
+        SELECT 1 FROM pg_policies 
+        WHERE tablename = 'operations' 
+        AND policyname = 'Permitir atualizar operacoes'
+    ) THEN
+        DROP POLICY "Permitir atualizar operacoes" ON public.operations;
+    END IF;
+
+    -- CRIA NOVA POLÍTICA PERMISSIVA PARA USUÁRIOS AUTENTICADOS
+    CREATE POLICY "Permitir atualizar operacoes" 
+    ON public.operations 
+    FOR UPDATE 
+    TO authenticated 
+    USING (true) 
+    WITH CHECK (true);
+    
+END $$;
+
+NOTIFY pgrst, 'reload schema';
+`
   }
 ];
 
