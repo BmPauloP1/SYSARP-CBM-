@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useCallback, memo, useRef, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -137,13 +138,28 @@ export default function Dashboard() {
 
   const handleShareOp = async (op: Operation) => {
       const pilot = pilots.find(p => p.id === op.pilot_id);
+      const drone = drones.find(d => d.id === op.drone_id);
       const startTime = new Date(op.start_time);
-      const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n` +
-          `🚁 *Ocorrência:* ${op.name}\n` +
-          `🔢 *Protocolo:* ${op.occurrence_number}\n` +
-          `👤 *Piloto:* ${pilot?.full_name || 'N/A'}\n` +
-          `📍 *Coord:* ${op.latitude}, ${op.longitude}\n` +
-          `🕒 *Início:* ${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}\n`;
+      const endTime = op.end_time ? new Date(op.end_time).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}) : 'Indefinido';
+      const mapsLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
+
+      let text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n`;
+      text += `🚁 *Ocorrência:* ${op.name.toUpperCase()}\n`;
+      text += `🔢 *Protocolo:* ${op.occurrence_number}\n`;
+      text += `📋 *Natureza:* ${MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}\n\n`;
+
+      text += `👤 *PIC:* ${pilot?.full_name || 'N/A'}\n`;
+      text += `📞 *Contato:* ${pilot?.phone || 'N/A'}\n`;
+      text += `🛡️ *Aeronave:* ${drone ? `${drone.prefix} (${drone.model})` : 'N/A'}\n\n`;
+
+      text += `📍 *Coord:* ${op.latitude.toFixed(6)}, ${op.longitude.toFixed(6)}\n`;
+      text += `🗺️ *Google Maps:* ${mapsLink}\n\n`;
+
+      text += `📏 *Raio:* ${op.radius}m\n`;
+      text += `✈️ *Altitude:* ${op.flight_altitude || 60}m\n\n`;
+
+      text += `🕒 *Início:* ${startTime.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}\n`;
+      text += `🏁 *Término Previsto:* ${endTime}`;
 
       window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };

@@ -368,12 +368,32 @@ export default function OperationManagement() {
     const pilot = pilots.find(p => p.id === op.pilot_id);
     const drone = drones.find(d => d.id === op.drone_id);
     const startTime = new Date(op.start_time);
-    let locStr = `📍 *Ponto Principal:* ${op.latitude.toFixed(6)}, ${op.longitude.toFixed(6)}\n📏 *Raio:* ${op.radius}m | ✈️ *Alt:* ${op.flight_altitude || 60}m`;
+    const endTime = op.end_time ? new Date(op.end_time).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}) : 'Indefinido';
+    const mapsLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
+
+    let text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n`;
+    text += `🚁 *Ocorrência:* ${op.name.toUpperCase()}\n`;
+    text += `🔢 *Protocolo:* ${op.occurrence_number}\n`;
+    text += `📋 *Natureza:* ${MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}\n\n`;
+
+    text += `👤 *PIC:* ${pilot?.full_name || 'N/A'}\n`;
+    text += `📞 *Contato:* ${pilot?.phone || 'N/A'}\n`;
+    text += `🛡️ *Aeronave:* ${drone ? `${drone.prefix} (${drone.model})` : 'N/A'}\n\n`;
+
+    text += `📍 *Coord:* ${op.latitude.toFixed(6)}, ${op.longitude.toFixed(6)}\n`;
+    text += `🗺️ *Google Maps:* ${mapsLink}\n\n`;
+
+    text += `📏 *Raio:* ${op.radius}m\n`;
+    text += `✈️ *Altitude:* ${op.flight_altitude || 60}m\n\n`;
+
+    text += `🕒 *Início:* ${startTime.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}\n`;
+    text += `🏁 *Término Previsto:* ${endTime}`;
+
     if (op.takeoff_points?.length) {
-        locStr += `\n\n🔗 *Áreas Vinculadas:*`;
-        op.takeoff_points.forEach((pt, i) => locStr += `\n🔹 PT ${i+1}: ${pt.lat.toFixed(6)}, ${pt.lng.toFixed(6)} (Alt: ${pt.alt}m)`);
+        text += `\n\n🔗 *Áreas Vinculadas:*`;
+        op.takeoff_points.forEach((pt, i) => text += `\n🔹 PT ${i+1}: ${pt.lat.toFixed(6)}, ${pt.lng.toFixed(6)}`);
     }
-    const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n🚁 *Ocorrência:* ${op.name.toUpperCase()}\n🔢 *Protocolo:* ${op.occurrence_number}\n📋 *Natureza:* ${MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}\n\n👤 *PIC:* ${pilot?.full_name || 'N/A'}\n🛡️ *Aeronave:* ${drone ? `${drone.prefix} (${drone.model})` : 'N/A'}\n\n${locStr}\n\n🕒 *Início:* ${startTime.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}`;
+    
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
   
