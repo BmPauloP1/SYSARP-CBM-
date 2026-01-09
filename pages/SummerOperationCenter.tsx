@@ -19,6 +19,15 @@ import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaf
 
 const CHART_COLORS = ['#f97316', '#3b82f6', '#ef4444', '#10b981', '#8b5cf6'];
 
+// Helper para converter minutos totais em HH:MM (ex: 20 min -> 00:20, 90 min -> 01:30)
+const formatMinutesToHHMM = (totalMinutes: number | undefined | null) => {
+  if (!totalMinutes && totalMinutes !== 0) return "00:00";
+  const safeMinutes = Math.round(totalMinutes);
+  const hours = Math.floor(safeMinutes / 60);
+  const minutes = safeMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} h`;
+};
+
 const MapController = () => {
   const map = useMap();
   useEffect(() => {
@@ -176,7 +185,7 @@ export default function SummerOperationCenter() {
             new Date(f.date + 'T12:00:00').toLocaleDateString(),
             f.location,
             MISSION_HIERARCHY[f.mission_type as MissionType]?.label || f.mission_type,
-            `${f.flight_duration} min`,
+            formatMinutesToHHMM(f.flight_duration),
             pilots.find(p => p.id === f.pilot_id)?.full_name || 'N/A'
         ]);
 
@@ -480,7 +489,9 @@ export default function SummerOperationCenter() {
                                                     {MISSION_HIERARCHY[f.mission_type as MissionType]?.label || f.mission_type}
                                                 </span>
                                             </td>
-                                            <td className="px-3 py-2 align-middle font-mono text-xs font-bold text-slate-600">{f.flight_duration} min</td>
+                                            <td className="px-3 py-2 align-middle font-mono text-xs font-bold text-slate-600">
+                                                {formatMinutesToHHMM(f.flight_duration)}
+                                            </td>
                                             <td className="px-3 py-2 align-middle">
                                                 <div className="text-[10px] font-bold text-slate-700">{pilots.find(p => p.id === f.pilot_id)?.full_name || 'N/A'}</div>
                                                 <div className="text-[9px] text-slate-400">{drones.find(d => d.id === f.drone_id)?.prefix || 'N/A'}</div>
@@ -626,14 +637,11 @@ export default function SummerOperationCenter() {
                               onChange={e => handleEditTimeChange('end_time', e.target.value)} 
                               required 
                           />
-                          <div className="bg-white p-1 rounded border border-slate-200">
-                              <label className="text-xs font-bold text-slate-500 block mb-1">Duração (min)</label>
-                              <input 
-                                  type="number" 
-                                  className="w-full font-mono font-bold text-lg text-center outline-none text-blue-600 bg-transparent"
-                                  value={editFormData.flight_duration} 
-                                  onChange={e => setEditFormData({...editFormData, flight_duration: Number(e.target.value)})}
-                              />
+                          <div className="bg-white p-1 rounded border border-slate-200 flex flex-col justify-center">
+                              <label className="text-[10px] font-bold text-slate-500 block mb-1 text-center uppercase">Duração Calc.</label>
+                              <div className="text-center font-mono font-bold text-blue-600">
+                                {formatMinutesToHHMM(editFormData.flight_duration)}
+                              </div>
                           </div>
                       </div>
 

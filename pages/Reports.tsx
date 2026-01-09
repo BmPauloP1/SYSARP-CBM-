@@ -27,6 +27,23 @@ const isValidCoord = (lat: any, lng: any) => {
 // Função para dispersar pontos sobrepostos (Cria o efeito de mancha/calor)
 const jitter = (coord: number) => coord + (Math.random() - 0.5) * 0.012;
 
+// Helper: Decimal (0.33) -> HH:MM (00:20)
+const formatDecimalToHHMM = (decimalHours: number | undefined): string => {
+    if (!decimalHours && decimalHours !== 0) return "00:00";
+    const totalMinutes = Math.round(decimalHours * 60);
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+// Helper: HH:MM -> Decimal
+const formatHHMMToDecimal = (hhmm: string): number => {
+    if (!hhmm) return 0;
+    const [h, m] = hhmm.split(':').map(Number);
+    if (isNaN(h) || isNaN(m)) return 0;
+    return h + (m / 60);
+};
+
 // Componente para forçar o mapa a atualizar o tamanho quando a aba muda
 const MapController = ({ activeTab }: { activeTab: string }) => {
   const map = useMap();
@@ -69,7 +86,7 @@ export default function Reports() {
   // Edit State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingOp, setEditingOp] = useState<Operation | null>(null);
-  const [editForm, setEditForm] = useState<Partial<Operation> & { start_time_local?: string, end_time_local?: string }>({});
+  const [editForm, setEditForm] = useState<Partial<Operation> & { start_time_local?: string, end_time_local?: string, flight_hours_hhmm?: string }>({});
 
   // Filters State
   const [searchTerm, setSearchTerm] = useState("");
@@ -150,7 +167,8 @@ export default function Reports() {
           setEditForm({
               ...op,
               start_time_local: toLocalISO(op.start_time),
-              end_time_local: op.end_time ? toLocalISO(op.end_time) : ''
+              end_time_local: op.end_time ? toLocalISO(op.end_time) : '',
+              flight_hours_hhmm: formatDecimalToHHMM(op.flight_hours || 0)
           });
           setIsEditModalOpen(true);
       }
@@ -168,13 +186,15 @@ export default function Reports() {
       if (!editingOp) return;
       setLoading(true);
       try {
+          const decimalHours = formatHHMMToDecimal(editForm.flight_hours_hhmm || '00:00');
+
           const payload: Partial<Operation> = {
               name: editForm.name,
               description: editForm.description,
               actions_taken: editForm.actions_taken,
               start_time: new Date(editForm.start_time_local!).toISOString(),
               end_time: editForm.end_time_local ? new Date(editForm.end_time_local).toISOString() : undefined,
-              flight_hours: Number(editForm.flight_hours),
+              flight_hours: decimalHours,
               pilot_id: editForm.pilot_id,
               drone_id: editForm.drone_id,
               mission_type: editForm.mission_type
@@ -284,7 +304,7 @@ export default function Reports() {
                     ["Código SARPAS:", pilot?.sarpas_code || 'N/A'],
                     ["Aeronave (Prefixo/Modelo):", `${drone?.prefix || 'N/A'} - ${drone?.model || 'N/A'}`],
                     ["Número de Série / SISANT:", `${drone?.serial_number || 'N/A'} / ${drone?.sisant || 'N/A'}`],
-                    ["Tempo de Voo Estimado:", `${(op.flight_hours || 0).toFixed(1)} h`]
+                    ["Tempo de Voo Estimado:", formatDecimalToHHMM(op.flight_hours) + " h"]
                 ],
                 theme: 'plain',
                 styles: { fontSize: 9, cellPadding: 1 },
@@ -470,7 +490,7 @@ export default function Reports() {
                                     </div>
                                     <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500 font-bold uppercase tracking-tight">
                                         <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(op.start_time).toLocaleDateString()}</span>
-                                        <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> {(op.flight_hours || 0).toFixed(1)}h voadas</span>
+                                        <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> {formatDecimalToHHMM(op.flight_hours)}h voadas</span>
                                     </div>
                                 </div>
                             ))}
@@ -584,13 +604,18 @@ export default function Reports() {
                               onChange={e => handleEditTimeChange('end_time_local', e.target.value)} 
                           />
                           <div className="bg-white p-2 rounded border border-slate-200 col-span-2 flex items-center justify-between">
-                              <label className="text-xs font-bold text-slate-500 uppercase">Horas Voadas (Decimal)</label>
-                              <input 
-                                  type="number" 
-                                  step="0.1"
+                              <label className="text-xs font-bold text-slate-500 uppercase">Horas Voadas (HH:MM)</label>
+                              <Input 
+                                  type="text" 
                                   className="w-24 font-mono font-bold text-lg text-right outline-none text-blue-600"
-                                  value={editForm.flight_hours || 0} 
-                                  onChange={e => setEditForm({...editForm, flight_hours: Number(e.target.value)})}
+                                  placeholder="00:00"
+                                  value={editForm.flight_hours_hhmm || ''} 
+                                  onChange={e => {
+                                      // Mask basic input HH:MM
+                                      let val = e.target.value.replace(/[^0-9:]/g, '');
+                                      if (val.length === 2 && !val.includes(':')) val += ':';
+                                      setEditForm({...editForm, flight_hours_hhmm: val});
+                                  }}
                               />
                           </div>
                       </div>

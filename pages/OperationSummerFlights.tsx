@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { operationSummerService } from '../services/operationSummerService';
 import { base44 } from '../services/base44Client';
@@ -5,6 +6,15 @@ import { SummerFlight, SUMMER_LOCATIONS } from '../types_summer';
 import { Pilot, Drone, MISSION_HIERARCHY, MissionType } from '../types';
 import { Card, Badge, Button, Input, Select } from '../components/ui_components';
 import { Sun, Clock, MapPin, User, Trash2, CheckSquare, Square, Pencil, X, Save } from 'lucide-react';
+
+// Helper para converter minutos totais em HH:MM
+const formatMinutesToHHMM = (totalMinutes: number | undefined | null) => {
+  if (!totalMinutes && totalMinutes !== 0) return "00:00";
+  const safeMinutes = Math.round(totalMinutes);
+  const hours = Math.floor(safeMinutes / 60);
+  const minutes = safeMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
 
 export default function OperationSummerFlights() {
   const [flights, setFlights] = useState<SummerFlight[]>([]);
@@ -98,7 +108,8 @@ export default function OperationSummerFlights() {
   const handleTimeChange = (field: 'start_time' | 'end_time', value: string) => {
       const newData = { ...editFormData, [field]: value };
       
-      // Auto-calculate duration
+      // Auto-calculate duration VISUALLY ONLY if duration is 0 or user hasn't typed manually
+      // We rely on the user to check the duration field
       if (newData.start_time && newData.end_time) {
           const dummyDate = '2024-01-01';
           const start = new Date(`${dummyDate}T${newData.start_time}`);
@@ -119,9 +130,14 @@ export default function OperationSummerFlights() {
       
       setLoading(true);
       try {
+          // Explicitly pass the duration from the state to ensure manual edits are saved
+          // and prevent the service from auto-recalculating based on start/end times if they differ
           await operationSummerService.update(
               editingFlight.id, 
-              editFormData, 
+              {
+                  ...editFormData,
+                  flight_duration: Number(editFormData.flight_duration)
+              }, 
               currentUser.id
           );
           alert("Registro atualizado com sucesso!");
@@ -248,7 +264,9 @@ export default function OperationSummerFlights() {
                                 <div className="font-bold text-slate-800">{pilot?.full_name || 'N/A'}</div>
                                 <div className="text-slate-400">{drone?.prefix || 'N/A'}</div>
                               </td>
-                              <td className="px-4 py-3 font-mono text-slate-600 font-bold">{f.flight_duration} min</td>
+                              <td className="px-4 py-3 font-mono text-slate-600 font-bold">
+                                {formatMinutesToHHMM(f.flight_duration)}
+                              </td>
                               <td className="px-4 py-3">
                                 {currentUser?.role === 'admin' && (
                                     <button 
@@ -303,7 +321,7 @@ export default function OperationSummerFlights() {
                                  
                                  <div className="flex items-center gap-2">
                                     <span className="text-xs font-mono font-bold bg-slate-100 px-2 py-1 rounded text-slate-600 border border-slate-200">
-                                       {f.flight_duration} min
+                                       {formatMinutesToHHMM(f.flight_duration)}
                                     </span>
                                     {currentUser?.role === 'admin' && (
                                        <div className={isSelected ? "text-blue-600" : "text-slate-300"}>
@@ -427,13 +445,13 @@ export default function OperationSummerFlights() {
                               onChange={e => handleTimeChange('end_time', e.target.value)} 
                               required 
                           />
-                          <div className="bg-white p-1 rounded border border-slate-200">
-                              <label className="text-xs font-bold text-slate-500 block mb-1">Duração (min)</label>
-                              <input 
-                                  type="number" 
-                                  className="w-full font-mono font-bold text-lg text-center outline-none text-blue-600"
-                                  value={editFormData.flight_duration} 
-                                  onChange={e => setEditFormData({...editFormData, flight_duration: Number(e.target.value)})}
+                          <div className="bg-white p-1 rounded border border-slate-200 flex flex-col justify-center">
+                              <label className="text-[10px] font-bold text-slate-500 block mb-1 text-center uppercase">Duração (min)</label>
+                              <Input 
+                                type="number" 
+                                className="text-center font-mono font-bold text-blue-600 border-none p-0 h-auto"
+                                value={editFormData.flight_duration}
+                                onChange={e => setEditFormData({...editFormData, flight_duration: Number(e.target.value)})}
                               />
                           </div>
                       </div>
