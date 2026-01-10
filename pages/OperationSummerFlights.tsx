@@ -16,6 +16,19 @@ const formatMinutesToHHMM = (totalMinutes: number | undefined | null) => {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 };
 
+// Helper seguro para formatar data
+const safeDateFormat = (dateStr: string) => {
+    if (!dateStr || dateStr === 'Invalid Date') return '-';
+    try {
+        // Tenta criar data. Se string for YYYY-MM-DD, adiciona hora para evitar timezone shift
+        const d = new Date(dateStr.includes('T') ? dateStr : dateStr + 'T12:00:00');
+        if (isNaN(d.getTime())) return dateStr; 
+        return d.toLocaleDateString('pt-BR');
+    } catch (e) {
+        return dateStr;
+    }
+};
+
 export default function OperationSummerFlights() {
   const [flights, setFlights] = useState<SummerFlight[]>([]);
   const [pilots, setPilots] = useState<Pilot[]>([]);
@@ -107,20 +120,6 @@ export default function OperationSummerFlights() {
 
   const handleTimeChange = (field: 'start_time' | 'end_time', value: string) => {
       const newData = { ...editFormData, [field]: value };
-      
-      // Auto-calculate duration VISUALLY ONLY if duration is 0 or user hasn't typed manually
-      // We rely on the user to check the duration field
-      if (newData.start_time && newData.end_time) {
-          const dummyDate = '2024-01-01';
-          const start = new Date(`${dummyDate}T${newData.start_time}`);
-          const end = new Date(`${dummyDate}T${newData.end_time}`);
-          
-          if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-              let diff = Math.round((end.getTime() - start.getTime()) / 60000);
-              if (diff < 0) diff += 1440; // Handle day crossover
-              newData.flight_duration = diff;
-          }
-      }
       setEditFormData(newData);
   };
 
@@ -229,11 +228,11 @@ export default function OperationSummerFlights() {
                       <thead className="bg-slate-100 text-slate-500 uppercase text-xs sticky top-0 z-10 shadow-sm">
                         <tr>
                           <th className="px-4 py-3 w-12 text-center bg-slate-100"></th>
-                          <th className="px-4 py-3 bg-slate-100">Data</th>
+                          <th className="px-4 py-3 bg-slate-100">Data / Horário</th>
                           <th className="px-4 py-3 bg-slate-100">Local</th>
                           <th className="px-4 py-3 bg-slate-100">Missão</th>
                           <th className="px-4 py-3 bg-slate-100">Piloto / Drone</th>
-                          <th className="px-4 py-3 bg-slate-100">Duração</th>
+                          <th className="px-4 py-3 bg-slate-100">Duração (Motor)</th>
                           <th className="px-4 py-3 bg-slate-100">Ações</th>
                         </tr>
                       </thead>
@@ -253,7 +252,7 @@ export default function OperationSummerFlights() {
                                  )}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
-                                <div className="font-bold text-slate-700">{new Date(f.date + 'T12:00:00').toLocaleDateString()}</div>
+                                <div className="font-bold text-slate-700">{safeDateFormat(f.date)}</div>
                                 <div className="text-xs text-slate-500">{f.start_time} - {f.end_time}</div>
                               </td>
                               <td className="px-4 py-3 font-medium text-orange-700 whitespace-nowrap max-w-[180px] truncate" title={f.location}>{f.location}</td>
@@ -314,7 +313,7 @@ export default function OperationSummerFlights() {
                                  <div className="flex flex-col">
                                     <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
                                        <Clock className="w-3.5 h-3.5 text-orange-500" />
-                                       {new Date(f.date + 'T12:00:00').toLocaleDateString()}
+                                       {safeDateFormat(f.date)}
                                     </div>
                                     <span className="text-xs text-slate-400 ml-5">{f.start_time} - {f.end_time}</span>
                                  </div>

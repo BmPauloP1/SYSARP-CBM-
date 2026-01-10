@@ -12,6 +12,31 @@ const AUDIT_STORAGE_KEY = 'sysarp_summer_audit';
 const getLocal = (key: string) => JSON.parse(localStorage.getItem(key) || '[]');
 const setLocal = (key: string, data: any) => localStorage.setItem(key, JSON.stringify(data));
 
+// Helper Date Formatting (Local YYYY-MM-DD)
+// Corrige problema de timezone convertendo ISO para local corretamente
+const formatLocalDate = (isoString: string): string => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return '';
+    
+    // Ajuste para garantir a data local correta
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+};
+
+// Helper Time Formatting (Local HH:mm)
+const formatLocalTime = (isoString: string): string => {
+    if (!isoString) return '00:00';
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return '00:00';
+    
+    const hh = String(date.getHours()).padStart(2, '0');
+    const min = String(date.getMinutes()).padStart(2, '0');
+    return `${hh}:${min}`;
+};
+
 export const operationSummerService = {
   
   list: async (): Promise<SummerFlight[]> => {
@@ -127,7 +152,7 @@ export const operationSummerService = {
     }
   },
 
-  // FUNÇÃO REESCRITA: Prioridade Absoluta para Horas Voadas (Motor)
+  // FUNÇÃO REESCRITA PARA FORÇAR SINCRONIZAÇÃO CORRETA
   syncMissingFlights: async (userId: string): Promise<number> => {
     if (!isConfigured) return 0;
 
@@ -159,60 +184,59 @@ export const operationSummerService = {
         // 3. Iterar sobre as operações de verão
         for (const op of allOps) {
             try {
-                // Preparar dados calculados da Operação Geral
-                const dateObj = new Date(op.start_time);
+                if (!op.start_time) continue; // Pula se não tiver data
+
+                // Extração Segura de Data e Hora Local
+                const dateStr = formatLocalDate(op.start_time);
+                const timeStr = formatLocalTime(op.start_time);
                 
-                // Data Local Estável
-                const year = dateObj.getFullYear();
-                const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-                const day = String(dateObj.getDate()).padStart(2, '0');
-                const dateStr = `${year}-${month}-${day}`;
-                
-                const timeStr = dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                // Remove prefixo para limpar o local
-                const loc = op.name.replace('VERÃO: ', '');
-                
+                // Limpeza do Local
+                let loc = op.name.replace('VERÃO: ', '');
+                if (!loc || loc.trim() === '') loc = "Operação Verão (Local N/D)";
+
+                // Lógica de Duração (Minutos) - PRIORIDADE ABSOLUTA: flight_hours
                 let durationMinutes = 0;
-                let endTimeStr = '23:59'; // Valor padrão caso algo falhe
+                let endTimeStr = '';
 
                 const rawFlightHours = Number(op.flight_hours);
 
-                // --- LÓGICA CRÍTICA DE TEMPO ---
-                // O cálculo deve ser baseado EXCLUSIVAMENTE nas "Horas Voadas" se disponíveis.
-                // Ignoramos o horário de término da ocorrência pois ele inclui tempo de solo/pausa.
-                
                 if (!isNaN(rawFlightHours) && rawFlightHours > 0) {
-                    
-                    // Converte horas decimais exatas (ex: 0.5 = 30min, 0.42 = 25min)
+                    // Prioridade 1: O valor informado pelo piloto no encerramento
                     durationMinutes = Math.round(rawFlightHours * 60);
                     
-                    // RECALCULA o horário de término para o registro de verão
-                    // Ex: Início 09:00 + 25min voo = Término 09:25.
-                    // Isso garante consistência visual (09:00 - 09:25 = 25min).
-                    const endObj = new Date(dateObj.getTime() + durationMinutes * 60000);
-                    endTimeStr = endObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                    
+                    // Recalcula o horário de término visual baseado no início + duração de voo
+                    // Isso garante coerência visual no relatório
+                    const startDateObj = new Date(op.start_time);
+                    const estimatedEnd = new Date(startDateObj.getTime() + durationMinutes * 60000);
+                    endTimeStr = formatLocalTime(estimatedEnd.toISOString());
+
                 } else if (op.end_time) {
-                    // Fallback: Se NÃO houve horas voadas informadas (ex: op cancelada ou sem voo),
-                    // usamos a diferença de tempo, mas com cautela.
+                    // Prioridade 2: Diferença Start/End se flight_hours não existir
+                    const startObj = new Date(op.start_time);
                     const endObj = new Date(op.end_time);
-                    durationMinutes = Math.round((endObj.getTime() - dateObj.getTime()) / 60000);
-                    if (durationMinutes < 0) durationMinutes = 0;
-                    endTimeStr = endObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                    if (!isNaN(endObj.getTime()) && !isNaN(startObj.getTime())) {
+                        endTimeStr = formatLocalTime(op.end_time);
+                        durationMinutes = Math.round((endObj.getTime() - startObj.getTime()) / 60000);
+                        if (durationMinutes < 0) durationMinutes = 0;
+                    } else {
+                        endTimeStr = timeStr;
+                    }
+                } else {
+                    // Sem flight_hours e sem end_time
+                    endTimeStr = timeStr;
+                    durationMinutes = 0;
                 }
 
-                // Garante que não é negativo
-                if (durationMinutes < 0) durationMinutes = 0;
-
+                // Payload Padrão
                 const payload = {
                     operation_id: op.id,
                     pilot_id: op.pilot_id,
                     drone_id: op.drone_id,
                     mission_type: op.mission_type,
                     location: loc,
-                    date: dateStr, // Data informada pelo solicitante (baseada no inicio)
+                    date: dateStr,
                     start_time: timeStr,
-                    end_time: endTimeStr, // Calculado estritamente pelo tempo de voo ou fallback
+                    end_time: endTimeStr,
                     flight_duration: durationMinutes,
                     notes: op.description || "Sincronizado automaticamente"
                 };
@@ -228,20 +252,32 @@ export const operationSummerService = {
                     }, userId);
                     changesCount++;
                 } else {
-                    // ATUALIZAR SE HOUVER DIVERGÊNCIA
-                    // Verifica se a duração no registro de verão está errada comparada ao cálculo real
-                    // (ex: estava usando tempo total de pausa, agora corrige para tempo de voo)
-                    if (existingRecord.flight_duration !== durationMinutes) {
-                        console.log(`Corrigindo tempo voo ${op.id}: ${existingRecord.flight_duration}m -> ${durationMinutes}m`);
+                    // ATUALIZAR SE NECESSÁRIO
+                    // Critérios de atualização:
+                    // 1. Data inválida no registro existente
+                    // 2. Duração zerada no registro existente, mas operação tem horas
+                    // 3. Diferença significativa na duração (ex: piloto editou a operação original)
+                    
+                    const isDataInvalid = existingRecord.date === 'Invalid Date' || !existingRecord.date;
+                    const isTimeInvalid = existingRecord.start_time === 'Invalid Date' || !existingRecord.start_time;
+                    
+                    const opHasHours = durationMinutes > 0;
+                    const existingHasNoHours = !existingRecord.flight_duration || existingRecord.flight_duration === 0;
+                    const durationMismatch = Math.abs((existingRecord.flight_duration || 0) - durationMinutes) > 2; // tolerância 2 min
+
+                    if (isDataInvalid || isTimeInvalid || (opHasHours && (existingHasNoHours || durationMismatch))) {
+                        console.log(`Corrigindo registro de verão ${existingRecord.id} da op ${op.id}. Duração antiga: ${existingRecord.flight_duration}, Nova: ${durationMinutes}`);
                         
                         await supabase
                             .from(TABLE)
                             .update({
+                                date: dateStr,
+                                start_time: timeStr,
+                                end_time: endTimeStr,
                                 flight_duration: durationMinutes,
-                                end_time: endTimeStr, // Força atualização do horário final correto
                                 pilot_id: op.pilot_id,
                                 drone_id: op.drone_id,
-                                notes: payload.notes
+                                location: loc
                             })
                             .eq('id', existingRecord.id);
                         
