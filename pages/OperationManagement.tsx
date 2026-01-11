@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from "react-le
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
 import { operationSummerService } from "../services/operationSummerService";
+import { supabase } from "../services/supabase"; // Import supabase for direct checks
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, MissionType, ORGANIZATION_CHART, MISSION_COLORS } from "../types";
 import { SUMMER_LOCATIONS } from "../types_summer";
 import { Button, Input, Select, Badge, Card } from "../components/ui_components";
@@ -46,7 +47,7 @@ const UNIT_COORDINATES: Record<string, [number, number]> = {
   "6ª CIBM - Irati": [-25.4673, -50.6514],
   "2ª CIA/1º PEL - Telêmaco Borba": [-24.3238, -50.6156],
   "BOA - Batalhão de Operações Aéreas": [-25.4284, -49.2733],
-  "GOST - Socorro Tático": [-25.4397, -49.2719]
+  "GOST - Grupo de Operações de Socorro Tático": [-25.4397, -49.2719]
 };
 
 const cleanUnitString = (unit: string, crbm: string) => {
@@ -241,6 +242,50 @@ export default function OperationManagement() {
     // Note: InitialUserLocator inside MapContainer handles the actual centering and formData update
   };
 
+  const handleEditMission = (op: Operation) => {
+    const start = new Date(op.start_time);
+    
+    // Formatar data local YYYY-MM-DD
+    const localDate = [
+      start.getFullYear(),
+      String(start.getMonth() + 1).padStart(2, '0'),
+      String(start.getDate()).padStart(2, '0')
+    ].join('-');
+
+    // Formatar hora local HH:MM
+    const localStartTime = [
+      String(start.getHours()).padStart(2, '0'),
+      String(start.getMinutes()).padStart(2, '0')
+    ].join(':');
+
+    let localEndTime = '';
+    if (op.end_time) {
+        const end = new Date(op.end_time);
+        localEndTime = [
+            String(end.getHours()).padStart(2, '0'),
+            String(end.getMinutes()).padStart(2, '0')
+        ].join(':');
+    }
+
+    setFormData({
+        ...initialFormState, // Mantém a estrutura padrão
+        ...op, // Preenche com dados da operação
+        // Define campos de UI explicitamente
+        date: localDate,
+        start_time_local: localStartTime,
+        end_time_local: localEndTime,
+        // Garante numéricos e arrays
+        latitude: Number(op.latitude),
+        longitude: Number(op.longitude),
+        radius: Number(op.radius) || 500,
+        flight_altitude: Number(op.flight_altitude) || 60,
+        takeoff_points: op.takeoff_points || []
+    });
+    
+    setIsEditing(op.id);
+    setIsCreating(true);
+  };
+
   const handleMapClick = (lat: number, lng: number) => {
       if (!isCreating) return;
       setFormData(prev => ({ ...prev, latitude: lat, longitude: lng }));
@@ -284,6 +329,20 @@ export default function OperationManagement() {
                 finalPayload.end_time = endDate.toISOString();
               }
           }
+      } else {
+          // Se for edição, também precisamos atualizar start_time se a data/hora mudou
+          const combinedDateTime = `${formData.date}T${formData.start_time_local}:00`;
+          const startDate = new Date(combinedDateTime);
+          if (!isNaN(startDate.getTime())) {
+              finalPayload.start_time = startDate.toISOString();
+          }
+          if (formData.end_time_local) {
+              const endDateTime = `${formData.date}T${formData.end_time_local}:00`;
+              const endDate = new Date(endDateTime);
+              if (!isNaN(endDate.getTime())) {
+                finalPayload.end_time = endDate.toISOString();
+              }
+          }
       }
       
       // 3. Conversão Numérica (Fix para erro de salvamento/banco)
@@ -309,9 +368,11 @@ export default function OperationManagement() {
       // 5. Persistência de Dados
       let operationId: string;
       if (isEditing) {
+          // GARANTIA: Se estiver editando, jamais deve criar. Apenas atualiza pelo ID.
           await base44.entities.Operation.update(isEditing, finalPayload);
           operationId = isEditing;
       } else {
+          // Apenas cria se NÃO estiver editando
           const createdOp = await base44.entities.Operation.create(finalPayload);
           operationId = createdOp.id;
           
@@ -322,7 +383,7 @@ export default function OperationManagement() {
       }
 
       // FIX: Sincronização com Estatísticas da Operação Verão
-      // Agora chamamos a sincronização mesmo na edição para atualizar dados
+      // Implementa lógica "UPSERT" para evitar duplicação do registro de verão
       if (finalPayload.is_summer_op) {
           try {
               // Constrói nome do local explicitamente se disponível, senão usa o nome da operação
@@ -331,8 +392,7 @@ export default function OperationManagement() {
                   summerLoc = `${formData.summer_city} - ${formData.summer_pgv}`;
               }
 
-              await operationSummerService.create({
-                  operation_id: operationId,
+              const summerPayload = {
                   pilot_id: finalPayload.pilot_id,
                   drone_id: finalPayload.drone_id,
                   mission_type: finalPayload.mission_type,
@@ -344,7 +404,26 @@ export default function OperationManagement() {
                   notes: finalPayload.description,
                   evidence_photos: [],
                   evidence_videos: []
-              }, currentUser?.id || 'system');
+              };
+
+              // Verifica se já existe um registro de verão para esta operação
+              const { data: existingSummer } = await supabase
+                  .from('op_summer_flights')
+                  .select('id')
+                  .eq('operation_id', operationId)
+                  .maybeSingle();
+
+              if (existingSummer) {
+                  // ATUALIZA O EXISTENTE
+                  await operationSummerService.update(existingSummer.id, summerPayload, currentUser?.id || 'system');
+              } else {
+                  // CRIA NOVO APENAS SE NÃO EXISTIR
+                  await operationSummerService.create({
+                      ...summerPayload,
+                      operation_id: operationId
+                  }, currentUser?.id || 'system');
+              }
+
           } catch (summerErr) {
               console.error("Erro silencioso ao sincronizar estatísticas de Verão:", summerErr);
               // Não bloqueia o fluxo, pois a operação principal já foi salva
@@ -354,7 +433,7 @@ export default function OperationManagement() {
       setIsCreating(false); 
       setIsEditing(null); 
       loadData();
-      alert("Missão RPA lançada com sucesso!");
+      alert("Missão RPA salva com sucesso!");
     } catch (e: any) { 
         console.error("Erro técnico no salvamento:", e);
         const errorMsg = e.message || "Erro inesperado ao salvar missão.";
@@ -490,7 +569,7 @@ export default function OperationManagement() {
       <div className="flex-1 w-full relative z-0 order-1 lg:order-1 border-b lg:border-r border-slate-200 min-h-0">
         <MapContainer center={[-25.2521, -52.0215]} zoom={8} style={{ height: '100%', width: '100%' }}>
           <MapController isPanelCollapsed={isPanelCollapsed} />
-          {isCreating && (
+          {isCreating && !isEditing && (
             <InitialUserLocator 
                 isCreating={isCreating} 
                 onFound={(lat, lng) => setFormData(prev => ({...prev, latitude: lat, longitude: lng}))} 
@@ -762,7 +841,7 @@ export default function OperationManagement() {
                             <Input 
                                 value={formData.stream_url} 
                                 onChange={e => setFormData({...formData, stream_url: e.target.value})} 
-                                placeholder="Link RTMP / YouTube / DroneDeploy (Opcional)" 
+                                placeholder="Link YouTube (Opcional)" 
                                 className="bg-white h-12"
                             />
                         </section>
@@ -782,7 +861,7 @@ export default function OperationManagement() {
                                     labelClassName="text-[10px] font-black text-slate-400 uppercase"
                                     value={formData.sarpas_protocol} 
                                     onChange={e => setFormData({...formData, sarpas_protocol: e.target.value})} 
-                                    placeholder="Ex: BR-2024-..." 
+                                    placeholder="Ex: XXXXXX" 
                                 />
                             </div>
                         </section>
@@ -888,7 +967,7 @@ export default function OperationManagement() {
                                                 >
                                                     {op.is_paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
                                                 </button>
-                                                <button onClick={() => { setFormData({...op} as any); setIsEditing(op.id); setIsCreating(true); }} className="p-2.5 rounded-lg border bg-slate-50 text-slate-500 hover:bg-slate-100 transition-colors"><Pencil className="w-4 h-4" /></button>
+                                                <button onClick={() => handleEditMission(op)} className="p-2.5 rounded-lg border bg-slate-50 text-slate-500 hover:bg-slate-100 transition-colors"><Pencil className="w-4 h-4" /></button>
                                                 {op.is_multi_day && <button onClick={() => setViewingLogOp(op)} className="flex-1 flex items-center justify-center gap-2 p-2.5 rounded-lg border bg-blue-600 text-white hover:bg-blue-700 transition-colors text-[10px] font-black uppercase"><FileText className="w-4 h-4"/> Diário Bordo <ChevronRight className="w-3 h-3"/></button>}
                                             </div>
                                             <div className="flex gap-2">
