@@ -7,6 +7,7 @@ import { Operation, Drone, Pilot, MISSION_HIERARCHY, MISSION_COLORS, MISSION_LAB
 import { Badge, Button, Card } from "../components/ui_components";
 import { Radio, Video, AlertTriangle, Map as MapIcon, Wrench, List, Shield, Check, Info, Share2, User, Plane, Building2, UserCheck, Navigation, Clock, History } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { OperationalInfoTicker } from "../components/OperationalInfoTicker";
 
 // Fix Leaflet icons
 const icon = L.icon({
@@ -84,6 +85,10 @@ export default function Dashboard() {
   const [pendingPilotsCount, setPendingPilotsCount] = useState(0);
   const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   
+  // New States for Ticker
+  const [totalOpsCount, setTotalOpsCount] = useState(0);
+  const [totalFlightHours, setTotalFlightHours] = useState(0);
+  
   const isMounted = useRef(true);
 
   const loadData = useCallback(async () => {
@@ -101,6 +106,9 @@ export default function Dashboard() {
       const active = ops.filter(o => o.status === 'active');
       const pendingCount = pils.filter(p => p.status === 'pending').length;
       
+      // Calculate Total Flight Hours from Drones
+      const totalHours = drn.reduce((acc, d) => acc + (d.total_flight_hours || 0), 0);
+
       setCurrentUser(me);
       setActiveOps(active);
       setRecentOps(ops.filter(o => o.status !== 'active').slice(0, 5)); // Apenas histórico no recent
@@ -109,6 +117,10 @@ export default function Dashboard() {
       setDrones(drn);
       setPilots(pils);
       setPendingPilotsCount(pendingCount);
+      
+      // Update new metrics
+      setTotalOpsCount(ops.length);
+      setTotalFlightHours(totalHours);
 
       if (me) {
           const conflicts = await base44.entities.ConflictNotification.filter({ target_pilot_id: me.id, acknowledged: false });
@@ -223,6 +235,7 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col h-full bg-slate-100 overflow-hidden">
+      {/* Header */}
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm z-10 flex-shrink-0">
         <div>
           <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -236,6 +249,17 @@ export default function Dashboard() {
            </div>
         </div>
       </div>
+
+      {/* NEW: OPERATIONAL TICKER PANEL */}
+      <OperationalInfoTicker 
+        totalOps={totalOpsCount}
+        activeOpsCount={activeOps.length}
+        pilotsCount={pilots.length}
+        dronesCount={drones.length}
+        totalFlightHours={totalFlightHours}
+        activeTransmissions={liveStreams.length}
+        alertsCount={maintenanceAlerts.length + conflictAlerts.length}
+      />
 
       <div className="flex flex-col lg:flex-row flex-1 overflow-hidden relative">
         <div className="w-full lg:flex-1 h-[50vh] lg:h-auto relative border-r border-slate-200 shadow-inner z-0">
