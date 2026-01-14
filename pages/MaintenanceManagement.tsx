@@ -287,7 +287,7 @@ CREATE POLICY "Permitir atualizar manutenções" ON public.maintenances FOR UPDA
                                 const drone = drones.find(d => d.id === m.drone_id);
                                 return (
                                     <option key={m.id} value={m.id}>
-                                        {drone?.prefix} - {new Date(m.maintenance_date).toLocaleDateString() নিয়োগ ({maintenanceTypes[m.maintenance_type]})
+                                        {drone?.prefix} - {new Date(m.maintenance_date).toLocaleDateString()} ({maintenanceTypes[m.maintenance_type]})
                                     </option>
                                 );
                             })}
@@ -411,4 +411,106 @@ CREATE POLICY "Permitir atualizar manutenções" ON public.maintenances FOR UPDA
                           Log de Voo (AirData/KML/KMZ)
                         </label>
                         <div className="flex items-center gap-2">
-                          
+                          <input 
+                            type="file" 
+                            className="text-xs text-red-600 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-red-100 file:text-red-700 hover:file:bg-red-200"
+                            onChange={handleFileChange}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 mb-1 block">Descrição do Problema / Motivo</label>
+                    <textarea 
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm h-24 resize-none bg-white text-slate-900"
+                      placeholder="Detalhe o defeito, horas de voo atuais ou motivo da inspeção..."
+                      required
+                      value={formData.description || ''} 
+                      onChange={e => setFormData({...formData, description: e.target.value})}
+                    />
+                  </div>
+
+                  <Select 
+                    label="Técnico Responsável / Oficina" 
+                    value={formData.technician || ''} 
+                    onChange={e => setFormData({...formData, technician: e.target.value})}
+                  >
+                    <option value="">A definir</option>
+                    <option value="Oficina Interna">Oficina Interna (BM)</option>
+                    <option value="DJI Service">DJI Service (Externo)</option>
+                    <option value="XMobots Support">XMobots Support</option>
+                    <option value="Outra">Outra</option>
+                  </Select>
+
+                  <Button type="submit" disabled={loading} className="w-full shadow-md">
+                    {loading ? 'Processando...' : 'Agendar Manutenção'}
+                  </Button>
+                </form>
+              </Card>
+            </div>
+
+            {/* COLUMN RIGHT: HISTORY */}
+            <div className="lg:col-span-2">
+              <Card className="overflow-hidden shadow-md border border-slate-200 bg-white h-full">
+                <div className="p-4 bg-slate-800 text-white flex justify-between items-center">
+                   <h3 className="font-bold text-sm uppercase tracking-wider flex items-center gap-2">
+                      <Clock className="w-4 h-4"/> Histórico de Intervenções
+                   </h3>
+                   <div className="text-xs text-slate-400">Últimos Registros</div>
+                </div>
+                
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-6 py-3 font-semibold text-slate-600 uppercase text-xs">Data</th>
+                        <th className="px-6 py-3 font-semibold text-slate-600 uppercase text-xs">Aeronave</th>
+                        <th className="px-6 py-3 font-semibold text-slate-600 uppercase text-xs">Tipo</th>
+                        <th className="px-6 py-3 font-semibold text-slate-600 uppercase text-xs">Descrição</th>
+                        <th className="px-6 py-3 font-semibold text-slate-600 uppercase text-xs">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {maintenances.map(m => {
+                        const drone = drones.find(d => d.id === m.drone_id);
+                        return (
+                          <tr key={m.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-6 py-4 whitespace-nowrap text-slate-600">
+                               {new Date(m.maintenance_date).toLocaleDateString()} <span className="text-xs text-slate-400 ml-1">{m.maintenance_time}</span>
+                            </td>
+                            <td className="px-6 py-4 font-medium text-slate-900">
+                               {drone?.prefix || 'N/A'}
+                            </td>
+                            <td className="px-6 py-4">
+                               <Badge variant={m.maintenance_type === 'corrective' ? 'danger' : 'default'} className="text-[10px] uppercase">
+                                  {maintenanceTypes[m.maintenance_type]}
+                               </Badge>
+                            </td>
+                            <td className="px-6 py-4 text-slate-600 max-w-xs truncate" title={m.description}>
+                               {m.description}
+                            </td>
+                            <td className="px-6 py-4">
+                               <Badge variant={m.status === 'completed' ? 'success' : m.status === 'in_progress' ? 'warning' : 'default'} className="uppercase text-[10px]">
+                                  {m.status === 'completed' ? 'Concluída' : m.status === 'in_progress' ? 'Em Andamento' : 'Agendada'}
+                               </Badge>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {maintenances.length === 0 && (
+                        <tr><td colSpan={5} className="p-8 text-center text-slate-400 italic">Nenhum registro de manutenção.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
