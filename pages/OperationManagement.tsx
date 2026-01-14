@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from "react-le
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
 import { operationSummerService } from "../services/operationSummerService";
-import { supabase } from "../services/supabase"; // Import supabase for direct checks
+import { supabase } from "../services/supabase"; 
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, MissionType, ORGANIZATION_CHART, MISSION_COLORS } from "../types";
 import { SUMMER_LOCATIONS } from "../types_summer";
 import { Button, Input, Select, Badge, Card } from "../components/ui_components";
@@ -13,9 +13,10 @@ import {
   Radio, Sun, Calendar, MapPin, Building2, 
   Navigation, Layers, MousePointer2, Users, 
   Pause, Play, XCircle, Trash2, ChevronRight,
-  FileText, Send, Info, Video, Plane, AlertTriangle, Shield, Check, Phone, Globe, Terminal, Hammer, Activity
+  FileText, Send, Info, Video, Plane, AlertTriangle, Shield, Check, Phone, Globe, Terminal, Hammer, Activity, LocateFixed, Target, Loader2
 } from "lucide-react";
 import OperationDailyLog from "../components/OperationDailyLog";
+import { useLocation, useNavigate } from "react-router-dom"; // Added useLocation, useNavigate
 
 import "@geoman-io/leaflet-geoman-free";
 
@@ -132,15 +133,107 @@ const MapController = ({ isPanelCollapsed }: { isPanelCollapsed: boolean }) => {
   return null;
 };
 
+// Componente de Controles do Mapa com Geolocalização Melhorada
+const MapControls = ({ visibleLayers, setVisibleLayers }: { visibleLayers: any, setVisibleLayers: any }) => {
+    const map = useMap();
+    const [isLocating, setIsLocating] = useState(false);
+
+    const handleLocate = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (isLocating) return;
+        
+        setIsLocating(true);
+        
+        const onLocationFound = (e: L.LocationEvent) => {
+            // Animação suave para a posição
+            map.flyTo(e.latlng, 18, { duration: 1.5 });
+            
+            // Círculo de precisão
+            const radius = e.accuracy;
+            const circle = L.circle(e.latlng, {
+                radius: radius,
+                color: '#2563eb',
+                fillColor: '#3b82f6',
+                fillOpacity: 0.15,
+                weight: 1
+            }).addTo(map);
+            
+            // Popup informativo
+            circle.bindPopup(`Você está aqui (Precisão: ${Math.round(radius)}m)`).openPopup();
+            
+            // Remove o círculo após 10 segundos para limpar o mapa
+            setTimeout(() => {
+                map.removeLayer(circle);
+            }, 10000);
+            
+            cleanup();
+        };
+
+        const onLocationError = (e: L.ErrorEvent) => {
+            alert(`Erro ao obter localização: ${e.message}. Verifique se o GPS está ativado e se o navegador tem permissão.`);
+            cleanup();
+        };
+
+        const cleanup = () => {
+            setIsLocating(false);
+            map.off('locationfound', onLocationFound);
+            map.off('locationerror', onLocationError);
+        };
+
+        // Registra listeners
+        map.on('locationfound', onLocationFound);
+        map.on('locationerror', onLocationError);
+
+        // Dispara localização com alta precisão forçada
+        map.locate({ 
+            setView: false, // Controlamos manualmente com flyTo
+            maxZoom: 19, 
+            enableHighAccuracy: true, // Força uso do GPS
+            timeout: 15000,           // Mais tempo para GPS lock
+            maximumAge: 0             // Não aceita cache antigo
+        });
+    };
+
+    return (
+        <div className="leaflet-bottom leaflet-left" style={{ marginBottom: '25px', marginLeft: '15px', pointerEvents: 'auto', zIndex: 1000 }}>
+            <div className="bg-white/95 backdrop-blur-md p-2 rounded-2xl shadow-2xl border border-slate-200 flex flex-col gap-2">
+                <button 
+                    onClick={handleLocate} 
+                    className={`p-2.5 rounded-xl transition-all shadow-sm border ${isLocating ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-blue-50 border-blue-100 text-blue-600 hover:bg-blue-100'}`} 
+                    title="Minha Localização (GPS Alta Precisão)"
+                >
+                    {isLocating ? <Loader2 className="w-5 h-5 animate-spin"/> : <LocateFixed className="w-5 h-5"/>}
+                </button>
+                <div className="w-full h-px bg-slate-200 my-0.5"></div>
+                <button onClick={() => setVisibleLayers((p:any) => ({...p, missions: !p.missions}))} className={`p-2.5 rounded-xl transition-all ${visibleLayers.missions ? 'bg-red-600 text-white scale-110 shadow-lg' : 'bg-slate-100 text-slate-400'}`} title="Missões"><Radio className="w-5 h-5"/></button>
+                <button onClick={() => setVisibleLayers((p:any) => ({...p, fleet: !p.fleet}))} className={`p-2.5 rounded-xl transition-all ${visibleLayers.fleet ? 'bg-orange-600 text-white scale-110 shadow-lg' : 'bg-slate-100 text-slate-400'}`} title="Frota"><Plane className="w-5 h-5"/></button>
+                <button onClick={() => setVisibleLayers((p:any) => ({...p, pilots: !p.pilots}))} className={`p-2.5 rounded-xl transition-all ${visibleLayers.pilots ? 'bg-blue-600 text-white scale-110 shadow-lg' : 'bg-slate-100 text-slate-400'}`} title="Efetivo"><Users className="w-5 h-5"/></button>
+                <button onClick={() => setVisibleLayers((p:any) => ({...p, units: !p.units}))} className={`p-2.5 rounded-xl transition-all ${visibleLayers.units ? 'bg-slate-800 text-white scale-110 shadow-lg' : 'bg-slate-100 text-slate-400'}`} title="Bases"><Shield className="w-5 h-5"/></button>
+            </div>
+        </div>
+    );
+};
+
 // Componente para centralizar no usuário ao iniciar uma nova operação
 const InitialUserLocator = ({ isCreating, onFound }: { isCreating: boolean, onFound: (lat: number, lng: number) => void }) => {
     const map = useMap();
     useEffect(() => {
         if (isCreating) {
-            map.locate().on("locationfound", (e) => {
+            const onFoundHandler = (e: L.LocationEvent) => {
                 onFound(e.latlng.lat, e.latlng.lng);
-                map.flyTo(e.latlng, 16);
+                map.flyTo(e.latlng, 18);
+                map.off("locationfound", onFoundHandler); // run once
+            };
+            
+            map.on("locationfound", onFoundHandler);
+            
+            map.locate({ 
+                enableHighAccuracy: true, 
+                timeout: 10000, 
+                maximumAge: 0 
             });
+
+            return () => { map.off("locationfound", onFoundHandler); };
         }
     }, [isCreating, map]);
     return null;
@@ -172,6 +265,9 @@ const MapEventsHandler = ({ onMapClick }: { onMapClick: (lat: number, lng: numbe
 };
 
 export default function OperationManagement() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  
   const [operations, setOperations] = useState<Operation[]>([]);
   const [pilots, setPilots] = useState<Pilot[]>([]);
   const [drones, setDrones] = useState<Drone[]>([]);
@@ -220,6 +316,13 @@ export default function OperationManagement() {
 
   useEffect(() => { loadData(); const interval = setInterval(loadData, 30000); return () => clearInterval(interval); }, []);
 
+  // Effect to trigger new mission from URL query param
+  useEffect(() => {
+    if (location.search.includes("create=true")) {
+        handleNewMission();
+    }
+  }, [location.search]);
+
   const loadData = async () => {
     try {
       const [ops, pils, drns, me] = await Promise.all([
@@ -240,6 +343,15 @@ export default function OperationManagement() {
     setIsEditing(null);
     setIsCreating(true);
     // Note: InitialUserLocator inside MapContainer handles the actual centering and formData update
+  };
+
+  const handleCloseCreate = () => {
+      setIsCreating(false);
+      setIsEditing(null);
+      // Remove query param if present
+      if (location.search.includes("create=true")) {
+          navigate("/operations", { replace: true });
+      }
   };
 
   const handleEditMission = (op: Operation) => {
@@ -430,8 +542,7 @@ export default function OperationManagement() {
           }
       }
 
-      setIsCreating(false); 
-      setIsEditing(null); 
+      handleCloseCreate();
       loadData();
       alert("Missão RPA salva com sucesso!");
     } catch (e: any) { 
@@ -563,12 +674,13 @@ export default function OperationManagement() {
   const displayedOps = activeTab === 'active' ? operations.filter(o => o.status === 'active') : operations.filter(o => o.status !== 'active');
 
   return (
-    <div className="flex flex-col lg:flex-row h-full w-full relative bg-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col lg:flex-row h-full w-full relative bg-white overflow-hidden font-sans">
       
       {/* MAPA */}
       <div className="flex-1 w-full relative z-0 order-1 lg:order-1 border-b lg:border-r border-slate-200 min-h-0">
         <MapContainer center={[-25.2521, -52.0215]} zoom={8} style={{ height: '100%', width: '100%' }}>
           <MapController isPanelCollapsed={isPanelCollapsed} />
+          <MapControls visibleLayers={visibleLayers} setVisibleLayers={setVisibleLayers} />
           {isCreating && !isEditing && (
             <InitialUserLocator 
                 isCreating={isCreating} 
@@ -721,17 +833,14 @@ export default function OperationManagement() {
                   </React.Fragment>
               );
           })}
-
-          {/* CONTROLES (BOTTOM LEFT) */}
-          <div className="leaflet-bottom leaflet-left" style={{ marginBottom: '25px', marginLeft: '15px', pointerEvents: 'auto' }}>
-              <div className="bg-white/95 backdrop-blur-md p-2 rounded-2xl shadow-2xl border border-slate-200 flex flex-col gap-2">
-                  <button onClick={() => setVisibleLayers(p => ({...p, missions: !p.missions}))} className={`p-2.5 rounded-xl transition-all ${visibleLayers.missions ? 'bg-red-600 text-white scale-110 shadow-lg' : 'bg-slate-100 text-slate-400'}`} title="Missões"><Radio className="w-5 h-5"/></button>
-                  <button onClick={() => setVisibleLayers(p => ({...p, fleet: !p.fleet}))} className={`p-2.5 rounded-xl transition-all ${visibleLayers.fleet ? 'bg-orange-600 text-white scale-110 shadow-lg' : 'bg-slate-100 text-slate-400'}`} title="Frota"><Plane className="w-5 h-5"/></button>
-                  <button onClick={() => setVisibleLayers(p => ({...p, pilots: !p.pilots}))} className={`p-2.5 rounded-xl transition-all ${visibleLayers.pilots ? 'bg-blue-600 text-white scale-110 shadow-lg' : 'bg-slate-100 text-slate-400'}`} title="Efetivo"><Users className="w-5 h-5"/></button>
-                  <button onClick={() => setVisibleLayers(p => ({...p, units: !p.units}))} className={`p-2.5 rounded-xl transition-all ${visibleLayers.units ? 'bg-slate-800 text-white scale-110 shadow-lg' : 'bg-slate-100 text-slate-400'}`} title="Bases"><Shield className="w-5 h-5"/></button>
-              </div>
-          </div>
         </MapContainer>
+        
+        {/* CROSSHAIR VISUAL AID FOR PLOTTING */}
+        {isCreating && (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-[1000] opacity-50">
+               <Target className="w-10 h-10 text-slate-800/50" />
+            </div>
+        )}
         
         <div className="absolute top-4 right-4 z-[1000]">
             <button onClick={() => setIsPanelCollapsed(!isPanelCollapsed)} className="bg-white p-2.5 rounded-lg shadow-xl border text-slate-600 hover:bg-slate-50">
@@ -741,13 +850,13 @@ export default function OperationManagement() {
       </div>
 
       {/* PAINEL LATERAL */}
-      <div className={`bg-white z-10 flex flex-col shadow-2xl overflow-hidden order-2 transition-all duration-300 ${isPanelCollapsed ? 'lg:w-0' : 'lg:w-[38rem]'} w-full ${isPanelCollapsed ? 'h-0' : 'h-[65vh] lg:h-full'}`}>
+      <div className={`bg-white z-10 flex flex-col shadow-2xl overflow-hidden order-2 transition-all duration-300 ${isPanelCollapsed ? 'lg:w-0' : 'lg:w-[38rem]'} w-full ${isPanelCollapsed ? 'h-0' : 'h-[45vh] lg:h-full'}`}>
         <div className="flex-1 flex flex-col h-full overflow-hidden w-full lg:min-w-[38rem]">
             {isCreating ? (
                 <div className="flex-1 flex flex-col h-full overflow-y-auto p-5 bg-slate-50/30">
                     <div className="flex justify-between items-center mb-5 border-b pb-3">
                       <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Radio className="w-5 h-5 text-red-600" />Lançar Operação RPA</h2>
-                      <button onClick={() => { setIsCreating(false); setIsEditing(null); }} className="p-1 hover:bg-slate-200 rounded text-slate-400"><X className="w-5 h-5" /></button>
+                      <button onClick={handleCloseCreate} className="p-1 hover:bg-slate-200 rounded text-slate-400"><X className="w-5 h-5" /></button>
                     </div>
                     
                     <form onSubmit={e => { e.preventDefault(); performSave(); }} className="space-y-6 pb-10">
@@ -907,7 +1016,7 @@ export default function OperationManagement() {
 
                         {/* AÇÕES FINAIS */}
                         <div className="pt-6 border-t flex gap-4">
-                           <Button variant="outline" className="flex-1 h-12 font-bold uppercase text-xs" type="button" onClick={() => setIsCreating(false)}>Cancelar</Button>
+                           <Button variant="outline" className="flex-1 h-12 font-bold uppercase text-xs" type="button" onClick={handleCloseCreate}>Cancelar</Button>
                            <Button type="submit" className="flex-[2] h-12 bg-red-700 text-white font-black shadow-lg uppercase tracking-widest text-xs" disabled={loading}>
                                {loading ? 'Sincronizando...' : (isEditing ? 'ATUALIZAR MISSÃO' : 'INICIAR MISSÃO RPA')}
                            </Button>

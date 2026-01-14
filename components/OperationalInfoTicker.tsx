@@ -31,7 +31,7 @@ interface TickerItem {
   isAlert?: boolean;
 }
 
-const CardItem = ({ item }: { item: TickerItem }) => (
+const CardItem: React.FC<{ item: TickerItem }> = ({ item }) => (
   <div className="flex items-center gap-3 px-6 py-3 mx-2 bg-white border border-slate-200 rounded-xl shadow-sm min-w-[240px] h-[80px] hover:shadow-md transition-shadow">
     <div className={`p-3 rounded-full ${item.bgColor} ${item.color}`}>
       <item.icon className={`w-6 h-6 ${item.animate ? 'animate-pulse' : ''}`} />

@@ -1,8 +1,11 @@
-import React, { useState, useEffect } from "react";
+
+import React, { useState, useEffect, useRef } from "react";
 import { base44 } from "../services/base44Client";
-import { Operation, ARO_SCENARIOS, AroItem, AroAssessment } from "../types";
+import { Operation, ARO_SCENARIOS, AroItem, AroAssessment, Drone, Pilot, DroneDocument, SYSARP_LOGO } from "../types";
 import { Card, Button, Badge, Select, Input } from "../components/ui_components";
-import { CloudRain, Wind, FileText, Globe, ExternalLink, Map, AlertTriangle, Navigation, Thermometer, Eye, CheckCircle, AlertOctagon, Save, Radio } from "lucide-react";
+import { CloudRain, Wind, FileText, Globe, ExternalLink, Map, AlertTriangle, Navigation, Thermometer, Eye, CheckCircle, AlertOctagon, Save, Radio, Plus, X, MapPin, Shield, LocateFixed, Loader2 } from "lucide-react";
+import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from "react-leaflet";
+import L from "leaflet";
 
 const getRiskColor = (code: string) => {
     const red = ["5A", "5B", "5C", "4A", "4B", "3A"];
@@ -39,18 +42,90 @@ const DEFAULT_ITEMS: AroItem[] = ARO_SCENARIOS.map((desc, idx) => {
   };
 });
 
+// Helper para carregar imagem
+const getImageData = (url: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    if (url.startsWith('data:')) { resolve(url); return; }
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      } else {
+        reject(new Error("Canvas context error"));
+      }
+    };
+    img.onerror = () => resolve("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
+    img.src = url;
+  });
+};
+
+// Componente de Mapa para Modal Preventivo
+const PreventiveMapController = ({ center, setCenter }: { center: [number, number], setCenter: (c: [number, number]) => void }) => {
+    const map = useMap();
+    useEffect(() => {
+        setTimeout(() => map.invalidateSize(), 300);
+    }, [map]);
+
+    useEffect(() => {
+        // Fly to center when it changes programmatically (e.g. GPS button)
+        map.flyTo(center, map.getZoom(), { duration: 1.5 });
+    }, [center, map]);
+
+    useEffect(() => {
+        map.on('click', (e) => {
+            setCenter([e.latlng.lat, e.latlng.lng]);
+        });
+        return () => { map.off('click'); };
+    }, [map, setCenter]);
+
+    return null;
+};
+
 export default function Aro() {
   const [activeOps, setActiveOps] = useState<Operation[]>([]);
+  const [drones, setDrones] = useState<Drone[]>([]);
+  const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   const [selectedOpId, setSelectedOpId] = useState<string>("");
   const [items, setItems] = useState<AroItem[]>(DEFAULT_ITEMS);
   const [accepted, setAccepted] = useState(false);
   const [rubric, setRubric] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Estados para ARO Preventiva (Modal)
+  const [isPreventiveModalOpen, setIsPreventiveModalOpen] = useState(false);
+  const [prevForm, setPrevForm] = useState({
+      drone_id: "",
+      validity_date: new Date().toISOString().split('T')[0],
+      radius: 500,
+      center: [-25.4284, -49.2733] as [number, number], // Default Curitiba
+      type: "Treinamento / Manutenção"
+  });
+  const [prevItems, setPrevItems] = useState<AroItem[]>(DEFAULT_ITEMS);
+  const [prevAccepted, setPrevAccepted] = useState(false);
+  const [prevRubric, setPrevRubric] = useState("");
+  const [isLocating, setIsLocating] = useState(false);
+
   useEffect(() => {
-     base44.entities.Operation.filter({ status: 'active' }).then(ops => {
-       setActiveOps(ops);
-     });
+     const loadData = async () => {
+         const [ops, drn, me] = await Promise.all([
+             base44.entities.Operation.filter({ status: 'active' }),
+             base44.entities.Drone.list(),
+             base44.auth.me()
+         ]);
+         setActiveOps(ops);
+         setDrones(drn);
+         setCurrentUser(me);
+         if(me) {
+             setPrevRubric(me.full_name); // Auto-fill rubric for preventive
+         }
+     };
+     loadData();
   }, []);
 
   // Efeito para carregar dados do ARO se a operação já tiver um salvo
@@ -86,6 +161,17 @@ export default function Aro() {
     }
     setItems(newItems);
   };
+
+  const handleUpdatePreventive = (idx: number, field: keyof AroItem, value: any) => {
+    const newItems = [...prevItems];
+    const item = newItems[idx];
+    // @ts-ignore
+    item[field] = value;
+    if (field === 'probability' || field === 'severity') {
+      item.risk_code = `${item.probability}${item.severity}`;
+    }
+    setPrevItems(newItems);
+  };
   
   const handleSaveAro = async () => {
     if (!selectedOpId) {
@@ -119,6 +205,145 @@ export default function Aro() {
     }
   };
 
+  const handleLocateMe = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (!navigator.geolocation) {
+          alert("Geolocalização não suportada pelo seu navegador.");
+          return;
+      }
+
+      setIsLocating(true);
+
+      navigator.geolocation.getCurrentPosition(
+          (pos) => {
+              setPrevForm(prev => ({
+                  ...prev,
+                  center: [pos.coords.latitude, pos.coords.longitude]
+              }));
+              setIsLocating(false);
+          },
+          (err) => {
+              console.error(err);
+              alert(`Erro ao obter localização: ${err.message}. Verifique se o GPS está ativado e permissão concedida.`);
+              setIsLocating(false);
+          },
+          { 
+              enableHighAccuracy: true, 
+              timeout: 20000, 
+              maximumAge: 0 
+          }
+      );
+  };
+
+  const handleSavePreventive = async () => {
+      if (!prevForm.drone_id) { alert("Selecione uma aeronave."); return; }
+      if (!prevAccepted) { alert("Aceite os termos de responsabilidade."); return; }
+      
+      setLoading(true);
+      try {
+          const { default: jsPDF } = await import('jspdf');
+          const { default: autoTable } = await import('jspdf-autotable');
+          
+          const doc = new jsPDF();
+          const logoData = await getImageData(SYSARP_LOGO);
+          const drone = drones.find(d => d.id === prevForm.drone_id);
+          const pageWidth = doc.internal.pageSize.width;
+
+          // Header
+          try { doc.addImage(logoData, "PNG", 14, 10, 20, 20); } catch(e) {}
+          doc.setFontSize(14); doc.setFont("helvetica", "bold");
+          doc.text("AVALIAÇÃO DE RISCO OPERACIONAL - PREVENTIVA", pageWidth/2, 20, { align: "center" });
+          doc.setFontSize(10);
+          doc.text("CORPO DE BOMBEIROS MILITAR DO PARANÁ", pageWidth/2, 26, { align: "center" });
+
+          // Info
+          doc.setFontSize(10);
+          doc.setFont("helvetica", "bold");
+          doc.text("DADOS GERAIS", 14, 40);
+          
+          autoTable(doc, {
+              startY: 42,
+              body: [
+                  ['Tipo de ARO', prevForm.type],
+                  ['Validade', new Date(prevForm.validity_date).toLocaleDateString()],
+                  ['Aeronave', `${drone?.prefix} - ${drone?.model}`],
+                  ['Piloto Resp.', prevRubric],
+                  ['Coordenadas', `${prevForm.center[0].toFixed(5)}, ${prevForm.center[1].toFixed(5)}`],
+                  ['Raio de Operação', `${prevForm.radius} metros`]
+              ],
+              theme: 'grid',
+              styles: { fontSize: 9 },
+              columnStyles: { 0: { fontStyle: 'bold', cellWidth: 40 } }
+          });
+
+          // Matrix
+          let startY = (doc as any).lastAutoTable.finalY + 10;
+          doc.text("MATRIZ DE RISCO", 14, startY);
+          
+          const tableData = prevItems.map(item => [
+              item.description,
+              `${item.probability} (${['Muito Imp.', 'Improvável', 'Remoto', 'Ocasional', 'Frequente'][item.probability-1]})`,
+              `${item.severity} (${['Catastrófico', 'Crítico', 'Significativo', 'Pequeno', 'Insignificante'][['A','B','C','D','E'].indexOf(item.severity)]})`,
+              item.risk_code,
+              item.mitigation || '-',
+              item.authorization_level || '-'
+          ]);
+
+          autoTable(doc, {
+              startY: startY + 2,
+              head: [['Cenário', 'Prob.', 'Sev.', 'Risco', 'Mitigação', 'Auth']],
+              body: tableData,
+              theme: 'grid',
+              headStyles: { fillColor: [41, 51, 61], fontSize: 8 },
+              styles: { fontSize: 7, cellPadding: 2 }
+          });
+
+          // Signature
+          startY = (doc as any).lastAutoTable.finalY + 20;
+          doc.setFont("helvetica", "normal");
+          doc.text("Declaro estar ciente dos riscos e das medidas mitigadoras necessárias.", 14, startY);
+          doc.text(`Assinado digitalmente por: ${prevRubric}`, 14, startY + 10);
+          doc.text(`Gerado em: ${new Date().toLocaleString()}`, 14, startY + 16);
+
+          // Convert PDF to Blob and Upload
+          const pdfBlob = doc.output('blob');
+          const pdfFile = new File([pdfBlob], `ARO_PREV_${drone?.prefix.replace(/\s/g,'_')}_${Date.now()}.pdf`, { type: 'application/pdf' });
+          
+          const { url } = await base44.integrations.Core.UploadFile({ file: pdfFile });
+          
+          // Update Drone Documents
+          const currentDocs = drone?.documents || {};
+          // Ensure array
+          const existingAros = Array.isArray(currentDocs.aro) ? currentDocs.aro : [];
+          
+          const newDoc: DroneDocument = {
+              name: `ARO PREV - ${prevForm.type} - ${new Date().toLocaleDateString()}`,
+              url: url,
+              uploaded_at: new Date().toISOString()
+          };
+
+          await base44.entities.Drone.update(drone!.id, {
+              documents: {
+                  ...currentDocs,
+                  aro: [...existingAros, newDoc]
+              }
+          });
+
+          alert("A.R.O. Preventiva salva e vinculada à pasta digital da aeronave com sucesso!");
+          setIsPreventiveModalOpen(false);
+          // Reset form basics but keep sensible defaults
+          setPrevForm(p => ({...p, type: "Treinamento / Manutenção"}));
+
+      } catch (e) {
+          console.error(e);
+          alert("Erro ao salvar ARO preventiva.");
+      } finally {
+          setLoading(false);
+      }
+  };
+
 
   return (
     <div className="p-4 md:p-6 max-w-[1600px] mx-auto space-y-6 h-full overflow-y-auto pb-20">
@@ -140,11 +365,18 @@ export default function Aro() {
           {/* Main Form */}
           <div className="lg:col-span-9 space-y-6">
              <Card className="p-4 bg-blue-50 border-blue-200">
-                <label className="font-bold text-blue-900 block mb-2">Vincular A.R.O. à Operação Ativa</label>
-                <Select value={selectedOpId} onChange={e => setSelectedOpId(e.target.value)} className="bg-white">
-                   <option value="">Selecione uma operação...</option>
-                   {activeOps.map(op => <option key={op.id} value={op.id}>{op.name} (#{op.occurrence_number}) {op.aro ? '✅ (Já possui ARO)' : ''}</option>)}
-                </Select>
+                <div className="flex flex-col md:flex-row justify-between items-end gap-4">
+                    <div className="flex-1 w-full">
+                        <label className="font-bold text-blue-900 block mb-2">Vincular A.R.O. à Operação Ativa</label>
+                        <Select value={selectedOpId} onChange={e => setSelectedOpId(e.target.value)} className="bg-white">
+                           <option value="">Selecione uma operação...</option>
+                           {activeOps.map(op => <option key={op.id} value={op.id}>{op.name} (#{op.occurrence_number}) {op.aro ? '✅ (Já possui ARO)' : ''}</option>)}
+                        </Select>
+                    </div>
+                    <Button onClick={() => setIsPreventiveModalOpen(true)} className="bg-green-600 hover:bg-green-700 text-white whitespace-nowrap h-11">
+                        <Plus className="w-4 h-4 mr-2" /> Nova A.R.O. Preventiva
+                    </Button>
+                </div>
              </Card>
 
              <Card className="p-4 overflow-x-auto">
@@ -276,6 +508,128 @@ export default function Aro() {
              </Card>
           </div>
        </div>
+
+       {/* MODAL DE ARO PREVENTIVA */}
+       {isPreventiveModalOpen && (
+           <div className="fixed inset-0 bg-black/80 z-[5000] flex items-center justify-center p-4">
+               <Card className="w-full max-w-4xl h-[90vh] bg-white flex flex-col overflow-hidden animate-fade-in shadow-2xl">
+                   <div className="bg-slate-900 text-white p-4 flex justify-between items-center shrink-0">
+                       <h2 className="text-lg font-bold flex items-center gap-2">
+                           <Shield className="w-5 h-5 text-green-400" />
+                           Nova A.R.O. Preventiva
+                       </h2>
+                       <button onClick={() => setIsPreventiveModalOpen(false)} className="hover:bg-white/10 p-2 rounded transition-colors"><X className="w-5 h-5"/></button>
+                   </div>
+                   
+                   <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
+                       
+                       {/* SEÇÃO 1: DADOS BÁSICOS */}
+                       <Card className="p-4 border border-slate-200">
+                           <h3 className="text-sm font-bold text-slate-700 uppercase mb-3 border-b pb-1">Configuração da Missão</h3>
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                               <Select label="Aeronave" required value={prevForm.drone_id} onChange={e => setPrevForm({...prevForm, drone_id: e.target.value})}>
+                                   <option value="">Selecione a aeronave...</option>
+                                   {drones.map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
+                               </Select>
+                               <Input label="Tipo de Atividade" value={prevForm.type} onChange={e => setPrevForm({...prevForm, type: e.target.value})} placeholder="Ex: Treinamento / Vistoria" />
+                               <Input label="Data de Validade" type="date" value={prevForm.validity_date} onChange={e => setPrevForm({...prevForm, validity_date: e.target.value})} />
+                               <Input label="Piloto Responsável" value={prevRubric} onChange={e => setPrevRubric(e.target.value)} disabled />
+                           </div>
+                       </Card>
+
+                       {/* SEÇÃO 2: MAPA */}
+                       <Card className="p-0 border border-slate-200 overflow-hidden h-[400px] relative flex flex-col">
+                           <div className="absolute top-2 left-14 right-2 z-[1000] bg-white/90 backdrop-blur p-2 rounded shadow flex gap-4 items-center">
+                               <span className="text-xs font-bold text-slate-700"><MapPin className="w-3 h-3 inline mr-1"/>Definir Área</span>
+                               
+                               <button 
+                                   onClick={handleLocateMe}
+                                   className="bg-blue-600 hover:bg-blue-700 text-white p-1.5 rounded shadow-sm transition-colors"
+                                   title="Usar minha localização atual"
+                               >
+                                   {isLocating ? <Loader2 className="w-4 h-4 animate-spin"/> : <LocateFixed className="w-4 h-4"/>}
+                               </button>
+
+                               <div className="flex items-center gap-2 flex-1">
+                                   <span className="text-xs">Raio: {prevForm.radius}m</span>
+                                   <input 
+                                     type="range" 
+                                     min="50" 
+                                     max="2000" 
+                                     step="50" 
+                                     value={prevForm.radius} 
+                                     onChange={e => setPrevForm({...prevForm, radius: Number(e.target.value)})} 
+                                     className="w-full accent-blue-600"
+                                   />
+                               </div>
+                               <div className="text-[10px] text-slate-500 font-mono hidden md:block">
+                                   Lat: {prevForm.center[0].toFixed(4)}, Lng: {prevForm.center[1].toFixed(4)}
+                               </div>
+                           </div>
+                           <MapContainer center={prevForm.center} zoom={13} style={{ height: '100%', width: '100%' }}>
+                               <PreventiveMapController center={prevForm.center} setCenter={(c) => setPrevForm({...prevForm, center: c})} />
+                               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                               <Marker position={prevForm.center} />
+                               <Circle center={prevForm.center} radius={prevForm.radius} pathOptions={{ color: 'blue', fillColor: 'blue', fillOpacity: 0.2 }} />
+                           </MapContainer>
+                       </Card>
+
+                       {/* SEÇÃO 3: MATRIZ DE RISCO */}
+                       <Card className="p-4 border border-slate-200">
+                           <h3 className="text-sm font-bold text-slate-700 uppercase mb-3 border-b pb-1">Análise de Risco</h3>
+                           <div className="space-y-4">
+                               {prevItems.map((item, idx) => (
+                                   <div key={idx} className={`p-3 rounded border ${item.scenario_id === 8 ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'}`}>
+                                       <div className="flex justify-between mb-2">
+                                           <span className="font-bold text-xs text-slate-800">{item.description}</span>
+                                           <Badge className={getRiskColor(item.risk_code)}>{item.risk_code}</Badge>
+                                       </div>
+                                       <div className="grid grid-cols-1 md:grid-cols-12 gap-2 text-xs">
+                                           <div className="md:col-span-2">
+                                               <label className="block text-slate-500 mb-1">Probabilidade</label>
+                                               <select className="w-full p-1 border rounded bg-white text-slate-900" value={item.probability} disabled={item.scenario_id === 8} onChange={e => handleUpdatePreventive(idx, 'probability', Number(e.target.value))}>
+                                                   {[5,4,3,2,1].map(v => <option key={v} value={v}>{v}</option>)}
+                                               </select>
+                                           </div>
+                                           <div className="md:col-span-2">
+                                               <label className="block text-slate-500 mb-1">Severidade</label>
+                                               <select className="w-full p-1 border rounded bg-white text-slate-900" value={item.severity} disabled={item.scenario_id === 8} onChange={e => handleUpdatePreventive(idx, 'severity', e.target.value)}>
+                                                   {['A','B','C','D','E'].map(v => <option key={v} value={v}>{v}</option>)}
+                                               </select>
+                                           </div>
+                                           <div className="md:col-span-4">
+                                               <label className="block text-slate-500 mb-1">Mitigação</label>
+                                               <input className="w-full p-1 border rounded bg-white text-slate-900" value={item.mitigation} disabled={item.scenario_id === 8} onChange={e => handleUpdatePreventive(idx, 'mitigation', e.target.value)} placeholder="Ações..." />
+                                           </div>
+                                           <div className="md:col-span-4">
+                                               <label className="block text-slate-500 mb-1">Autorização</label>
+                                               <input className="w-full p-1 border rounded bg-white text-slate-900" value={item.authorization_level || ''} onChange={e => handleUpdatePreventive(idx, 'authorization_level', e.target.value)} placeholder="Nível req." />
+                                           </div>
+                                       </div>
+                                   </div>
+                               ))}
+                           </div>
+                       </Card>
+
+                       {/* FOOTER */}
+                       <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-900">
+                           <label className="flex items-center gap-2 cursor-pointer font-bold">
+                               <input type="checkbox" className="w-4 h-4 accent-green-600" checked={prevAccepted} onChange={e => setPrevAccepted(e.target.checked)} />
+                               Declaro ciência das normas e responsabilidade sobre a operação.
+                           </label>
+                       </div>
+
+                   </div>
+
+                   <div className="p-4 border-t border-slate-200 bg-white flex justify-end gap-3 shrink-0">
+                       <Button variant="outline" onClick={() => setIsPreventiveModalOpen(false)}>Cancelar</Button>
+                       <Button onClick={handleSavePreventive} disabled={loading || !prevAccepted} className="bg-green-600 hover:bg-green-700 text-white shadow-lg">
+                           {loading ? 'Salvando...' : 'Gerar e Salvar na Frota'}
+                       </Button>
+                   </div>
+               </Card>
+           </div>
+       )}
     </div>
   );
 }

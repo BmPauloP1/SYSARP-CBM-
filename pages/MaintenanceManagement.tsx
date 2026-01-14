@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import { base44 } from "../services/base44Client";
 import { Maintenance, Drone, Pilot, MaintenanceType } from "../types";
@@ -215,7 +216,7 @@ CREATE POLICY "Permitir atualizar manutenções" ON public.maintenances FOR UPDA
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 overflow-hidden relative">
+    <div className="flex flex-col h-full bg-white overflow-hidden relative">
       
       {/* SQL FIX MODAL (Only for Admins) */}
       {sqlError && currentUser?.role === 'admin' && (
@@ -286,7 +287,7 @@ CREATE POLICY "Permitir atualizar manutenções" ON public.maintenances FOR UPDA
                                 const drone = drones.find(d => d.id === m.drone_id);
                                 return (
                                     <option key={m.id} value={m.id}>
-                                        {drone?.prefix} - {new Date(m.maintenance_date).toLocaleDateString()} ({maintenanceTypes[m.maintenance_type]})
+                                        {drone?.prefix} - {new Date(m.maintenance_date).toLocaleDateString() নিয়োগ ({maintenanceTypes[m.maintenance_type]})
                                     </option>
                                 );
                             })}
@@ -410,141 +411,4 @@ CREATE POLICY "Permitir atualizar manutenções" ON public.maintenances FOR UPDA
                           Log de Voo (AirData/KML/KMZ)
                         </label>
                         <div className="flex items-center gap-2">
-                          <label className="flex-1 cursor-pointer bg-white border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm flex items-center justify-center hover:bg-red-50 transition-colors shadow-sm">
-                            <Upload className="w-4 h-4 mr-2" />
-                            <span className="truncate">{logFile ? logFile.name : "Anexar Arquivo"}</span>
-                            <input type="file" className="hidden" accept=".kml,.kmz,.csv,.txt" onChange={handleFileChange} />
-                          </label>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <Select 
-                    label="Piloto Responsável" 
-                    required={formData.in_flight_incident} // Obrigatório se foi incidente
-                    value={formData.pilot_id || ''} 
-                    onChange={e => setFormData({...formData, pilot_id: e.target.value})}
-                  >
-                    <option value="">Selecione o piloto...</option>
-                    {pilots.map(p => (
-                      <option key={p.id} value={p.id}>{p.full_name} ({p.role})</option>
-                    ))}
-                  </Select>
-
-                  <Input 
-                    label="Técnico / Oficina (Destino)" 
-                    placeholder="Para quem enviar?"
-                    required
-                    value={formData.technician || ''} 
-                    onChange={e => setFormData({...formData, technician: e.target.value})}
-                  />
-
-                  <div>
-                    <label className="text-sm font-medium text-slate-700 mb-1 block">Motivo / Problema</label>
-                    <textarea 
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm h-20 resize-none bg-white text-slate-900"
-                      placeholder="Descreva o problema..."
-                      required
-                      value={formData.description || ''} 
-                      onChange={e => setFormData({...formData, description: e.target.value})}
-                    />
-                  </div>
-
-                  <Button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white shadow-md">
-                    {loading ? 'Salvando...' : 'Abrir Chamado'}
-                  </Button>
-                </form>
-              </Card>
-            </div>
-
-            {/* LISTA HISTÓRICO (Right Column on Desktop, Bottom on Mobile) */}
-            <div className="lg:col-span-2 space-y-4">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                 <Clock className="w-5 h-5 text-slate-500"/> Histórico de Eventos
-              </h2>
-              
-              {maintenances.length === 0 ? (
-                <div className="p-8 md:p-12 text-center text-slate-400 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50">
-                  <CheckCircle className="w-12 h-12 mx-auto mb-2 opacity-20" />
-                  <p className="text-sm">Nenhum registro de manutenção encontrado.</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {maintenances.map(maint => {
-                    const drone = drones.find(d => d.id === maint.drone_id);
-                    const pilot = pilots.find(p => p.id === maint.pilot_id);
-                    const isCompleted = maint.status === 'completed';
-
-                    return (
-                      <Card key={maint.id} className={`p-4 border-l-4 hover:shadow-md transition-shadow ${isCompleted ? 'border-l-green-500 opacity-90' : 'border-l-amber-500 bg-amber-50/30'}`}>
-                        <div className="flex flex-col sm:flex-row justify-between items-start mb-2 gap-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {isCompleted ? (
-                                <Badge variant="success" className="flex items-center gap-1">
-                                    <CheckCircle className="w-3 h-3" /> Concluída
-                                </Badge>
-                            ) : (
-                                <Badge variant="warning" className="flex items-center gap-1 animate-pulse">
-                                    <Clock className="w-3 h-3" /> Pendente
-                                </Badge>
-                            )}
-                            <Badge variant="default" className="border border-slate-200">
-                              {maintenanceTypes[maint.maintenance_type]}
-                            </Badge>
-                            <span className="text-xs text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded">
-                              <Calendar className="w-3 h-3" /> {new Date(maint.maintenance_date).toLocaleDateString()}
-                              <span className="mx-1">•</span>
-                              <Clock className="w-3 h-3" /> {maint.maintenance_time}
-                            </span>
-                          </div>
-                          {maint.in_flight_incident && (
-                            <Badge variant="danger" className="flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" /> Incidente em Voo
-                            </Badge>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3 mt-3">
-                          <div>
-                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Aeronave</p>
-                            <p className="font-bold text-slate-900 text-sm truncate">{drone ? `${drone.prefix} - ${drone.model}` : 'Drone Removido'}</p>
-                          </div>
-                          <div>
-                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Técnico / Responsável</p>
-                            <p className="text-slate-900 text-sm truncate">{maint.technician}</p>
-                          </div>
-                          {pilot && (
-                            <div className="sm:col-span-2">
-                               <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Piloto Solicitante / Relator</p>
-                               <p className="text-slate-900 text-sm">{pilot.full_name}</p>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="bg-slate-50 p-3 rounded-lg text-sm text-slate-700 mb-3 border border-slate-100 relative">
-                          <p className="font-bold text-[10px] text-slate-500 mb-1 uppercase">Histórico / Descrição</p>
-                          <p className="whitespace-pre-wrap">{maint.description}</p>
-                        </div>
-
-                        {maint.log_file_url && (
-                          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100">
-                            <FileText className="w-4 h-4 text-blue-600" />
-                            <span className="text-xs font-bold text-blue-700 uppercase">Log de Voo:</span>
-                            <a href={maint.log_file_url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline font-medium break-all">
-                              Baixar Telemetria (KMZ/KML)
-                            </a>
-                          </div>
-                        )}
-                      </Card>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+                          

@@ -234,7 +234,7 @@ export default function Dashboard() {
   }, [activeOps, pilots, drones]);
 
   return (
-    <div className="flex flex-col h-full bg-slate-100 overflow-hidden">
+    <div className="flex flex-col h-full bg-white lg:overflow-hidden overflow-y-auto">
       {/* Header */}
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm z-10 flex-shrink-0">
         <div>
@@ -250,7 +250,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* NEW: OPERATIONAL TICKER PANEL */}
+      {/* OPERATIONAL TICKER PANEL */}
       <OperationalInfoTicker 
         totalOps={totalOpsCount}
         activeOpsCount={activeOps.length}
@@ -261,8 +261,8 @@ export default function Dashboard() {
         alertsCount={maintenanceAlerts.length + conflictAlerts.length}
       />
 
-      <div className="flex flex-col lg:flex-row flex-1 overflow-hidden relative">
-        <div className="w-full lg:flex-1 h-[50vh] lg:h-auto relative border-r border-slate-200 shadow-inner z-0">
+      <div className="flex flex-col lg:flex-row flex-1 lg:overflow-hidden relative min-h-0">
+        <div className="w-full lg:flex-1 h-[65vh] lg:h-full relative border-r border-slate-200 shadow-inner z-0 flex-shrink-0">
            <MapContainer center={[-25.2521, -52.0215]} zoom={7} style={{ height: '100%', width: '100%' }}>
               <MapController activeOps={activeOps} />
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -270,13 +270,13 @@ export default function Dashboard() {
            </MapContainer>
         </div>
 
-        <div className="w-full lg:w-96 h-[50vh] lg:h-auto bg-slate-100 flex flex-col overflow-hidden border-t lg:border-t-0 lg:border-l border-slate-200 z-10 flex-shrink-0">
+        <div className="w-full lg:w-96 h-auto lg:h-full bg-white flex flex-col lg:overflow-hidden border-t lg:border-t-0 lg:border-l border-slate-200 z-10 flex-shrink-0 shadow-xl lg:shadow-none">
           <div className="p-4 bg-white border-b border-slate-200 font-bold text-slate-800 flex items-center gap-2 shadow-sm flex-shrink-0">
             <Shield className="w-5 h-5 text-red-700" />
             Painel de Controle
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 lg:overflow-y-auto p-4 space-y-4">
             
             {/* ALERTA ADMIN DE CADASTROS */}
             {currentUser?.role === 'admin' && pendingPilotsCount > 0 && (

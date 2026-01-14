@@ -17,7 +17,9 @@ import {
   ChevronRight,
   BarChart3,
   Map as MapIcon,
-  Database
+  Database,
+  Home,
+  PlusCircle
 } from 'lucide-react';
 import { base44 } from '../services/base44Client';
 import { Pilot, SYSARP_LOGO } from '../types';
@@ -129,12 +131,22 @@ export default function Layout({ children }: LayoutProps) {
     },
   ];
 
+  // Helper para renderizar item da Bottom Bar
+  const BottomNavItem = ({ to, icon: Icon, label, isActive }: { to: string, icon: any, label: string, isActive: boolean }) => (
+    <Link to={to} className={`flex flex-col items-center justify-center w-full h-full gap-1 ${isActive ? 'text-red-600' : 'text-slate-400 hover:text-slate-600'}`}>
+        <Icon className={`w-6 h-6 ${isActive ? 'fill-red-100' : ''}`} />
+        <span className="text-[9px] font-bold uppercase tracking-wide">{label}</span>
+    </Link>
+  );
+
   if (!user) return null;
 
   return (
-    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans">
+    <div className="flex h-screen bg-white overflow-hidden font-sans">
+      {/* Overlay para fechar sidebar no mobile */}
       {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
+      {/* SIDEBAR (Desktop: Visible | Mobile: Hidden by default, toggled via menu) */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-[#7f1d1d] text-white transform transition-transform duration-300 lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} shadow-2xl border-r border-red-900/30 flex flex-col`}>
         
         {/* HEADER SIDEBAR */}
@@ -146,7 +158,7 @@ export default function Layout({ children }: LayoutProps) {
                 <h1 className="text-2xl font-black tracking-wider leading-none truncate font-mono">SYSARP</h1>
                 <p className="text-[10px] text-red-200 font-bold tracking-widest mt-1 opacity-80 uppercase">CBMPR</p>
             </div>
-            <button className="lg:hidden ml-auto" onClick={() => setIsSidebarOpen(false)}><X className="w-6 h-6" /></button>
+            <button className="lg:hidden ml-auto p-2 hover:bg-white/10 rounded-lg" onClick={() => setIsSidebarOpen(false)}><X className="w-6 h-6" /></button>
         </div>
 
         {/* NAVIGATION SCROLL */}
@@ -154,7 +166,6 @@ export default function Layout({ children }: LayoutProps) {
             {navigationItems.map((item, idx) => {
               if (item.adminOnly && user.role !== 'admin') return null;
               
-              // Verifica se algum subitem está ativo para marcar o pai
               const isParentActive = item.subItems?.some(sub => sub.url === location.pathname);
               const isDirectActive = item.url === location.pathname;
               const isExpanded = expandedMenus[item.title] || isParentActive;
@@ -162,7 +173,6 @@ export default function Layout({ children }: LayoutProps) {
               return (
                 <div key={idx} className="space-y-1">
                   {item.subItems ? (
-                    // --- MENU COM SUBITENS (COLLAPSIBLE) ---
                     <>
                       <button
                         onClick={() => toggleMenu(item.title)}
@@ -177,13 +187,11 @@ export default function Layout({ children }: LayoutProps) {
                         {isExpanded ? <ChevronDown className="w-4 h-4 opacity-70" /> : <ChevronRight className="w-4 h-4 opacity-50" />}
                       </button>
 
-                      {/* SUBITENS RENDER */}
                       <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
                         <div className="mt-1 space-y-1 bg-black/10 rounded-lg p-1 mx-2">
                           {item.subItems.map((sub, sIdx) => {
                             if (sub.adminOnly && user.role !== 'admin') return null;
                             const isSubActive = sub.url === location.pathname;
-                            
                             return (
                               <Link 
                                 key={sIdx} 
@@ -204,7 +212,6 @@ export default function Layout({ children }: LayoutProps) {
                       </div>
                     </>
                   ) : (
-                    // --- MENU DIRETO (SEM SUBITENS) ---
                     <Link
                       to={item.url || '#'}
                       className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group ${
@@ -249,14 +256,36 @@ export default function Layout({ children }: LayoutProps) {
       </aside>
 
       <main className="flex-1 flex flex-col overflow-hidden relative">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center px-6 lg:hidden shrink-0 z-30 shadow-sm">
-          <button onClick={() => setIsSidebarOpen(true)}><Menu className="w-6 h-6 text-slate-600" /></button>
-          <div className="flex items-center gap-2 ml-4">
+        {/* Header Mobile - Apenas Logo */}
+        <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-center px-4 lg:hidden shrink-0 z-30 shadow-sm relative">
+          <div className="flex items-center gap-2">
              {logoError ? <Shield className="w-5 h-5 text-[#7f1d1d]" /> : <img src={SYSARP_LOGO} className="w-6 h-6" alt="Mini Logo" onError={() => setLogoError(true)} />}
              <h2 className="font-black text-[#7f1d1d] tracking-widest text-lg">SYSARP</h2>
           </div>
         </header>
-        <div className="flex-1 overflow-hidden relative">{children}</div>
+
+        {/* Conteúdo Principal com Padding para Bottom Bar no Mobile */}
+        <div className="flex-1 overflow-hidden relative pb-20 lg:pb-0">
+            {children}
+        </div>
+
+        {/* BOTTOM NAVIGATION BAR (Mobile Only) */}
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 flex justify-around items-center h-16 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] px-1">
+            <BottomNavItem to="/" icon={Home} label="Início" isActive={location.pathname === '/'} />
+            <BottomNavItem to="/operations" icon={Radio} label="Ops" isActive={location.pathname === '/operations' && !location.search.includes('create=true')} />
+            
+            {/* Botão NOVA OPERAÇÃO (Destaque Central) */}
+            <Link to="/operations?create=true" className="flex flex-col items-center justify-center w-full h-full gap-1 group">
+                <PlusCircle className="w-8 h-8 text-red-600 fill-red-50 group-hover:scale-110 transition-transform shadow-sm rounded-full" />
+                <span className="text-[9px] font-bold uppercase tracking-wide text-red-700">Nova Op</span>
+            </Link>
+
+            <BottomNavItem to="/summer" icon={Sun} label="Verão" isActive={location.pathname === '/summer'} />
+            <button onClick={() => setIsSidebarOpen(true)} className="flex flex-col items-center justify-center w-full h-full gap-1 text-slate-400 hover:text-slate-600">
+                <Menu className="w-6 h-6" />
+                <span className="text-[9px] font-bold uppercase tracking-wide">Menu</span>
+            </button>
+        </div>
       </main>
     </div>
   );

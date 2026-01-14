@@ -190,7 +190,7 @@ export default function DroneDocumentsModal({ drone, onClose, onUpdate }: DroneD
     { id: 'prefacio', label: 'Prefácio (A e B)', icon: FileText, files: ensureArray(drone.documents?.prefacio), manual: true },
     { id: 'checklist', label: 'Check List (C, D e E)', icon: CheckCircle, files: ensureArray(drone.documents?.checklist), manual: true },
     { id: 'importantes', label: 'Importantes (F, G e H)', icon: AlertTriangle, files: ensureArray(drone.documents?.importantes), manual: true },
-    { id: 'aro', label: 'I - A.R.O. (Avaliação de Risco)', icon: ShieldCheck, auto: true, action: () => alert("Consulte os AROs nas operações vinculadas.") },
+    { id: 'aro', label: 'I - A.R.O. (Avaliação de Risco)', icon: ShieldCheck, files: ensureArray(drone.documents?.aro), manual: true, auto: true }, // Updated
     { id: 'manual', label: 'J - Manual da Aeronave', icon: Book, files: ensureArray(drone.documents?.manual), manual: true },
     { id: 'voos', label: 'K - Registro de Voos', icon: Activity, auto: true, action: handleGenerateFlightLogReport },
     { id: 'manutencao', label: 'L - Registro de Manutenções', icon: Wrench, auto: true, action: handleGenerateMaintReport },
@@ -224,7 +224,7 @@ export default function DroneDocumentsModal({ drone, onClose, onUpdate }: DroneD
                        <div>
                           <h4 className="font-bold text-slate-800 text-sm">{sec.label}</h4>
                           <p className="text-[10px] text-slate-400 uppercase tracking-tighter">
-                             {sec.auto ? 'SISTEMA' : `${sec.files?.length || 0} arquivo(s)`}
+                             {sec.auto && !sec.files ? 'SISTEMA' : `${sec.files?.length || 0} arquivo(s)`}
                           </p>
                        </div>
                     </div>
@@ -246,7 +246,7 @@ export default function DroneDocumentsModal({ drone, onClose, onUpdate }: DroneD
                          </label>
                        )}
 
-                       {sec.auto && (
+                       {sec.auto && sec.action && (
                          <button onClick={sec.action} className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Gerar Relatório PDF">
                             <Printer className="w-4 h-4"/>
                          </button>
@@ -280,7 +280,9 @@ export default function DroneDocumentsModal({ drone, onClose, onUpdate }: DroneD
 
                  {sec.manual && (!sec.files || sec.files.length === 0) && (
                     <div className="p-4 text-center">
-                       <p className="text-[11px] text-slate-400 italic">Nenhum arquivo carregado nesta seção.</p>
+                       <p className="text-[11px] text-slate-400 italic">
+                           {sec.id === 'aro' ? 'Nenhuma ARO Preventiva registrada para esta aeronave.' : 'Nenhum arquivo carregado nesta seção.'}
+                       </p>
                     </div>
                  )}
               </div>

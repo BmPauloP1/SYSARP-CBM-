@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
 import { Pilot, ORGANIZATION_CHART, SYSARP_LOGO } from "../types";
 import { Card, Button, Badge, Input, Select } from "../components/ui_components";
-import { Plus, User, X, Save, Phone, Lock, Shield, Trash2, Database, Copy, Pencil, Search, ChevronLeft, ChevronRight, Mail, Filter, FileText, RefreshCcw, Users, ChevronDown, CheckCircle, XCircle } from "lucide-react";
+import { Plus, User, X, Save, Phone, Lock, Shield, Trash2, Database, Copy, Pencil, Search, ChevronLeft, ChevronRight, Mail, Filter, FileText, RefreshCcw, Users, ChevronDown, CheckCircle, XCircle, Activity } from "lucide-react";
 
 // Helper para carregar imagem para o PDF (Reutilizado para consistência)
 const getImageData = (url: string): Promise<string> => {
@@ -43,6 +44,7 @@ export default function PilotManagement() {
   const [filterUnit, setFilterUnit] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isStatsOpen, setIsStatsOpen] = useState(false);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -417,7 +419,7 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 overflow-hidden relative">
+    <div className="flex flex-col h-full bg-white overflow-hidden relative">
       
       {/* SQL FIX MODAL - Only for Admins */}
       {sqlError && currentUser?.role === 'admin' && (
@@ -466,8 +468,47 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
            )}
         </div>
 
-        {/* STATS BAR */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        {/* STATS BAR - RESPONSIVE */}
+        <div className="md:hidden">
+            <Card className="p-0 bg-slate-50 border-slate-200 overflow-hidden shadow-sm">
+                <button
+                    onClick={() => setIsStatsOpen(!isStatsOpen)}
+                    className="w-full flex justify-between items-center p-4 text-left hover:bg-slate-100 transition-colors"
+                >
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase">
+                        <Activity className="w-3 h-3" /> Resumo do Efetivo
+                    </div>
+                    <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform ${isStatsOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isStatsOpen && (
+                    <div className="p-4 border-t border-slate-200 animate-fade-in grid grid-cols-2 gap-3">
+                        <div className="bg-white border border-slate-200 p-3 rounded-lg flex flex-col justify-between shadow-sm">
+                            <div className="text-[10px] font-bold text-slate-500 uppercase">Total</div>
+                            <div className="text-xl font-bold text-slate-800">{stats.total}</div>
+                        </div>
+                        <div className="bg-green-50 border border-green-200 p-3 rounded-lg flex flex-col justify-between shadow-sm">
+                            <div className="text-[10px] font-bold text-green-700 uppercase">Ativos</div>
+                            <div className="text-xl font-bold text-green-800">{stats.active}</div>
+                        </div>
+                        <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg flex flex-col justify-between shadow-sm">
+                            <div className="text-[10px] font-bold text-amber-700 uppercase">Pendentes</div>
+                            <div className="text-xl font-bold text-amber-800">{stats.pending}</div>
+                        </div>
+                        <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg flex flex-col justify-between opacity-70 shadow-sm">
+                            <div className="text-[10px] font-bold text-slate-500 uppercase">Inativos</div>
+                            <div className="text-xl font-bold text-slate-800">{stats.inactive}</div>
+                        </div>
+                        <div className="col-span-2 bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-center justify-between shadow-sm">
+                            <div className="text-[10px] font-bold text-blue-700 uppercase">Administradores</div>
+                            <div className="text-xl font-bold text-blue-800">{stats.admins}</div>
+                        </div>
+                    </div>
+                )}
+            </Card>
+        </div>
+
+        {/* DESKTOP STATS */}
+        <div className="hidden md:grid grid-cols-5 gap-4">
             <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg flex items-center justify-between shadow-sm">
                 <div className="text-xs font-bold text-slate-500 uppercase">Total</div>
                 <div className="text-xl font-bold text-slate-800">{stats.total}</div>
@@ -908,7 +949,6 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authen
                     )}
                     <Button type="submit" disabled={loading} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold">
                       <Save className="w-4 h-4 mr-2" />
-                      {/* Fix: changed editingId to editingPilotId to match the defined state variable */}
                       {loading ? "Salvando..." : (editingPilotId ? "Atualizar Perfil" : "Cadastrar Piloto")}
                     </Button>
                 </div>

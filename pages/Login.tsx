@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '../services/base44Client';
@@ -142,56 +143,56 @@ export default function Login() {
 
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-sysarp-dark via-sysarp-primary to-sysarp-dark flex flex-col items-center justify-center p-4 py-8 overflow-y-auto relative">
+    <div className="h-screen w-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-red-900 via-slate-950 to-black flex flex-col items-center justify-center p-4 overflow-y-auto overflow-x-hidden relative font-sans text-slate-800">
       
       {/* AIRDATA SAFETY BADGE */}
-      <div className="absolute top-4 left-4 z-[100] opacity-80 hover:opacity-100 transition-all hover:scale-105 hidden sm:block">
+      <div className="absolute top-6 left-6 z-[100] opacity-60 hover:opacity-100 transition-all hover:scale-105 hidden sm:block grayscale hover:grayscale-0 duration-500">
         <a href='https://certificates.airdata.com/QcvFJL' target="_blank" rel="noopener noreferrer" title="Airdata UAV Safety Verified">
           <img 
             alt='Airdata UAV|Drone Safety Verified Badge' 
             src='https://certificates.airdata.com/badge?i=QcvFJL&r=Hnhr&t=7&m=3&size=12&c=0' 
-            className="w-[180px] md:w-[280px] lg:w-[417px] h-auto border-0 drop-shadow-xl"
+            className="w-[180px] md:w-[240px] h-auto drop-shadow-2xl"
             style={{ imageRendering: 'smooth' }}
           />
         </a>
       </div>
 
       {/* MOBILE AIRDATA BADGE (Compact) */}
-      <div className="sm:hidden absolute top-3 left-3 z-[100] opacity-90">
+      <div className="sm:hidden absolute top-4 left-4 z-[100] opacity-70">
          <a href='https://certificates.airdata.com/QcvFJL' target="_blank" rel="noopener noreferrer">
            <img 
              alt='Airdata Badge' 
              src='https://certificates.airdata.com/badge?i=QcvFJL&r=Hnhr&t=7&m=3&size=12&c=0' 
-             className="w-[120px] h-auto"
+             className="w-[100px] h-auto"
            />
          </a>
       </div>
 
       {/* EMAIL FIX MODAL */}
       {emailFixSql && (
-        <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
-           <Card className="w-full max-w-3xl flex flex-col bg-white border-4 border-amber-500 shadow-2xl">
-              <div className="p-4 bg-amber-500 text-white flex justify-between items-center">
+        <div className="fixed inset-0 z-[4000] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-fade-in">
+           <Card className="w-full max-w-3xl flex flex-col bg-white border-l-4 border-amber-500 shadow-2xl rounded-2xl overflow-hidden">
+              <div className="p-5 bg-gradient-to-r from-amber-500 to-amber-600 text-white flex justify-between items-center">
                  <h3 className="font-bold text-lg flex items-center gap-2">
                    <LogIn className="w-6 h-6" />
                    Ação Administrativa Necessária
                  </h3>
-                 <button onClick={() => setEmailFixSql(null)} className="hover:bg-amber-600 p-1 rounded"><X className="w-5 h-5" /></button>
+                 <button onClick={() => setEmailFixSql(null)} className="hover:bg-white/20 p-1.5 rounded-full transition-colors"><X className="w-5 h-5" /></button>
               </div>
               <div className="p-6 space-y-4">
                  <p className="text-slate-700 font-medium">
                     Ajuste técnico de banco de dados requerido para validação de e-mails institucionais.
                  </p>
-                 <div className="relative">
-                    <pre className="bg-slate-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto font-mono border border-slate-700 max-h-64">
+                 <div className="relative group">
+                    <pre className="bg-slate-900 text-green-400 p-5 rounded-xl text-xs overflow-x-auto font-mono border border-slate-700 max-h-64 shadow-inner">
                        {emailFixSql}
                     </pre>
-                    <button onClick={() => copySqlToClipboard(emailFixSql)} className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded transition-colors"><Copy className="w-4 h-4" /></button>
+                    <button onClick={() => copySqlToClipboard(emailFixSql)} className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded transition-colors opacity-0 group-hover:opacity-100"><Copy className="w-4 h-4" /></button>
                  </div>
               </div>
               <div className="p-4 bg-slate-50 border-t flex justify-end gap-3">
                  <Button variant="outline" onClick={() => setEmailFixSql(null)}>Fechar</Button>
-                 <Button onClick={() => copySqlToClipboard(emailFixSql)} className="bg-amber-600 text-white hover:bg-amber-700"><Copy className="w-4 h-4 mr-2" /> Copiar SQL</Button>
+                 <Button onClick={() => copySqlToClipboard(emailFixSql)} className="bg-amber-600 text-white hover:bg-amber-700 font-bold"><Copy className="w-4 h-4 mr-2" /> Copiar SQL</Button>
               </div>
            </Card>
         </div>
@@ -199,205 +200,245 @@ export default function Login() {
 
       {/* LGPD Modal */}
       {showLgpdModal && (
-        <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
-           <Card className="max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col bg-white">
-              <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+        <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
+           <Card className="max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col bg-white rounded-2xl shadow-2xl">
+              <div className="p-5 border-b flex justify-between items-center bg-slate-50">
                  <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
                    <FileText className="w-5 h-5 text-red-600" />
                    Política de Privacidade e Termos de Uso
                  </h3>
-                 <button onClick={() => setShowLgpdModal(false)} className="p-1 hover:bg-slate-200 rounded"><X className="w-5 h-5 text-slate-500" /></button>
+                 <button onClick={() => setShowLgpdModal(false)} className="p-1.5 hover:bg-slate-200 rounded-full transition-colors"><X className="w-5 h-5 text-slate-500" /></button>
               </div>
-              <div className="p-6 overflow-y-auto text-sm text-slate-700 whitespace-pre-line leading-relaxed bg-white">
+              <div className="p-8 overflow-y-auto text-sm text-slate-600 whitespace-pre-line leading-relaxed bg-white text-justify">
                  {LGPD_TERMS}
               </div>
-              <div className="p-4 border-t bg-slate-50 flex justify-end">
-                 <Button onClick={() => setShowLgpdModal(false)}>Fechar</Button>
+              <div className="p-5 border-t bg-slate-50 flex justify-end">
+                 <Button onClick={() => setShowLgpdModal(false)} className="bg-slate-800 hover:bg-slate-900 text-white font-bold">Fechar</Button>
               </div>
            </Card>
         </div>
       )}
 
       {/* Main Content */}
-      <div className="w-full max-w-md">
-        <div className="text-center mb-6 md:mb-8">
-           <div className="w-24 h-24 md:w-32 md:h-32 bg-white/10 backdrop-blur-sm rounded-xl md:rounded-2xl flex items-center justify-center mx-auto mb-3 md:mb-4 shadow-lg p-2 md:p-3 border-2 border-white/20">
-              {logoError ? (
-                  <Shield className="w-12 h-12 md:w-16 md:h-16 text-white" />
-              ) : (
-                  <img 
-                    src={SYSARP_LOGO} 
-                    className="w-full h-full object-contain" 
-                    alt="SYSARP Logo"
-                    onError={() => setLogoError(true)}
-                  />
-              )}
+      <div className="w-full max-w-[420px] flex flex-col gap-6 relative z-10 my-auto">
+        
+        {/* Header Logo */}
+        <div className="text-center">
+           <div className="relative w-28 h-28 md:w-32 md:h-32 mx-auto mb-6 group">
+              <div className="absolute inset-0 bg-red-600 rounded-full blur-2xl opacity-20 group-hover:opacity-30 transition-opacity duration-700 animate-pulse"></div>
+              <div className="relative w-full h-full bg-white/5 backdrop-blur-md rounded-full flex items-center justify-center shadow-2xl border border-white/10 ring-1 ring-white/20">
+                  {logoError ? (
+                      <Shield className="w-12 h-12 text-white" />
+                  ) : (
+                      <img 
+                        src={SYSARP_LOGO} 
+                        className="w-[70%] h-[70%] object-contain drop-shadow-lg" 
+                        alt="SYSARP Logo"
+                        onError={() => setLogoError(true)}
+                      />
+                  )}
+              </div>
            </div>
-           <h1 className="text-3xl md:text-4xl font-extrabold text-white tracking-widest uppercase" style={{ textShadow: '2px 2px 4px rgba(0,0,0,0.3)' }}>SYSARP</h1>
-           <p className="text-red-200 text-xs font-medium uppercase tracking-wider">Sistema de Aeronaves Remotamente Pilotadas</p>
+           <h1 className="text-4xl font-black text-white tracking-[0.2em] uppercase drop-shadow-md">SYSARP</h1>
+           <p className="text-red-200/80 text-[10px] font-bold uppercase tracking-[0.3em] mt-2">Sistema de Aeronaves Remotamente Pilotadas</p>
         </div>
 
-        <Card className="p-6 md:p-8 shadow-2xl bg-white/95 backdrop-blur-lg border border-white/20">
-          <form onSubmit={handleLogin} className="space-y-5 md:space-y-6">
-            <div className="text-center border-b border-slate-200 pb-3 md:pb-4">
-               <h2 className="text-lg md:text-xl font-bold text-slate-800">Acesso Restrito</h2>
-               <p className="text-xs text-slate-500 uppercase font-medium">Corpo de Bombeiros Militar do Paraná</p>
+        {/* Login Card */}
+        <Card className="p-8 shadow-2xl bg-white/95 backdrop-blur-xl border border-white/40 rounded-3xl relative overflow-hidden">
+          {/* Top Decorative Line */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-700 via-red-500 to-red-700"></div>
+
+          <form onSubmit={handleLogin} className="space-y-6 mt-2">
+            <div className="text-center pb-2">
+               <h2 className="text-lg font-bold text-slate-800 uppercase tracking-wide">Acesso Restrito</h2>
+               <p className="text-xs text-slate-400 font-medium mt-1">Corpo de Bombeiros Militar do Paraná</p>
             </div>
 
             {loginError && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-3 animate-fade-in">
-                <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
-                <span className="text-sm font-bold text-red-700">{loginError}</span>
+              <div className="bg-red-50 border-l-4 border-red-500 rounded-r-lg p-3 flex items-start gap-3 animate-fade-in shadow-sm">
+                <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <span className="text-sm font-bold text-red-800 leading-tight">{loginError}</span>
               </div>
             )}
 
-            <div className="space-y-3 md:space-y-4">
-              <div className="relative">
-                <Input 
-                  label="Usuário" 
-                  value={username} 
-                  onChange={handleUsernameChange} 
-                  placeholder="nome.sobrenome"
-                  type="text"
-                  required
-                  autoComplete="username"
-                  className="lowercase pr-12"
-                />
-                <div className="absolute right-3 bottom-2.5 text-slate-300 pointer-events-none">
-                  <User className="w-5 h-5" />
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Usuário</label>
+                <div className="relative group">
+                  <Input 
+                    value={username} 
+                    onChange={handleUsernameChange} 
+                    placeholder="nome.sobrenome"
+                    type="text"
+                    required
+                    autoComplete="username"
+                    className="pl-11 h-12 bg-slate-50 border-slate-200 focus:bg-white focus:border-red-500 focus:ring-red-500/20 transition-all rounded-xl lowercase font-medium text-slate-700 placeholder:text-slate-400"
+                  />
+                  <div className="absolute left-3.5 top-3 text-slate-400 group-focus-within:text-red-600 transition-colors pointer-events-none">
+                    <User className="w-6 h-6" />
+                  </div>
                 </div>
               </div>
-              <Input 
-                label="Senha" 
-                type="password"
-                value={password} 
-                onChange={e => setPassword(e.target.value)} 
-                placeholder="••••••••"
-                required
-                autoComplete="current-password"
-              />
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Senha</label>
+                <div className="relative group">
+                  <Input 
+                    type="password"
+                    value={password} 
+                    onChange={e => setPassword(e.target.value)} 
+                    placeholder="••••••••"
+                    required
+                    autoComplete="current-password"
+                    className="pl-11 h-12 bg-slate-50 border-slate-200 focus:bg-white focus:border-red-500 focus:ring-red-500/20 transition-all rounded-xl font-medium text-slate-700 placeholder:text-slate-400"
+                  />
+                  <div className="absolute left-3.5 top-3 text-slate-400 group-focus-within:text-red-600 transition-colors pointer-events-none">
+                    <Lock className="w-6 h-6" />
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="pt-2 space-y-3">
-               <Button type="submit" disabled={loading} className="w-full h-11 md:h-12 font-bold text-base md:text-lg shadow-lg shadow-red-500/30">
-                  <LogIn className="w-5 h-5 mr-2" />
-                  {loading ? 'Entrando...' : 'Acessar Sistema'}
+            <div className="pt-4 space-y-3">
+               <Button type="submit" disabled={loading} className="w-full h-12 bg-gradient-to-r from-red-700 to-red-600 hover:from-red-800 hover:to-red-700 text-white font-bold text-sm uppercase tracking-wider rounded-xl shadow-lg shadow-red-900/20 transform active:scale-[0.98] transition-all">
+                  {loading ? (
+                    <div className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> Acessando...</div>
+                  ) : (
+                    <><LogIn className="w-5 h-5 mr-2" /> Entrar no Sistema</>
+                  )}
                </Button>
-               <Button type="button" variant="outline" className="w-full h-11 md:h-12" onClick={() => setShowRegister(true)}>
-                  <UserPlus className="w-4 h-4 mr-2"/> Solicitar Cadastro de Piloto
+               <Button type="button" variant="outline" className="w-full h-12 border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 rounded-xl font-bold text-xs uppercase tracking-wider transition-all" onClick={() => setShowRegister(true)}>
+                  <UserPlus className="w-4 h-4 mr-2"/> Solicitar Acesso
                </Button>
             </div>
           </form>
         </Card>
         
-        <div className="text-center mt-6 md:mt-8 space-y-1">
-           <p className="text-red-200/50 text-xs">© {new Date().getFullYear()} SYSARP - CBMPR - V.1.0</p>
-           <p className="text-red-200/30 text-[10px] uppercase tracking-wider font-medium">Desenvolvido por Cb Paulo</p>
+        <div className="text-center space-y-1 opacity-60 hover:opacity-100 transition-opacity duration-500">
+           <p className="text-white/60 text-[10px] font-medium tracking-wide">© {new Date().getFullYear()} SYSARP - CBMPR - V.1.2</p>
+           <p className="text-white/30 text-[9px] uppercase tracking-widest">Desenvolvido por Cb Paulo</p>
         </div>
       </div>
 
       {/* --- MODAL DE CADASTRO --- */}
       {showRegister && (
-        <div className="fixed inset-0 bg-black/60 z-[2000] flex items-center justify-center p-4">
-          <Card className="w-full max-w-2xl p-4 md:p-6 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4 md:mb-6 border-b pb-4">
-              <h2 className="text-lg md:text-xl font-bold text-slate-800 flex items-center gap-2">
-                <UserPlus className="w-6 h-6 text-blue-600" />
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 animate-fade-in">
+          <Card className="w-full max-w-2xl p-0 shadow-2xl rounded-2xl overflow-hidden bg-white max-h-[90vh] flex flex-col">
+            <div className="bg-slate-900 p-5 flex justify-between items-center shrink-0">
+              <h2 className="text-lg font-bold text-white flex items-center gap-3">
+                <div className="bg-white/10 p-2 rounded-lg"><UserPlus className="w-5 h-5 text-blue-400" /></div>
                 Solicitar Cadastro de Piloto
               </h2>
-              <button onClick={() => setShowRegister(false)} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => setShowRegister(false)} className="text-slate-400 hover:text-white hover:bg-white/10 p-2 rounded-full transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleRegister} className="space-y-3 md:space-y-4">
-              
-              <div className="w-full">
-                  <Input 
-                    label="Nome Completo" 
-                    value={regForm.full_name} 
-                    onChange={e => setRegForm({...regForm, full_name: e.target.value})}
-                    placeholder="Ex: João Pereira"
-                    required
-                  />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-slate-700">Identificador de Usuário</label>
-                <div className="flex items-center border border-slate-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-red-500">
-                  <Input 
-                    className="flex-1 text-right !border-0 !ring-0 rounded-r-none lowercase" 
-                    placeholder="nome.sobrenome"
-                    value={regEmailPrefix}
-                    onChange={e => setRegEmailPrefix(e.target.value.replace(/[^a-z0-9._-]/gi, '').toLowerCase())}
-                    required
-                  />
-                  <span className="bg-slate-50 px-3 py-2 text-slate-500 border-l text-xs md:text-sm">@cbm.pr.gov.br</span>
+            
+            <div className="overflow-y-auto p-6 md:p-8">
+              <form onSubmit={handleRegister} className="space-y-5">
+                
+                <div className="w-full">
+                    <Input 
+                      label="Nome Completo" 
+                      value={regForm.full_name} 
+                      onChange={e => setRegForm({...regForm, full_name: e.target.value})}
+                      placeholder="Ex: João Pereira"
+                      required
+                      className="bg-slate-50 border-slate-200 h-11"
+                      labelClassName="text-xs font-bold text-slate-500 uppercase ml-1 mb-1"
+                    />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-                <Input label="Telefone" value={regForm.phone} onChange={e => setRegForm({...regForm, phone: e.target.value})} placeholder="(41) 99999-9999" required />
-                <Input label="Código SARPAS" value={regForm.sarpas_code} onChange={e => setRegForm({...regForm, sarpas_code: e.target.value})} placeholder="BR-XXXXXX" required />
-              </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-500 uppercase ml-1">Identificador de Usuário</label>
+                  <div className="flex items-center border border-slate-200 bg-slate-50 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 transition-all h-11">
+                    <input 
+                      className="flex-1 text-right bg-transparent border-none outline-none px-3 text-slate-700 placeholder:text-slate-400 lowercase font-medium h-full" 
+                      placeholder="nome.sobrenome"
+                      value={regEmailPrefix}
+                      onChange={e => setRegEmailPrefix(e.target.value.replace(/[^a-z0-9._-]/gi, '').toLowerCase())}
+                      required
+                    />
+                    <span className="bg-slate-100 px-4 h-full flex items-center text-slate-500 border-l border-slate-200 text-sm font-medium">@cbm.pr.gov.br</span>
+                  </div>
+                </div>
 
-              <div className="p-3 md:p-4 bg-slate-50 rounded-lg border">
-                 <h3 className="text-sm font-bold mb-3">Lotação</h3>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-                    <Select label="CRBM" value={regForm.crbm} onChange={e => setRegForm({...regForm, crbm: e.target.value, unit: ''})} required>
-                       <option value="">Selecione o CRBM</option>
-                       {Object.keys(ORGANIZATION_CHART).map(crbm => <option key={crbm} value={crbm}>{crbm}</option>)}
-                    </Select>
-                    <Select label="Unidade (BBM/CIBM/BOA)" value={regForm.unit} disabled={!regForm.crbm} onChange={e => setRegForm({...regForm, unit: e.target.value})}>
-                       <option value="">Selecione a Unidade</option>
-                       {regForm.crbm && ORGANIZATION_CHART[regForm.crbm as keyof typeof ORGANIZATION_CHART]?.map((unit: string) => <option key={unit} value={unit}>{unit}</option>)}
-                    </Select>
-                 </div>
-              </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="Telefone" value={regForm.phone} onChange={e => setRegForm({...regForm, phone: e.target.value})} placeholder="(41) 99999-9999" required className="bg-slate-50 border-slate-200 h-11" labelClassName="text-xs font-bold text-slate-500 uppercase ml-1 mb-1" />
+                  <Input label="Código SARPAS" value={regForm.sarpas_code} onChange={e => setRegForm({...regForm, sarpas_code: e.target.value})} placeholder="BR-XXXXXX" required className="bg-slate-50 border-slate-200 h-11" labelClassName="text-xs font-bold text-slate-500 uppercase ml-1 mb-1" />
+                </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-                <Input label="Senha" type="password" value={regForm.password} onChange={e => setRegForm({...regForm, password: e.target.value})} required />
-                <Input label="Confirmar Senha" type="password" value={regForm.confirmPassword} onChange={e => setRegForm({...regForm, confirmPassword: e.target.value})} required />
-              </div>
+                <div className="p-5 bg-blue-50/50 rounded-xl border border-blue-100">
+                   <h3 className="text-xs font-black text-blue-800 uppercase mb-3 flex items-center gap-2"><Map className="w-4 h-4"/> Lotação Operacional</h3>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <Select label="CRBM" value={regForm.crbm} onChange={e => setRegForm({...regForm, crbm: e.target.value, unit: ''})} required className="bg-white border-blue-200 h-11" labelClassName="text-xs font-bold text-blue-700 uppercase ml-1 mb-1">
+                         <option value="">Selecione o CRBM</option>
+                         {Object.keys(ORGANIZATION_CHART).map(crbm => <option key={crbm} value={crbm}>{crbm}</option>)}
+                      </Select>
+                      <Select label="Unidade (BBM/CIBM/BOA)" value={regForm.unit} disabled={!regForm.crbm} onChange={e => setRegForm({...regForm, unit: e.target.value})} className="bg-white border-blue-200 h-11" labelClassName="text-xs font-bold text-blue-700 uppercase ml-1 mb-1">
+                         <option value="">Selecione a Unidade</option>
+                         {regForm.crbm && ORGANIZATION_CHART[regForm.crbm as keyof typeof ORGANIZATION_CHART]?.map((unit: string) => <option key={unit} value={unit}>{unit}</option>)}
+                      </Select>
+                   </div>
+                </div>
 
-              <div className="bg-blue-50 border border-blue-200 p-3 md:p-4 rounded-lg">
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input type="checkbox" className="w-5 h-5 accent-blue-600 mt-0.5" checked={regForm.terms_accepted} onChange={e => setRegForm({...regForm, terms_accepted: e.target.checked})} />
-                  <span className="text-sm text-blue-800">
-                    Li e concordo com a <button type="button" onClick={() => setShowLgpdModal(true)} className="font-bold underline hover:text-blue-600">Política de Privacidade e Termos de Uso</button> do SYSARP.
-                  </span>
-                </label>
-              </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input label="Senha" type="password" value={regForm.password} onChange={e => setRegForm({...regForm, password: e.target.value})} required className="bg-slate-50 border-slate-200 h-11" labelClassName="text-xs font-bold text-slate-500 uppercase ml-1 mb-1" />
+                  <Input label="Confirmar Senha" type="password" value={regForm.confirmPassword} onChange={e => setRegForm({...regForm, confirmPassword: e.target.value})} required className="bg-slate-50 border-slate-200 h-11" labelClassName="text-xs font-bold text-slate-500 uppercase ml-1 mb-1" />
+                </div>
 
-              <div className="flex justify-end gap-3 pt-2">
-                <Button type="button" variant="outline" onClick={() => setShowRegister(false)}>Cancelar</Button>
-                <Button type="submit" disabled={loading}>{loading ? "Enviando..." : "Solicitar Cadastro"}</Button>
-              </div>
-            </form>
+                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
+                  <label className="flex items-start gap-3 cursor-pointer group">
+                    <div className="relative flex items-center">
+                      <input type="checkbox" className="peer h-5 w-5 cursor-pointer appearance-none rounded border border-slate-300 shadow-sm checked:border-blue-600 checked:bg-blue-600 transition-all" checked={regForm.terms_accepted} onChange={e => setRegForm({...regForm, terms_accepted: e.target.checked})} />
+                      <CheckCircle className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 pointer-events-none" />
+                    </div>
+                    <span className="text-sm text-slate-600 leading-snug group-hover:text-slate-800 transition-colors">
+                      Li e concordo com a <button type="button" onClick={() => setShowLgpdModal(true)} className="font-bold text-blue-600 hover:text-blue-800 hover:underline">Política de Privacidade e Termos de Uso</button> do SYSARP.
+                    </span>
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <Button type="button" variant="outline" onClick={() => setShowRegister(false)} className="h-11 px-6 font-bold text-slate-500 border-slate-300 hover:bg-slate-50">Cancelar</Button>
+                  <Button type="submit" disabled={loading} className="h-11 px-8 bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-lg shadow-blue-200/50">{loading ? "Enviando..." : "Solicitar Cadastro"}</Button>
+                </div>
+              </form>
+            </div>
           </Card>
         </div>
       )}
 
       {/* --- MODAL DE ALTERAÇÃO DE SENHA --- */}
       {showChangePassword && (
-        <div className="fixed inset-0 bg-black/60 z-[2000] flex items-center justify-center p-4">
-           <Card className="w-full max-w-md p-6 shadow-2xl animate-fade-in">
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><KeyRound className="w-6 h-6 text-red-600"/> Alteração de Senha Obrigatória</h2>
-              <p className="text-sm text-slate-600 mb-4">Por segurança, você deve definir uma nova senha pessoal para seu primeiro acesso.</p>
-              <form onSubmit={handleChangePassword} className="space-y-4">
-                 <Input label="Nova Senha" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required />
-                 <Input label="Confirmar Nova Senha" type="password" value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)} required />
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 animate-fade-in">
+           <Card className="w-full max-w-md p-8 shadow-2xl animate-fade-in bg-white rounded-2xl border-t-8 border-red-600">
+              <div className="mb-6 text-center">
+                 <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600">
+                    <KeyRound className="w-8 h-8" />
+                 </div>
+                 <h2 className="text-xl font-bold text-slate-800">Alteração Obrigatória</h2>
+                 <p className="text-sm text-slate-500 mt-2 leading-relaxed">Por motivos de segurança, você deve redefinir sua senha no primeiro acesso.</p>
+              </div>
+              
+              <form onSubmit={handleChangePassword} className="space-y-5">
+                 <Input label="Nova Senha" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required className="h-11 bg-slate-50" labelClassName="text-xs font-bold text-slate-500 uppercase" />
+                 <Input label="Confirmar Nova Senha" type="password" value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)} required className="h-11 bg-slate-50" labelClassName="text-xs font-bold text-slate-500 uppercase" />
                  
-                 <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg mt-2">
-                   <label className="flex items-start gap-3 cursor-pointer">
-                     <input type="checkbox" className="w-5 h-5 accent-blue-600 mt-0.5" checked={changePasswordTermsAccepted} onChange={e => setChangePasswordTermsAccepted(e.target.checked)} />
-                     <span className="text-sm text-blue-800">
-                       Eu li e aceito a <button type="button" onClick={() => setShowLgpdModal(true)} className="font-bold underline hover:text-blue-600">Política de Privacidade e Termos de Uso</button>.
+                 <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl mt-2">
+                   <label className="flex items-start gap-3 cursor-pointer group">
+                     <div className="relative flex items-center">
+                        <input type="checkbox" className="peer h-5 w-5 cursor-pointer appearance-none rounded border border-slate-300 shadow-sm checked:border-red-600 checked:bg-red-600 transition-all" checked={changePasswordTermsAccepted} onChange={e => setChangePasswordTermsAccepted(e.target.checked)} />
+                        <CheckCircle className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100 pointer-events-none" />
+                     </div>
+                     <span className="text-sm text-slate-600 leading-snug">
+                       Li e aceito a <button type="button" onClick={() => setShowLgpdModal(true)} className="font-bold text-red-600 hover:text-red-800 hover:underline">Política de Privacidade</button>.
                      </span>
                    </label>
                  </div>
                  
-                 <div className="flex justify-end pt-4">
-                    <Button type="submit" disabled={loading}>{loading ? "Salvando..." : "Definir Senha e Acessar"}</Button>
+                 <div className="pt-4">
+                    <Button type="submit" disabled={loading} className="w-full h-12 bg-red-600 hover:bg-red-700 text-white font-bold shadow-lg shadow-red-200/50">{loading ? "Salvando..." : "Definir Senha e Acessar"}</Button>
                  </div>
               </form>
            </Card>
@@ -405,4 +446,11 @@ export default function Login() {
       )}
     </div>
   );
+}
+
+// Helper icon component for Lotação section in modal
+function Map({ className }: { className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/></svg>
+    )
 }

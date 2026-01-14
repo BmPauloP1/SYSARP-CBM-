@@ -2,14 +2,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { operationSummerService } from '../services/operationSummerService';
 import { base44 } from '../services/base44Client';
-import { SummerFlight, SummerStats, SUMMER_LOCATIONS, SummerAuditLog } from '../types_summer';
+import { SummerFlight, SUMMER_LOCATIONS, SummerAuditLog } from '../types_summer';
 import { Pilot, Drone, MISSION_HIERARCHY, MissionType, MISSION_COLORS, SYSARP_LOGO } from '../types';
 import { Card, Button, Input, Select, Badge } from '../components/ui_components';
 import { 
   Sun, Clock, MapPin, Activity, Filter, Search, RefreshCcw, 
   Map as MapIcon, ChevronDown, Download, FileText, Shield, 
   Trash2, CheckSquare, Square, Loader2, PieChart as PieChartIcon,
-  LayoutGrid, TrendingUp, Users, Calendar, RefreshCw, Pencil, Save, X
+  LayoutGrid, TrendingUp, Users, Calendar, RefreshCw, Pencil, Save, X,
+  BarChart3
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
@@ -17,9 +18,9 @@ import {
 } from 'recharts';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 
-const CHART_COLORS = ['#f97316', '#3b82f6', '#ef4444', '#10b981', '#8b5cf6'];
+const CHART_COLORS = ['#f97316', '#3b82f6', '#ef4444', '#10b981', '#8b5cf6', '#64748b'];
 
-// Helper para converter minutos totais em HH:MM (ex: 20 min -> 00:20, 90 min -> 01:30)
+// Helper para converter minutos totais em HH:MM
 const formatMinutesToHHMM = (totalMinutes: number | undefined | null) => {
   if (!totalMinutes && totalMinutes !== 0) return "00:00";
   const safeMinutes = Math.round(totalMinutes);
@@ -48,6 +49,31 @@ const isValidCoord = (lat: any, lng: any) => {
 const jitter = (coord: number) => coord + (Math.random() - 0.5) * 0.02;
 
 type SummerTab = 'stats' | 'flights' | 'report' | 'audit';
+
+// Componente Visual de Chip para Filtros Ativos
+const FilterChip = ({ label, onClear }: { label: string, onClear: () => void }) => (
+  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-50 text-orange-700 border border-orange-200">
+    {label}
+    <button onClick={onClear} className="hover:bg-orange-200 rounded-full p-0.5 transition-colors">
+      <X className="w-3 h-3" />
+    </button>
+  </span>
+);
+
+// Custom Tooltip para Gráficos
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-slate-800 text-white p-2 rounded shadow-lg border border-slate-700 text-xs">
+        <p className="font-bold mb-1">{label || payload[0].name}</p>
+        <p className="text-orange-300">
+          {payload[0].value} {payload[0].name === 'Horas' ? 'h' : 'voos'}
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
 
 export default function SummerOperationCenter() {
   const [activeTab, setActiveTab] = useState<SummerTab>('stats');
@@ -267,152 +293,234 @@ export default function SummerOperationCenter() {
       }
   };
 
+  // Contagem de Filtros Ativos
+  const activeFilterCount = [
+    filterMission !== 'all',
+    filterLocation !== 'all',
+    filterPgv !== 'all',
+    dateStart !== '',
+    dateEnd !== ''
+  ].filter(Boolean).length;
+
   return (
-    <div className="flex flex-col h-full bg-slate-100 overflow-hidden font-sans">
+    <div className="flex flex-col h-full bg-slate-50 overflow-hidden font-sans">
       
-      {/* COMPACT HEADER TABS */}
-      <nav className="bg-[#1e293b] text-white shrink-0 border-b border-slate-700 shadow-sm z-30">
-        <div className="max-w-[1800px] mx-auto flex items-center justify-between px-3 h-12">
-            <div className="flex flex-row overflow-x-auto no-scrollbar gap-1 items-center h-full">
-                {[
-                  { id: 'stats', label: 'Painel Geral', icon: Activity },
-                  { id: 'flights', label: 'Diário de Voos', icon: Clock },
-                  { id: 'report', label: 'Relatórios', icon: FileText },
-                  { id: 'audit', label: 'Auditoria', icon: Shield, admin: true }
-                ].map(tab => {
-                  if (tab.admin && currentUser?.role !== 'admin') return null;
-                  return (
-                    <button 
+      {/* HEADER PRINCIPAL */}
+      <div className="bg-white border-b border-slate-200 shrink-0 px-6 py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-sm z-20">
+         <div>
+            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+               <Sun className="w-7 h-7 text-orange-500 fill-orange-500" />
+               Centro de Operações Verão
+            </h1>
+            <p className="text-slate-500 text-xs font-medium uppercase tracking-wide mt-1">
+               Monitoramento e Gestão de Voos Litorâneos
+            </p>
+         </div>
+         <div className="flex gap-2 bg-slate-100 p-1 rounded-lg">
+            {[
+                { id: 'stats', label: 'Painel Geral', icon: Activity },
+                { id: 'flights', label: 'Diário de Voos', icon: Clock },
+                { id: 'report', label: 'Relatórios', icon: FileText },
+                { id: 'audit', label: 'Auditoria', icon: Shield, admin: true }
+            ].map(tab => {
+                if (tab.admin && currentUser?.role !== 'admin') return null;
+                const isActive = activeTab === tab.id;
+                return (
+                    <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id as SummerTab)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-orange-600 text-white shadow-sm' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-md text-xs font-bold transition-all duration-200 ${
+                            isActive 
+                            ? 'bg-white text-orange-600 shadow-sm' 
+                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                        }`}
                     >
-                        <tab.icon className="w-3.5 h-3.5" /> {tab.label}
+                        <tab.icon className={`w-4 h-4 ${isActive ? 'fill-orange-100' : ''}`} />
+                        {tab.label}
                     </button>
-                  )
-                })}
+                )
+            })}
+         </div>
+      </div>
+
+      {/* BARRA DE AÇÕES E FILTROS */}
+      <div className="bg-white border-b border-slate-200 px-6 py-3 flex flex-col gap-3 shrink-0 z-10">
+         <div className="flex flex-col md:flex-row justify-between items-center gap-3">
+            
+            {/* Esquerda: Toggle Filtros e Resumo */}
+            <div className="flex items-center gap-4 w-full md:w-auto">
+               <button 
+                  onClick={() => setIsFilterOpen(!isFilterOpen)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${isFilterOpen ? 'bg-slate-100 text-slate-800' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+               >
+                  <Filter className="w-3.5 h-3.5" />
+                  Filtros
+                  {activeFilterCount > 0 && (
+                      <span className="bg-orange-500 text-white px-1.5 py-0.5 rounded-full text-[9px] ml-1">{activeFilterCount}</span>
+                  )}
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isFilterOpen ? 'rotate-180' : ''}`} />
+               </button>
+
+               {/* Filtros Ativos (Chips) */}
+               <div className="flex flex-wrap gap-2 overflow-x-auto no-scrollbar">
+                  {filterMission !== 'all' && <FilterChip label={MISSION_HIERARCHY[filterMission as MissionType]?.label || filterMission} onClear={() => setFilterMission('all')} />}
+                  {filterLocation !== 'all' && <FilterChip label={filterLocation} onClear={() => {setFilterLocation('all'); setFilterPgv('all');}} />}
+                  {filterPgv !== 'all' && <FilterChip label={filterPgv} onClear={() => setFilterPgv('all')} />}
+                  {(dateStart || dateEnd) && <FilterChip label="Período" onClear={() => {setDateStart(''); setDateEnd('');}} />}
+               </div>
             </div>
 
-            <div className="flex gap-2 items-center">
+            {/* Direita: Ações Globais */}
+            <div className="flex items-center gap-2 w-full md:w-auto justify-end">
                 <Button 
                     onClick={handleSyncData} 
                     disabled={isSyncing} 
-                    className="bg-blue-600 hover:bg-blue-700 border-none text-[10px] h-7 px-3 font-bold uppercase"
-                    title="Buscar voos da operação geral que não aparecem aqui"
+                    variant="outline"
+                    className="h-8 text-[10px] font-bold uppercase border-slate-300 text-blue-700 bg-blue-50 hover:bg-blue-100"
                 >
                     <RefreshCw className={`w-3 h-3 mr-1.5 ${isSyncing ? 'animate-spin' : ''}`} /> 
-                    {isSyncing ? 'Buscando...' : 'Sincronizar'}
+                    {isSyncing ? 'Sincronizando...' : 'Sincronizar Base'}
                 </Button>
 
-                {activeTab === 'flights' && selectedIds.size === 1 && currentUser?.role === 'admin' && (
-                    <Button onClick={handleEditSelected} className="bg-amber-600 hover:bg-amber-700 border-none text-[10px] h-7 px-3 font-bold uppercase text-white shadow-sm">
-                        <Pencil className="w-3 h-3 mr-1.5" /> Editar
-                    </Button>
-                )}
-
-                {activeTab === 'flights' && selectedIds.size > 0 && currentUser?.role === 'admin' && (
-                    <Button onClick={handleDeleteSelected} variant="danger" size="sm" className="h-7 px-3 text-[10px] font-bold uppercase">
-                        <Trash2 className="w-3 h-3 mr-1.5" /> Excluir ({selectedIds.size})
-                    </Button>
-                )}
-                <Button 
-                    onClick={handleExportPDF} 
-                    disabled={isGenerating} 
-                    className="bg-slate-700 hover:bg-slate-600 border-none text-[10px] h-7 px-3 font-bold uppercase"
-                >
-                    <Download className="w-3 h-3 mr-1.5" /> 
-                    {isGenerating ? '...' : selectedIds.size > 0 ? `PDF (${selectedIds.size})` : 'PDF Total'}
-                </Button>
-            </div>
-        </div>
-      </nav>
-
-      {/* COMPACT FILTERS BAR */}
-      <div className="bg-white border-b border-slate-200 shrink-0 z-20">
-        <div className="max-w-[1800px] mx-auto">
-            <button 
-                onClick={() => setIsFilterOpen(!isFilterOpen)}
-                className="w-full flex justify-between items-center px-4 py-2 text-left hover:bg-slate-50 transition-colors"
-            >
-                <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                    <Filter className="w-3 h-3 text-orange-600" /> Filtros ({filteredFlights.length} reg.)
-                </div>
-                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isFilterOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {isFilterOpen && (
-                <div className="px-4 pb-3 border-t border-slate-100 animate-fade-in bg-slate-50/50">
-                    <div className="grid grid-cols-2 md:grid-cols-6 gap-2 pt-2">
-                        <Select value={filterMission} onChange={e => setFilterMission(e.target.value)} className="h-8 text-xs bg-white">
-                            <option value="all">Todas Naturezas</option>
-                            {Object.entries(MISSION_HIERARCHY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                        </Select>
-                        <Select value={filterLocation} onChange={e => {setFilterLocation(e.target.value); setFilterPgv('all');}} className="h-8 text-xs bg-white">
-                            <option value="all">Todas Cidades</option>
-                            {Object.keys(SUMMER_LOCATIONS).map(city => <option key={city} value={city}>{city}</option>)}
-                        </Select>
-                        <Select value={filterPgv} onChange={e => setFilterPgv(e.target.value)} disabled={filterLocation === 'all'} className="h-8 text-xs bg-white">
-                            <option value="all">Todos Postos</option>
-                            {filterLocation !== 'all' && SUMMER_LOCATIONS[filterLocation]?.map(pgv => <option key={pgv} value={pgv}>{pgv}</option>)}
-                        </Select>
-                        <Input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} className="h-8 text-xs bg-white" />
-                        <Input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} className="h-8 text-xs bg-white" />
-                        <Button variant="outline" onClick={() => {setFilterMission("all"); setFilterLocation("all"); setFilterPgv("all"); setDateStart(""); setDateEnd("");}} className="bg-white h-8 px-2 text-xs">
-                            <RefreshCcw className="w-3 h-3 mr-1" /> Limpar
+                {activeTab === 'flights' && selectedIds.size > 0 && (
+                    <>
+                        <div className="h-6 w-px bg-slate-300 mx-1"></div>
+                        {selectedIds.size === 1 && currentUser?.role === 'admin' && (
+                            <Button onClick={handleEditSelected} className="bg-amber-500 hover:bg-amber-600 text-white h-8 text-[10px] px-3 font-bold uppercase shadow-sm">
+                                <Pencil className="w-3 h-3 mr-1.5" /> Editar
+                            </Button>
+                        )}
+                        {currentUser?.role === 'admin' && (
+                            <Button onClick={handleDeleteSelected} className="bg-red-600 hover:bg-red-700 text-white h-8 text-[10px] px-3 font-bold uppercase shadow-sm">
+                                <Trash2 className="w-3 h-3 mr-1.5" /> Excluir ({selectedIds.size})
+                            </Button>
+                        )}
+                        <Button onClick={handleExportPDF} className="bg-slate-700 hover:bg-slate-800 text-white h-8 text-[10px] px-3 font-bold uppercase shadow-sm">
+                            <Download className="w-3 h-3 mr-1.5" /> PDF ({selectedIds.size})
                         </Button>
-                    </div>
+                    </>
+                )}
+                
+                {activeTab !== 'flights' && (
+                    <Button onClick={handleExportPDF} disabled={isGenerating} className="bg-slate-700 hover:bg-slate-800 text-white h-8 text-[10px] px-3 font-bold uppercase shadow-sm">
+                        <Download className="w-3 h-3 mr-1.5" /> {isGenerating ? 'Gerando...' : 'Exportar Relatório'}
+                    </Button>
+                )}
+            </div>
+         </div>
+
+         {/* Painel Expansível de Filtros */}
+         {isFilterOpen && (
+            <div className="pt-3 border-t border-slate-100 animate-fade-in grid grid-cols-1 md:grid-cols-5 gap-3">
+                <Select label="Natureza" value={filterMission} onChange={e => setFilterMission(e.target.value)} className="h-9 text-xs bg-slate-50 border-slate-200">
+                    <option value="all">Todas as Naturezas</option>
+                    {Object.entries(MISSION_HIERARCHY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </Select>
+                <Select label="Cidade" value={filterLocation} onChange={e => {setFilterLocation(e.target.value); setFilterPgv('all');}} className="h-9 text-xs bg-slate-50 border-slate-200">
+                    <option value="all">Todas as Cidades</option>
+                    {Object.keys(SUMMER_LOCATIONS).map(city => <option key={city} value={city}>{city}</option>)}
+                </Select>
+                <Select label="Posto (PGV)" value={filterPgv} onChange={e => setFilterPgv(e.target.value)} disabled={filterLocation === 'all'} className="h-9 text-xs bg-slate-50 border-slate-200">
+                    <option value="all">Todos os Postos</option>
+                    {filterLocation !== 'all' && SUMMER_LOCATIONS[filterLocation]?.map(pgv => <option key={pgv} value={pgv}>{pgv}</option>)}
+                </Select>
+                <div className="md:col-span-2 grid grid-cols-2 gap-2">
+                    <Input label="De" type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} className="h-9 text-xs bg-slate-50 border-slate-200" />
+                    <Input label="Até" type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} className="h-9 text-xs bg-slate-50 border-slate-200" />
                 </div>
-            )}
-        </div>
+            </div>
+         )}
       </div>
 
-      <main className="flex-1 overflow-y-auto p-3 bg-slate-100/50">
-        <div className="max-w-[1800px] mx-auto space-y-3">
+      <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50">
+        <div className="max-w-[1800px] mx-auto space-y-6">
             
             {activeTab === 'stats' && (
-                <div className="animate-fade-in space-y-3">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="bg-white border border-slate-200 rounded-lg p-3 flex flex-col shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
-                            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity"><Activity className="w-8 h-8 text-orange-500"/></div>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Voos</span>
-                            <span className="text-2xl font-bold text-slate-800">{filteredFlights.length}</span>
-                        </div>
-                        <div className="bg-white border border-slate-200 rounded-lg p-3 flex flex-col shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
-                            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity"><Clock className="w-8 h-8 text-blue-500"/></div>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Horas Totais</span>
-                            <span className="text-2xl font-bold text-slate-800">{stats.totalHours.toFixed(1)}h</span>
-                        </div>
-                        <div className="bg-white border border-slate-200 rounded-lg p-3 flex flex-col shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
-                            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity"><MapPin className="w-8 h-8 text-green-500"/></div>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Postos</span>
-                            <span className="text-2xl font-bold text-slate-800">{new Set(filteredFlights.map(f => f.location)).size}</span>
-                        </div>
-                        <div className="bg-white border border-slate-200 rounded-lg p-3 flex flex-col shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
-                            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity"><Users className="w-8 h-8 text-slate-500"/></div>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Aeronaves</span>
-                            <span className="text-2xl font-bold text-slate-800">{new Set(filteredFlights.map(f => f.drone_id)).size}</span>
-                        </div>
+                <div className="animate-fade-in space-y-6">
+                    
+                    {/* KPIs - Novo Design */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <Card className="p-5 flex items-center justify-between border-l-4 border-l-orange-500 shadow-sm hover:shadow-md transition-shadow">
+                            <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total de Voos</p>
+                                <h3 className="text-3xl font-black text-slate-800">{filteredFlights.length}</h3>
+                                <p className="text-xs text-orange-600 font-medium mt-1">Registrados no período</p>
+                            </div>
+                            <div className="p-3 bg-orange-50 rounded-full text-orange-500 opacity-80">
+                                <Activity className="w-8 h-8" />
+                            </div>
+                        </Card>
+
+                        <Card className="p-5 flex items-center justify-between border-l-4 border-l-blue-500 shadow-sm hover:shadow-md transition-shadow">
+                            <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Tempo de Voo</p>
+                                <h3 className="text-3xl font-black text-slate-800">{stats.totalHours.toFixed(1)}<span className="text-lg text-slate-400 font-bold ml-1">h</span></h3>
+                                <p className="text-xs text-blue-600 font-medium mt-1">Horas acumuladas</p>
+                            </div>
+                            <div className="p-3 bg-blue-50 rounded-full text-blue-500 opacity-80">
+                                <Clock className="w-8 h-8" />
+                            </div>
+                        </Card>
+
+                        <Card className="p-5 flex items-center justify-between border-l-4 border-l-green-500 shadow-sm hover:shadow-md transition-shadow">
+                            <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Postos Atendidos</p>
+                                <h3 className="text-3xl font-black text-slate-800">{new Set(filteredFlights.map(f => f.location)).size}</h3>
+                                <p className="text-xs text-green-600 font-medium mt-1">Locais distintos</p>
+                            </div>
+                            <div className="p-3 bg-green-50 rounded-full text-green-500 opacity-80">
+                                <MapPin className="w-8 h-8" />
+                            </div>
+                        </Card>
+
+                        <Card className="p-5 flex items-center justify-between border-l-4 border-l-purple-500 shadow-sm hover:shadow-md transition-shadow">
+                            <div>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Frota Empregada</p>
+                                <h3 className="text-3xl font-black text-slate-800">{new Set(filteredFlights.map(f => f.drone_id)).size}</h3>
+                                <p className="text-xs text-purple-600 font-medium mt-1">Aeronaves ativas</p>
+                            </div>
+                            <div className="p-3 bg-purple-50 rounded-full text-purple-500 opacity-80">
+                                <RefreshCcw className="w-8 h-8" />
+                            </div>
+                        </Card>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                        <Card className="lg:col-span-2 h-[400px] overflow-hidden relative shadow-sm border border-slate-200 rounded-lg">
-                            <div className="absolute top-3 left-3 z-[400] bg-white/90 px-2 py-1 rounded border border-slate-200 font-bold text-[10px] uppercase shadow-sm flex items-center gap-2">
-                                <MapIcon className="w-3 h-3 text-orange-600"/> Mapa Operacional
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        
+                        {/* MAPA OPERACIONAL */}
+                        <Card className="lg:col-span-2 min-h-[500px] overflow-hidden relative shadow-md border border-slate-200">
+                            <div className="absolute top-4 left-4 z-[400] bg-white/90 backdrop-blur px-3 py-2 rounded-lg border border-slate-200 shadow-lg flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                                <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">Mapa de Calor Operacional</span>
                             </div>
-                            <MapContainer center={[-25.7, -48.5]} zoom={9} style={{ height: '100%', width: '100%' }}>
+                            
+                            <MapContainer center={[-25.65, -48.5]} zoom={9} style={{ height: '100%', width: '100%' }}>
                                 <MapController />
-                                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                <TileLayer 
+                                    attribution='&copy; OpenStreetMap'
+                                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
+                                />
                                 {filteredFlights.map(f => (
                                     isValidCoord(f.latitude, f.longitude) && (
                                         <CircleMarker 
                                             key={f.id}
                                             center={[jitter(f.latitude!), jitter(f.longitude!)]}
-                                            pathOptions={{ color: MISSION_COLORS[f.mission_type] || 'orange', fillColor: MISSION_COLORS[f.mission_type] || 'orange', fillOpacity: 0.6, weight: 1 }}
-                                            radius={5}
+                                            pathOptions={{ 
+                                                color: MISSION_COLORS[f.mission_type] || '#f97316', 
+                                                fillColor: MISSION_COLORS[f.mission_type] || '#f97316', 
+                                                fillOpacity: 0.6, 
+                                                weight: 1 
+                                            }}
+                                            radius={6}
                                         >
                                             <Popup>
-                                                <div className="text-[10px] font-bold uppercase">{f.location}</div>
-                                                <div className="text-[9px] text-slate-500 mt-1">{new Date(f.date).toLocaleDateString()}</div>
+                                                <div className="min-w-[150px]">
+                                                    <div className="text-[10px] font-bold uppercase text-slate-500 mb-1">{MISSION_HIERARCHY[f.mission_type as MissionType]?.label}</div>
+                                                    <div className="font-bold text-slate-800 text-sm leading-tight">{f.location}</div>
+                                                    <div className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                                                        <Calendar className="w-3 h-3"/> {new Date(f.date).toLocaleDateString()}
+                                                    </div>
+                                                </div>
                                             </Popup>
                                         </CircleMarker>
                                     )
@@ -420,33 +528,53 @@ export default function SummerOperationCenter() {
                             </MapContainer>
                         </Card>
                         
-                        <div className="flex flex-col gap-3">
-                            <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex-1 min-h-[190px]">
-                                <h4 className="text-[10px] font-bold text-slate-500 mb-2 uppercase flex items-center gap-1"><PieChartIcon className="w-3 h-3 text-orange-600" /> Natureza</h4>
-                                <div className="h-32">
+                        {/* GRÁFICOS LATERAIS */}
+                        <div className="flex flex-col gap-6">
+                            <Card className="p-5 flex-1 shadow-md border border-slate-200">
+                                <h4 className="text-xs font-bold text-slate-600 mb-4 uppercase tracking-widest flex items-center gap-2">
+                                    <PieChartIcon className="w-4 h-4 text-orange-500" /> Distribuição por Natureza
+                                </h4>
+                                <div className="h-48 w-full">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <PieChart>
-                                            <Pie data={stats.byMission} innerRadius={35} outerRadius={60} paddingAngle={2} dataKey="value">
+                                            <Pie 
+                                                data={stats.byMission} 
+                                                innerRadius={45} 
+                                                outerRadius={70} 
+                                                paddingAngle={4} 
+                                                dataKey="value"
+                                                stroke="none"
+                                            >
                                                 {stats.byMission.map((_, index) => <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
                                             </Pie>
-                                            <Tooltip contentStyle={{ fontSize: '10px' }} />
+                                            <Tooltip content={<CustomTooltip />} />
+                                            <Legend verticalAlign="bottom" height={36} iconSize={8} wrapperStyle={{ fontSize: '10px' }}/>
                                         </PieChart>
                                     </ResponsiveContainer>
                                 </div>
-                            </div>
-                            <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex-1 min-h-[190px]">
-                                <h4 className="text-[10px] font-bold text-slate-500 mb-2 uppercase flex items-center gap-1"><MapPin className="w-3 h-3 text-orange-600" /> Localidades</h4>
-                                <div className="h-32">
+                            </Card>
+
+                            <Card className="p-5 flex-1 shadow-md border border-slate-200">
+                                <h4 className="text-xs font-bold text-slate-600 mb-4 uppercase tracking-widest flex items-center gap-2">
+                                    <BarChart3 className="w-4 h-4 text-blue-500" /> Top Localidades
+                                </h4>
+                                <div className="h-48 w-full">
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={stats.byLocation} layout="vertical" margin={{ left: 0, right: 10 }}>
+                                        <BarChart data={stats.byLocation} layout="vertical" margin={{ left: 0, right: 10, top: 0, bottom: 0 }}>
                                             <XAxis type="number" hide />
-                                            <YAxis dataKey="name" type="category" width={90} style={{ fontSize: '9px', fontWeight: 600 }} />
-                                            <Tooltip contentStyle={{ fontSize: '10px' }} cursor={{fill: 'transparent'}} />
-                                            <Bar dataKey="value" fill="#f97316" radius={[0, 4, 4, 0]} barSize={12} />
+                                            <YAxis 
+                                                dataKey="name" 
+                                                type="category" 
+                                                width={90} 
+                                                tick={{fontSize: 10, fill: '#64748b', fontWeight: 500}} 
+                                                interval={0}
+                                            />
+                                            <Tooltip content={<CustomTooltip />} cursor={{fill: '#f1f5f9'}} />
+                                            <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={14} />
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
-                            </div>
+                            </Card>
                         </div>
                     </div>
                 </div>
@@ -454,106 +582,133 @@ export default function SummerOperationCenter() {
 
             {activeTab === 'flights' && (
                 <div className="animate-fade-in">
-                    <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
+                    <Card className="border border-slate-200 shadow-sm overflow-hidden">
                         <div className="overflow-x-auto">
                             <table className="w-full text-left">
                                 <thead className="bg-slate-50 border-b border-slate-200">
                                     <tr>
-                                        <th className="px-3 py-2 w-10 text-center">
-                                            <button onClick={() => selectedIds.size === filteredFlights.length ? setSelectedIds(new Set()) : setSelectedIds(new Set(filteredFlights.map(f => f.id)))} className="text-slate-400 hover:text-slate-600">
-                                                {selectedIds.size === filteredFlights.length && filteredFlights.length > 0 ? <CheckSquare className="w-4 h-4"/> : <Square className="w-4 h-4"/>}
+                                        <th className="px-4 py-3 w-12 text-center">
+                                            <button 
+                                                onClick={() => selectedIds.size === filteredFlights.length ? setSelectedIds(new Set()) : setSelectedIds(new Set(filteredFlights.map(f => f.id)))} 
+                                                className="text-slate-400 hover:text-slate-600 transition-colors"
+                                            >
+                                                {selectedIds.size === filteredFlights.length && filteredFlights.length > 0 ? <CheckSquare className="w-4 h-4 text-blue-600"/> : <Square className="w-4 h-4"/>}
                                             </button>
                                         </th>
-                                        <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Data / Hora</th>
-                                        <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Local</th>
-                                        <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Natureza</th>
-                                        <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Dur.</th>
-                                        <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Equipe / Drone</th>
+                                        <th className="px-4 py-3 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Data / Hora</th>
+                                        <th className="px-4 py-3 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Local</th>
+                                        <th className="px-4 py-3 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Natureza</th>
+                                        <th className="px-4 py-3 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Duração</th>
+                                        <th className="px-4 py-3 text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Equipe / Drone</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100">
+                                <tbody className="divide-y divide-slate-100 bg-white">
                                     {filteredFlights.map(f => (
-                                        <tr key={f.id} className={`hover:bg-slate-50 transition-colors ${selectedIds.has(f.id) ? 'bg-orange-50/50' : ''}`}>
-                                            <td className="px-3 py-2 text-center align-middle">
+                                        <tr key={f.id} className={`hover:bg-slate-50 transition-colors ${selectedIds.has(f.id) ? 'bg-blue-50/40' : ''}`}>
+                                            <td className="px-4 py-3 text-center align-middle">
                                                 <button onClick={() => { const n = new Set(selectedIds); if(n.has(f.id)) n.delete(f.id); else n.add(f.id); setSelectedIds(n); }}>
-                                                    {selectedIds.has(f.id) ? <CheckSquare className="w-4 h-4 text-orange-600"/> : <Square className="w-4 h-4 text-slate-300"/>}
+                                                    {selectedIds.has(f.id) ? <CheckSquare className="w-4 h-4 text-blue-600"/> : <Square className="w-4 h-4 text-slate-300"/>}
                                                 </button>
                                             </td>
-                                            <td className="px-3 py-2 align-middle">
+                                            <td className="px-4 py-3 align-middle">
                                                 <div className="font-bold text-xs text-slate-700">{new Date(f.date + 'T12:00:00').toLocaleDateString()}</div>
-                                                <div className="text-[9px] text-slate-400 font-mono">{f.start_time} - {f.end_time}</div>
+                                                <div className="text-[10px] text-slate-400 font-mono mt-0.5">{f.start_time} - {f.end_time}</div>
                                             </td>
-                                            <td className="px-3 py-2 align-middle font-medium text-xs text-slate-600 truncate max-w-[150px]" title={f.location}>{f.location}</td>
-                                            <td className="px-3 py-2 align-middle">
-                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                                            <td className="px-4 py-3 align-middle font-medium text-xs text-slate-600 truncate max-w-[180px]" title={f.location}>
+                                                {f.location}
+                                            </td>
+                                            <td className="px-4 py-3 align-middle">
+                                                <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
                                                     {MISSION_HIERARCHY[f.mission_type as MissionType]?.label || f.mission_type}
                                                 </span>
                                             </td>
-                                            <td className="px-3 py-2 align-middle font-mono text-xs font-bold text-slate-600">
+                                            <td className="px-4 py-3 align-middle font-mono text-xs font-bold text-slate-700">
                                                 {formatMinutesToHHMM(f.flight_duration)}
                                             </td>
-                                            <td className="px-3 py-2 align-middle">
+                                            <td className="px-4 py-3 align-middle">
                                                 <div className="text-[10px] font-bold text-slate-700">{pilots.find(p => p.id === f.pilot_id)?.full_name || 'N/A'}</div>
-                                                <div className="text-[9px] text-slate-400">{drones.find(d => d.id === f.drone_id)?.prefix || 'N/A'}</div>
+                                                <div className="text-[9px] text-slate-400 font-mono mt-0.5">{drones.find(d => d.id === f.drone_id)?.prefix || 'N/A'}</div>
                                             </td>
                                         </tr>
                                     ))}
                                     {filteredFlights.length === 0 && (
-                                        <tr><td colSpan={6} className="p-8 text-center text-xs text-slate-400 italic">Nenhum registro encontrado.</td></tr>
+                                        <tr><td colSpan={6} className="p-12 text-center text-xs text-slate-400 italic bg-slate-50/30">Nenhum registro encontrado com os filtros atuais.</td></tr>
                                     )}
                                 </tbody>
                             </table>
                         </div>
-                    </div>
+                    </Card>
                 </div>
             )}
 
             {activeTab === 'report' && (
-                <div className="animate-fade-in flex items-center justify-center min-h-[300px]">
-                    <div className="max-w-md w-full p-6 text-center space-y-4 bg-white rounded-lg border border-slate-200 shadow-sm relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-500 to-red-500"></div>
-                        <div className="w-12 h-12 bg-orange-50 rounded-full flex items-center justify-center mx-auto text-orange-600 mb-2">
-                            <FileText className="w-6 h-6" />
+                <div className="animate-fade-in flex items-center justify-center min-h-[400px]">
+                    <Card className="max-w-md w-full p-8 text-center space-y-6 shadow-xl border-t-4 border-t-orange-500 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                            <FileText className="w-32 h-32" />
                         </div>
+                        
+                        <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto text-orange-600 mb-2 ring-4 ring-orange-50">
+                            <Download className="w-8 h-8" />
+                        </div>
+                        
                         <div>
-                            <h3 className="text-lg font-bold text-slate-800">Exportação Consolidada</h3>
-                            <p className="text-xs text-slate-500 mt-1">Gere um relatório PDF com os filtros atuais aplicados.</p>
+                            <h3 className="text-xl font-bold text-slate-800">Exportação de Relatório</h3>
+                            <p className="text-sm text-slate-500 mt-2 leading-relaxed">
+                                Gere um documento PDF oficial contendo estatísticas consolidadas e o log detalhado dos voos filtrados.
+                            </p>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 text-left mt-2">
-                            <div className="p-2 bg-slate-50 rounded border border-slate-100 text-[10px]"><span className="font-bold block text-slate-400 uppercase">Voos</span>{filteredFlights.length}</div>
-                            <div className="p-2 bg-slate-50 rounded border border-slate-100 text-[10px]"><span className="font-bold block text-slate-400 uppercase">Horas</span>{stats.totalHours.toFixed(1)}h</div>
+
+                        <div className="bg-slate-50 rounded-lg p-4 text-left space-y-2 border border-slate-100">
+                            <div className="flex justify-between text-xs">
+                                <span className="text-slate-500 font-bold uppercase">Registros</span>
+                                <span className="text-slate-800 font-mono">{filteredFlights.length}</span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                                <span className="text-slate-500 font-bold uppercase">Horas Totais</span>
+                                <span className="text-slate-800 font-mono">{stats.totalHours.toFixed(1)}h</span>
+                            </div>
                         </div>
-                        <Button onClick={handleExportPDF} disabled={isGenerating} className="w-full h-10 text-sm bg-slate-800 hover:bg-slate-900 text-white font-bold shadow-md">
-                            <Download className="w-4 h-4 mr-2" /> {isGenerating ? 'Processando...' : 'Baixar Relatório'}
+
+                        <Button onClick={handleExportPDF} disabled={isGenerating} className="w-full h-11 text-sm bg-slate-900 hover:bg-black text-white font-bold shadow-lg transition-transform active:scale-95">
+                            {isGenerating ? (
+                                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Gerando Documento...</>
+                            ) : (
+                                <><Download className="w-4 h-4 mr-2" /> Baixar Relatório PDF</>
+                            )}
                         </Button>
-                    </div>
+                    </Card>
                 </div>
             )}
 
             {activeTab === 'audit' && (
                 <div className="animate-fade-in">
-                    <div className="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
+                    <Card className="border border-slate-200 shadow-sm overflow-hidden">
                         <table className="w-full text-left">
                             <thead className="bg-slate-50 border-b border-slate-200">
                                 <tr>
-                                    <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase">Data</th>
-                                    <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase">Usuário</th>
-                                    <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase">Ação</th>
-                                    <th className="px-3 py-2 text-[10px] font-bold text-slate-500 uppercase">Log</th>
+                                    <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Data/Hora</th>
+                                    <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Usuário</th>
+                                    <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Ação</th>
+                                    <th className="px-4 py-3 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Detalhes</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 text-xs text-slate-600">
                                 {auditLogs.map(log => (
                                     <tr key={log.id} className="hover:bg-slate-50">
-                                        <td className="px-3 py-2 font-mono text-[10px]">{new Date(log.timestamp).toLocaleString()}</td>
-                                        <td className="px-3 py-2 font-bold">{pilots.find(p => p.id === log.user_id)?.full_name || 'Sistema'}</td>
-                                        <td className="px-3 py-2"><Badge variant={log.action === 'CREATE' ? 'success' : 'danger'} className="text-[9px] px-1.5 py-0.5">{log.action}</Badge></td>
-                                        <td className="px-3 py-2 italic text-slate-500 truncate max-w-xs" title={log.details}>{log.details}</td>
+                                        <td className="px-4 py-2 font-mono text-[10px] text-slate-500">{new Date(log.timestamp).toLocaleString()}</td>
+                                        <td className="px-4 py-2 font-bold text-slate-700">{pilots.find(p => p.id === log.user_id)?.full_name || 'Sistema'}</td>
+                                        <td className="px-4 py-2">
+                                            <Badge variant={log.action === 'CREATE' ? 'success' : log.action === 'DELETE' ? 'danger' : 'warning'} className="text-[9px] px-1.5 py-0.5">
+                                                {log.action}
+                                            </Badge>
+                                        </td>
+                                        <td className="px-4 py-2 italic text-slate-500 truncate max-w-md" title={log.details}>{log.details}</td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
-                    </div>
+                    </Card>
                 </div>
             )}
 
@@ -563,12 +718,15 @@ export default function SummerOperationCenter() {
       {/* EDIT MODAL */}
       {isEditModalOpen && editingFlight && (
           <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-              <Card className="w-full max-w-lg bg-white shadow-2xl p-6">
+              <Card className="w-full max-w-lg bg-white shadow-2xl p-6 border-t-4 border-t-blue-600">
                   <div className="flex justify-between items-center mb-6 border-b pb-3">
-                      <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                          <Pencil className="w-5 h-5 text-blue-600" /> Editar Registro de Voo
-                      </h2>
-                      <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                      <div>
+                          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                              <Pencil className="w-5 h-5 text-blue-600" /> Editar Registro
+                          </h2>
+                          <p className="text-xs text-slate-400 mt-1 font-mono">ID: {editingFlight.id.split('-')[0]}</p>
+                      </div>
+                      <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded hover:bg-slate-100 transition-colors">
                           <X className="w-6 h-6" />
                       </button>
                   </div>
@@ -582,12 +740,12 @@ export default function SummerOperationCenter() {
                               value={editFormData.date} 
                               onChange={e => setEditFormData({...editFormData, date: e.target.value})} 
                               required 
+                              className="font-bold text-slate-700"
                           />
                           <Select 
                               label="Localidade Base" 
                               value={Object.keys(SUMMER_LOCATIONS).find(key => editFormData.location?.includes(key)) ? 'Outro' : 'Outro'}
                               onChange={e => {
-                                  // Simplified logic: Just clear if 'Outro' is picked, or set value if a city key was real
                                   if(e.target.value !== 'Outro') setEditFormData({...editFormData, location: e.target.value});
                               }}
                           >
@@ -637,18 +795,18 @@ export default function SummerOperationCenter() {
                               onChange={e => handleEditTimeChange('end_time', e.target.value)} 
                               required 
                           />
-                          <div className="bg-white p-1 rounded border border-slate-200 flex flex-col justify-center">
-                              <label className="text-[10px] font-bold text-slate-500 block mb-1 text-center uppercase">Duração Calc.</label>
-                              <div className="text-center font-mono font-bold text-blue-600">
+                          <div className="bg-white p-2 rounded border border-slate-200 flex flex-col justify-center items-center">
+                              <label className="text-[9px] font-bold text-slate-400 uppercase mb-1">Duração</label>
+                              <div className="text-center font-mono font-bold text-blue-600 text-sm">
                                 {formatMinutesToHHMM(editFormData.flight_duration)}
                               </div>
                           </div>
                       </div>
 
                       <div>
-                          <label className="text-sm font-medium text-slate-700 mb-1 block">Natureza da Missão</label>
+                          <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Natureza da Missão</label>
                           <select 
-                              className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white"
+                              className="w-full p-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
                               value={editFormData.mission_type} 
                               onChange={e => setEditFormData({...editFormData, mission_type: e.target.value as any})}
                           >
@@ -659,17 +817,18 @@ export default function SummerOperationCenter() {
                       </div>
 
                       <div>
-                          <label className="text-sm font-medium text-slate-700 mb-1 block">Observações</label>
+                          <label className="text-xs font-bold text-slate-500 mb-1 block uppercase">Observações</label>
                           <textarea 
-                              className="w-full p-2 border border-slate-300 rounded-lg text-sm h-20 resize-none bg-white"
+                              className="w-full p-3 border border-slate-300 rounded-lg text-sm h-24 resize-none bg-white focus:ring-2 focus:ring-blue-500 outline-none"
                               value={editFormData.notes || ''}
                               onChange={e => setEditFormData({...editFormData, notes: e.target.value})}
+                              placeholder="Detalhes adicionais..."
                           />
                       </div>
 
-                      <div className="flex justify-end gap-3 pt-2">
+                      <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
                           <Button type="button" variant="outline" onClick={() => setIsEditModalOpen(false)}>Cancelar</Button>
-                          <Button type="submit" disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white shadow-md">
+                          <Button type="submit" disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white shadow-md font-bold">
                               <Save className="w-4 h-4 mr-2" /> Salvar Alterações
                           </Button>
                       </div>

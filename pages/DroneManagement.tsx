@@ -472,7 +472,7 @@ export default function DroneManagement() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 overflow-hidden relative">
+    <div className="flex flex-col h-full bg-white overflow-hidden relative">
       <div className="flex-shrink-0 bg-white border-b border-slate-200 p-4 md:p-6 shadow-sm z-10 space-y-4">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">

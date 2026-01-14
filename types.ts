@@ -74,6 +74,7 @@ export interface Drone {
     checklist?: DroneDocument[];
     importantes?: DroneDocument[];
     manual?: DroneDocument[];
+    aro?: DroneDocument[]; // Adicionado para suportar ARO Preventiva
   };
 }
 
