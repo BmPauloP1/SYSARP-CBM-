@@ -22,7 +22,7 @@ export type DroneStatus = 'available' | 'in_operation' | 'maintenance';
 export type MaintenanceType = 'preventive' | 'corrective' | 'inspection' | 'calibration' | 'battery' | 'propeller' | 'camera' | 'general';
 export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed';
 
-export const SYSARP_LOGO = "/img/logo_soarp.svg";
+export const SYSARP_LOGO = "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/696c235cd3c7dd9b211e6fa5/ef1f7eb49_9d6d0ab9-baa7-46f6-ad3c-0def22bac6e8.png";
 
 export interface Pilot {
   id: string;

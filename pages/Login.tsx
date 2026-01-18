@@ -224,19 +224,15 @@ export default function Login() {
         
         {/* Header Logo */}
         <div className="text-center">
+           {/* Logo SYSARP - Responsiva com Efeitos */}
            <div className="relative w-28 h-28 md:w-32 md:h-32 mx-auto mb-6 group">
               <div className="absolute inset-0 bg-red-600 rounded-full blur-2xl opacity-20 group-hover:opacity-30 transition-opacity duration-700 animate-pulse"></div>
-              <div className="relative w-full h-full bg-white/5 backdrop-blur-md rounded-full flex items-center justify-center shadow-2xl border border-white/10 ring-1 ring-white/20">
-                  {logoError ? (
-                      <Shield className="w-12 h-12 text-white" />
-                  ) : (
-                      <img 
-                        src={SYSARP_LOGO} 
-                        className="w-[70%] h-[70%] object-contain drop-shadow-lg" 
-                        alt="SYSARP Logo"
-                        onError={() => setLogoError(true)}
-                      />
-                  )}
+              <div className="relative w-full h-full bg-white/5 backdrop-blur-md rounded-full flex items-center justify-center shadow-2xl border border-white/10 ring-1 ring-white/20 p-2">
+                <img 
+                  src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/696c235cd3c7dd9b211e6fa5/ef1f7eb49_9d6d0ab9-baa7-46f6-ad3c-0def22bac6e8.png" 
+                  alt="SYSARP Logo CBMPR"
+                  className="w-full h-full object-contain drop-shadow-2xl"
+                />
               </div>
            </div>
            <h1 className="text-4xl font-black text-white tracking-[0.2em] uppercase drop-shadow-md">SYSARP</h1>
