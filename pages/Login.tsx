@@ -143,10 +143,10 @@ export default function Login() {
 
 
   return (
-    <div className="h-screen w-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-red-900 via-slate-950 to-black flex flex-col items-center justify-center p-4 overflow-y-auto overflow-x-hidden relative font-sans text-slate-800">
+    <div className="h-[100dvh] w-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-red-900 via-slate-950 to-black flex flex-col items-center justify-center p-4 overflow-hidden relative font-sans text-slate-800">
       
-      {/* AIRDATA SAFETY BADGE */}
-      <div className="absolute top-6 left-6 z-[100] opacity-60 hover:opacity-100 transition-all hover:scale-105 hidden sm:block grayscale hover:grayscale-0 duration-500">
+      {/* AIRDATA SAFETY BADGE - Hidden on small mobile to save space */}
+      <div className="absolute top-6 left-6 z-[100] opacity-60 hover:opacity-100 transition-all hover:scale-105 hidden md:block grayscale hover:grayscale-0 duration-500">
         <a href='https://certificates.airdata.com/QcvFJL' target="_blank" rel="noopener noreferrer" title="Airdata UAV Safety Verified">
           <img 
             alt='Airdata UAV|Drone Safety Verified Badge' 
@@ -155,17 +155,6 @@ export default function Login() {
             style={{ imageRendering: 'smooth' }}
           />
         </a>
-      </div>
-
-      {/* MOBILE AIRDATA BADGE (Compact) */}
-      <div className="sm:hidden absolute top-4 left-4 z-[100] opacity-70">
-         <a href='https://certificates.airdata.com/QcvFJL' target="_blank" rel="noopener noreferrer">
-           <img 
-             alt='Airdata Badge' 
-             src='https://certificates.airdata.com/badge?i=QcvFJL&r=Hnhr&t=7&m=3&size=12&c=0' 
-             className="w-[100px] h-auto"
-           />
-         </a>
       </div>
 
       {/* EMAIL FIX MODAL */}
@@ -220,46 +209,49 @@ export default function Login() {
       )}
 
       {/* Main Content */}
-      <div className="w-full max-w-[420px] flex flex-col gap-6 relative z-10 my-auto">
+      <div className="w-full max-w-[400px] flex flex-col gap-3 md:gap-6 relative z-10 my-auto">
         
         {/* Header Logo */}
         <div className="text-center">
-           {/* Logo SYSARP - Responsiva com Efeitos */}
-           <div className="relative w-28 h-28 md:w-32 md:h-32 mx-auto mb-6 group">
-              <div className="absolute inset-0 bg-red-600 rounded-full blur-2xl opacity-20 group-hover:opacity-30 transition-opacity duration-700 animate-pulse"></div>
-              <div className="relative w-full h-full bg-white/5 backdrop-blur-md rounded-full flex items-center justify-center shadow-2xl border border-white/10 ring-1 ring-white/20 p-2">
+           {/* Logo SYSARP - Tamanho Aumentado com Efeitos de Destaque */}
+           <div className="relative w-36 h-36 md:w-48 md:h-48 mx-auto mb-2 md:mb-6 group">
+              {/* Efeito de Glow Externo Intenso */}
+              <div className="absolute inset-0 bg-red-600 rounded-full blur-3xl opacity-40 group-hover:opacity-60 transition-opacity duration-700 animate-pulse"></div>
+              
+              {/* Container da Logo (Vidro, Borda e Sombra) */}
+              <div className="relative w-full h-full bg-gradient-to-b from-white/10 to-transparent backdrop-blur-xl rounded-full flex items-center justify-center shadow-2xl border border-white/20 ring-1 ring-red-500/30 p-4 transform transition-all duration-500 hover:scale-105 hover:border-red-500/50">
                 <img 
                   src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/696c235cd3c7dd9b211e6fa5/ef1f7eb49_9d6d0ab9-baa7-46f6-ad3c-0def22bac6e8.png" 
                   alt="SYSARP Logo CBMPR"
-                  className="w-full h-full object-contain drop-shadow-2xl"
+                  className="w-full h-full object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.6)] filter brightness-110"
                 />
               </div>
            </div>
-           <h1 className="text-4xl font-black text-white tracking-[0.2em] uppercase drop-shadow-md">SYSARP</h1>
-           <p className="text-red-200/80 text-[10px] font-bold uppercase tracking-[0.3em] mt-2">Sistema de Aeronaves Remotamente Pilotadas</p>
+           <h1 className="text-3xl md:text-4xl font-black text-white tracking-[0.2em] uppercase drop-shadow-md">SYSARP</h1>
+           <p className="text-red-200/80 text-[10px] font-bold uppercase tracking-[0.3em] mt-1 md:mt-2">Sistema de Aeronaves Remotamente Pilotadas</p>
         </div>
 
-        {/* Login Card */}
-        <Card className="p-8 shadow-2xl bg-white/95 backdrop-blur-xl border border-white/40 rounded-3xl relative overflow-hidden">
+        {/* Login Card - Compactado para Mobile */}
+        <Card className="p-6 md:p-8 shadow-2xl bg-white/95 backdrop-blur-xl border border-white/40 rounded-3xl relative overflow-hidden">
           {/* Top Decorative Line */}
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-700 via-red-500 to-red-700"></div>
 
-          <form onSubmit={handleLogin} className="space-y-6 mt-2">
-            <div className="text-center pb-2">
+          <form onSubmit={handleLogin} className="space-y-4 md:space-y-6 mt-1">
+            <div className="text-center pb-1">
                <h2 className="text-lg font-bold text-slate-800 uppercase tracking-wide">Acesso Restrito</h2>
-               <p className="text-xs text-slate-400 font-medium mt-1">Corpo de Bombeiros Militar do Paraná</p>
+               <p className="text-xs text-slate-400 font-medium mt-0.5">Corpo de Bombeiros Militar do Paraná</p>
             </div>
 
             {loginError && (
-              <div className="bg-red-50 border-l-4 border-red-500 rounded-r-lg p-3 flex items-start gap-3 animate-fade-in shadow-sm">
-                <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                <span className="text-sm font-bold text-red-800 leading-tight">{loginError}</span>
+              <div className="bg-red-50 border-l-4 border-red-500 rounded-r-lg p-2.5 flex items-start gap-2 animate-fade-in shadow-sm">
+                <AlertTriangle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                <span className="text-xs font-bold text-red-800 leading-tight">{loginError}</span>
               </div>
             )}
 
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Usuário</label>
+            <div className="space-y-3 md:space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] md:text-xs font-bold text-slate-500 uppercase ml-1">Usuário</label>
                 <div className="relative group">
                   <Input 
                     value={username} 
@@ -268,16 +260,16 @@ export default function Login() {
                     type="text"
                     required
                     autoComplete="username"
-                    className="pl-11 h-12 bg-slate-50 border-slate-200 focus:bg-white focus:border-red-500 focus:ring-red-500/20 transition-all rounded-xl lowercase font-medium text-slate-700 placeholder:text-slate-400"
+                    className="pl-10 h-11 md:h-12 bg-slate-50 border-slate-200 focus:bg-white focus:border-red-500 focus:ring-red-500/20 transition-all rounded-xl lowercase font-medium text-slate-700 placeholder:text-slate-400 text-sm"
                   />
-                  <div className="absolute left-3.5 top-3 text-slate-400 group-focus-within:text-red-600 transition-colors pointer-events-none">
-                    <User className="w-6 h-6" />
+                  <div className="absolute left-3 top-2.5 md:top-3 text-slate-400 group-focus-within:text-red-600 transition-colors pointer-events-none">
+                    <User className="w-5 h-5 md:w-6 md:h-6" />
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Senha</label>
+              <div className="space-y-1">
+                <label className="text-[10px] md:text-xs font-bold text-slate-500 uppercase ml-1">Senha</label>
                 <div className="relative group">
                   <Input 
                     type="password"
@@ -286,33 +278,38 @@ export default function Login() {
                     placeholder="••••••••"
                     required
                     autoComplete="current-password"
-                    className="pl-11 h-12 bg-slate-50 border-slate-200 focus:bg-white focus:border-red-500 focus:ring-red-500/20 transition-all rounded-xl font-medium text-slate-700 placeholder:text-slate-400"
+                    className="pl-10 h-11 md:h-12 bg-slate-50 border-slate-200 focus:bg-white focus:border-red-500 focus:ring-red-500/20 transition-all rounded-xl font-medium text-slate-700 placeholder:text-slate-400 text-sm"
                   />
-                  <div className="absolute left-3.5 top-3 text-slate-400 group-focus-within:text-red-600 transition-colors pointer-events-none">
-                    <Lock className="w-6 h-6" />
+                  <div className="absolute left-3 top-2.5 md:top-3 text-slate-400 group-focus-within:text-red-600 transition-colors pointer-events-none">
+                    <Lock className="w-5 h-5 md:w-6 md:h-6" />
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="pt-4 space-y-3">
-               <Button type="submit" disabled={loading} className="w-full h-12 bg-gradient-to-r from-red-700 to-red-600 hover:from-red-800 hover:to-red-700 text-white font-bold text-sm uppercase tracking-wider rounded-xl shadow-lg shadow-red-900/20 transform active:scale-[0.98] transition-all">
+            <div className="pt-2 md:pt-4 space-y-2 md:space-y-3">
+               <Button type="submit" disabled={loading} className="w-full h-11 md:h-12 bg-gradient-to-r from-red-700 to-red-600 hover:from-red-800 hover:to-red-700 text-white font-bold text-xs md:text-sm uppercase tracking-wider rounded-xl shadow-lg shadow-red-900/20 transform active:scale-[0.98] transition-all">
                   {loading ? (
                     <div className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> Acessando...</div>
                   ) : (
-                    <><LogIn className="w-5 h-5 mr-2" /> Entrar no Sistema</>
+                    <><LogIn className="w-4 h-4 md:w-5 md:h-5 mr-2" /> Entrar no Sistema</>
                   )}
                </Button>
-               <Button type="button" variant="outline" className="w-full h-12 border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 rounded-xl font-bold text-xs uppercase tracking-wider transition-all" onClick={() => setShowRegister(true)}>
+               <Button type="button" variant="outline" className="w-full h-11 md:h-12 border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 rounded-xl font-bold text-[10px] md:text-xs uppercase tracking-wider transition-all" onClick={() => setShowRegister(true)}>
                   <UserPlus className="w-4 h-4 mr-2"/> Solicitar Acesso
                </Button>
             </div>
           </form>
         </Card>
         
-        <div className="text-center space-y-1 opacity-60 hover:opacity-100 transition-opacity duration-500">
-           <p className="text-white/60 text-[10px] font-medium tracking-wide">© {new Date().getFullYear()} SYSARP - CBMPR - V.1.2</p>
-           <p className="text-white/30 text-[9px] uppercase tracking-widest">Desenvolvido por Cb Paulo</p>
+        {/* Footer Credits */}
+        <div className="text-center space-y-2 opacity-70 hover:opacity-100 transition-opacity duration-500 pt-2">
+           <p className="text-white/80 text-[10px] font-bold tracking-wide">© 2026 SYSARP - CBMPR - V.1.2</p>
+           <div className="flex flex-col gap-0.5">
+               <p className="text-red-400 text-[9px] uppercase tracking-widest font-black">Desenvolvimento</p>
+               <p className="text-white/50 text-[9px] uppercase tracking-wider font-medium">Cap. QOBM Jackson</p>
+               <p className="text-white/50 text-[9px] uppercase tracking-wider font-medium">Cb. QPBM Paulo</p>
+           </div>
         </div>
       </div>
 
