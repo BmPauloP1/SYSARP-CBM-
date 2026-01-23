@@ -2,289 +2,193 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
-  LayoutDashboard, 
-  Users, 
-  Wrench, 
-  FileText, 
-  Sun, 
-  Shield, 
-  LogOut, 
-  Menu, 
-  X, 
-  Radio, 
-  Activity, 
-  ChevronDown,
-  ChevronRight,
-  BarChart3,
-  Map as MapIcon,
-  Database,
-  Home,
-  PlusCircle
+  LayoutDashboard, Users, Radio, Activity, 
+  BarChart3, Shield, LogOut, Menu, X, ChevronDown, Plane, 
+  Database, ShieldAlert, Settings
 } from 'lucide-react';
 import { base44 } from '../services/base44Client';
 import { Pilot, SYSARP_LOGO } from '../types';
-import { DroneIcon } from './ui_components';
 
-interface LayoutProps {
-  children?: React.ReactNode;
-}
-
-interface NavItem {
-  title: string;
-  url?: string;
-  icon?: any;
-  adminOnly?: boolean;
-  badgeCount?: number;
-  subItems?: NavItem[];
-}
-
-export default function Layout({ children }: LayoutProps) {
-  const [user, setUser] = useState<Pilot | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [logoError, setLogoError] = useState(false);
-  const [pendingPilots, setPendingPilots] = useState(0);
-  
-  // Estado para controlar quais menus estão expandidos
-  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
-    'OPERAÇÕES': true, // Padrão aberto
-    'RELATÓRIOS': true
+export default function Layout({ children }: { children?: React.ReactNode }) {
+  // Evita o flicker: Busca o usuário do localStorage primeiro (cache rápido)
+  const [user, setUser] = useState<Pilot | null>(() => {
+    const cached = localStorage.getItem('sysarp_user_session');
+    return cached ? JSON.parse(cached) : null;
   });
-
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Verifica sessão real em segundo plano
     base44.auth.me().then(me => {
-        setUser(me);
-        if (me.role === 'admin') {
-            base44.entities.Pilot.list().then(pils => {
-                const count = pils.filter(p => p.status === 'pending').length;
-                setPendingPilots(count);
-            });
-        }
-    }).catch(() => navigate('/login'));
-  }, [navigate, location.pathname]);
+      setUser(me);
+      localStorage.setItem('sysarp_user_session', JSON.stringify(me));
+    }).catch(() => {
+      if (!user) navigate('/login');
+    });
+  }, [location.pathname]);
 
-  const handleLogout = async () => {
-    await base44.auth.logout();
-    navigate('/login');
-  };
-
-  const toggleMenu = (title: string) => {
-    setExpandedMenus(prev => ({
-      ...prev,
-      [title]: !prev[title]
-    }));
-  };
-
-  // Definição da Nova Estrutura de Menu
-  const navigationItems: NavItem[] = [
-    { title: "DASHBOARD", url: "/", icon: LayoutDashboard, adminOnly: false },
-    { 
-      title: "PILOTOS", 
-      url: "/pilots", 
-      icon: Users, 
-      adminOnly: false,
-      badgeCount: user?.role === 'admin' ? pendingPilots : 0
-    },
+  const navItems = [
+    { title: "DASHBOARD", url: "/", icon: LayoutDashboard },
+    { title: "PILOTOS", url: "/pilots", icon: Users },
     { 
       title: "AERONAVES", 
-      icon: DroneIcon,
-      adminOnly: false,
+      url: "/drones", 
+      icon: Plane, 
       subItems: [
-        { title: "GESTÃO DE FROTA", url: "/drones", icon: DroneIcon },
-        { title: "MANUTENÇÃO", url: "/maintenance", icon: Wrench },
-        { title: "CAUTELAS", url: "/cautela", icon: Shield }
+        { title: "GESTÃO DE FROTA", url: "/drones" },
+        { title: "MANUTENÇÃO", url: "/maintenance" },
+        { title: "CAUTELAS", url: "/cautela" }
       ]
     },
     { 
       title: "OPERAÇÕES", 
+      url: "/operations", 
       icon: Radio, 
-      adminOnly: false,
       subItems: [
-        { title: "CRIAR OPERAÇÕES", url: "/operations", adminOnly: false },
-        { title: "PLANO DE VOO", url: "/flight-plan", adminOnly: false },
-        { title: "A.R.O.", url: "/aro", adminOnly: false },
+        { title: "CRIAR OPERAÇÕES", url: "/operations?create=true" },
+        { title: "PLANO DE VOO", url: "/flight-plan" },
+        { title: "A.R.O.", url: "/aro" }
       ]
     },
-    { title: "TRANSMISSÃO", url: "/transmissions", icon: Activity, adminOnly: false },
-    
-    // Novo Grupo Unificado de Relatórios
-    {
-      title: "RELATÓRIOS",
-      icon: FileText,
-      adminOnly: false,
+    { title: "TRANSMISSÃO", url: "/transmissions", icon: Activity },
+    { 
+      title: "RELATÓRIOS", 
+      url: "/reports", 
+      icon: BarChart3, 
       subItems: [
-        { title: "REL. GERAL", url: "/reports", icon: BarChart3, adminOnly: false },
-        { title: "OP. VERÃO", url: "/summer", icon: Sun, adminOnly: false }
+        { title: "REL. GERAL", url: "/reports" },
+        { title: "OP. VERÃO", url: "/summer" }
       ]
     },
-
     { 
       title: "ADMINISTRAÇÃO", 
+      url: "/audit", 
       icon: Shield, 
       adminOnly: true,
       subItems: [
-        { title: "AUDITORIA", url: "/audit", adminOnly: true },
-        { title: "BANCO DE DADOS", url: "/db-updates", icon: Database, adminOnly: true },
+        { title: "AUDITORIA", url: "/audit" },
+        { title: "ESTRUTURA DB", url: "/db-updates" }
       ]
     },
   ];
 
-  // Helper para renderizar item da Bottom Bar
-  const BottomNavItem = ({ to, icon: Icon, label, isActive }: { to: string, icon: any, label: string, isActive: boolean }) => (
-    <Link to={to} className={`flex flex-col items-center justify-center w-full h-full gap-1 ${isActive ? 'text-red-600' : 'text-slate-400 hover:text-slate-600'}`}>
-        <Icon className={`w-6 h-6 ${isActive ? 'fill-red-100' : ''}`} />
-        <span className="text-[9px] font-bold uppercase tracking-wide">{label}</span>
-    </Link>
-  );
-
-  if (!user) return null;
+  const checkActive = (item: any) => {
+    if (location.pathname === item.url) return true;
+    if (item.url.includes('?') && location.pathname + location.search === item.url) return true;
+    if (item.subItems?.some((s: any) => location.pathname === s.url || (s.url.includes('?') && location.pathname + location.search === s.url))) return true;
+    return false;
+  };
 
   return (
-    <div className="flex h-screen bg-white overflow-hidden font-sans">
-      {/* Overlay para fechar sidebar no mobile */}
-      {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsSidebarOpen(false)} />}
+    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans">
+      {/* Sidebar Mobile Overlay */}
+      {isSidebarOpen && <div className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm" onClick={() => setIsSidebarOpen(false)} />}
 
-      {/* SIDEBAR (Desktop: Visible | Mobile: Hidden by default, toggled via menu) */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-[#7f1d1d] text-white transform transition-transform duration-300 lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} shadow-2xl border-r border-red-900/30 flex flex-col`}>
+      <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-[#7f1d1d] text-white transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} flex flex-col shadow-2xl`}>
         
-        {/* HEADER SIDEBAR */}
-        <div className="p-6 flex items-center gap-4 border-b border-red-900/50 mb-2 shrink-0">
-            <div className="w-12 h-12 bg-white/10 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg border border-white/20 shrink-0">
-                {logoError ? <Shield className="w-7 h-7 text-white" /> : <img src={SYSARP_LOGO} className="w-10 h-10 object-contain" alt="Logo" onError={() => setLogoError(true)} />}
-            </div>
-            <div className="min-w-0">
-                <h1 className="text-2xl font-black tracking-wider leading-none truncate font-mono">SYSARP</h1>
-                <p className="text-[10px] text-red-200 font-bold tracking-widest mt-1 opacity-80 uppercase">CBMPR</p>
-            </div>
-            <button className="lg:hidden ml-auto p-2 hover:bg-white/10 rounded-lg" onClick={() => setIsSidebarOpen(false)}><X className="w-6 h-6" /></button>
+        {/* Logo Section */}
+        <div className="p-8 flex items-center gap-4 shrink-0">
+          <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center border border-white/20 shadow-inner">
+            <img src={SYSARP_LOGO} className="w-10 h-10 object-contain" alt="Logo" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-black tracking-tighter leading-none text-white">SYSARP</h1>
+            <p className="text-[11px] text-red-200 font-bold opacity-80 mt-1 uppercase tracking-widest">CBMPR</p>
+          </div>
         </div>
 
-        {/* NAVIGATION SCROLL */}
-        <nav className="flex-1 overflow-y-auto px-3 space-y-2 py-4 custom-scrollbar">
-            {navigationItems.map((item, idx) => {
-              if (item.adminOnly && user.role !== 'admin') return null;
-              
-              const isParentActive = item.subItems?.some(sub => sub.url === location.pathname);
-              const isDirectActive = item.url === location.pathname;
-              const isExpanded = expandedMenus[item.title] || isParentActive;
-
-              return (
-                <div key={idx} className="space-y-1">
-                  {item.subItems ? (
-                    <>
-                      <button
-                        onClick={() => toggleMenu(item.title)}
-                        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group ${
-                          isParentActive ? 'bg-red-900/40 text-white shadow-inner' : 'hover:bg-white/10 text-red-100 hover:text-white'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                           {item.icon && <item.icon className={`w-5 h-5 ${isParentActive ? 'text-white' : 'opacity-70 group-hover:opacity-100'}`} />}
-                           <span className="text-sm font-bold tracking-wide">{item.title}</span>
-                        </div>
-                        {isExpanded ? <ChevronDown className="w-4 h-4 opacity-70" /> : <ChevronRight className="w-4 h-4 opacity-50" />}
-                      </button>
-
-                      <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
-                        <div className="mt-1 space-y-1 bg-black/10 rounded-lg p-1 mx-2">
-                          {item.subItems.map((sub, sIdx) => {
-                            if (sub.adminOnly && user.role !== 'admin') return null;
-                            const isSubActive = sub.url === location.pathname;
-                            return (
-                              <Link 
-                                key={sIdx} 
-                                to={sub.url || '#'} 
-                                className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all text-xs font-bold ${
-                                  isSubActive 
-                                    ? 'bg-white text-red-800 shadow-sm translate-x-1' 
-                                    : 'text-red-200/80 hover:text-white hover:bg-white/10 hover:translate-x-1'
-                                }`} 
-                                onClick={() => setIsSidebarOpen(false)}
-                              >
-                                {sub.icon ? <sub.icon className="w-3.5 h-3.5" /> : <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50" />}
-                                <span>{sub.title}</span>
-                              </Link>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <Link
-                      to={item.url || '#'}
-                      className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 group ${
-                        isDirectActive 
-                          ? 'bg-white text-red-800 shadow-lg font-black scale-[1.02]' 
-                          : 'hover:bg-white/10 text-red-100 hover:text-white'
-                      }`}
-                      onClick={() => setIsSidebarOpen(false)}
-                    >
-                      <div className="flex items-center gap-3">
-                         {item.icon && <item.icon className={`w-5 h-5 ${isDirectActive ? 'text-red-700' : 'opacity-70 group-hover:opacity-100'}`} />}
-                         <span className="text-sm font-bold tracking-wide">{item.title}</span>
-                      </div>
-                      {item.badgeCount ? (
-                         <span className={`text-[10px] font-black px-2 py-0.5 rounded-full shadow-sm animate-pulse ${isDirectActive ? 'bg-red-600 text-white' : 'bg-amber-500 text-white'}`}>
-                            {item.badgeCount}
-                         </span>
-                      ) : null}
-                    </Link>
+        {/* Navigation */}
+        <nav className="flex-1 overflow-y-auto px-4 py-2 space-y-2 custom-scrollbar">
+          {navItems.map((item, idx) => {
+            if (item.adminOnly && user?.role !== 'admin') return null;
+            
+            const isActive = checkActive(item);
+            
+            return (
+              <div key={idx} className="space-y-1">
+                <Link 
+                  to={item.subItems ? (location.pathname.startsWith(item.url) ? item.subItems[0].url : item.url) : item.url} 
+                  className={`flex items-center justify-between px-5 py-4 rounded-2xl transition-all duration-200 ${isActive ? 'bg-white text-[#7f1d1d] shadow-xl scale-[1.02]' : 'text-red-100 hover:bg-white/10'}`}
+                  onClick={() => !item.subItems && setIsSidebarOpen(false)}
+                >
+                  <div className="flex items-center gap-4">
+                    <item.icon className={`w-6 h-6 ${isActive ? 'text-[#7f1d1d]' : 'text-red-200'}`} />
+                    <span className="text-[11px] uppercase tracking-[0.1em] font-black">{item.title}</span>
+                  </div>
+                  {item.subItems && (
+                    <ChevronDown className={`w-4 h-4 opacity-50 transition-transform duration-300 ${isActive ? 'rotate-180' : ''}`} />
                   )}
-                </div>
-              );
-            })}
+                </Link>
+
+                {/* Sub-items (Auto-expand if parent is active) */}
+                {isActive && item.subItems && (
+                  <div className="mt-2 mb-4 space-y-1 bg-black/10 rounded-2xl py-3 px-2 animate-fade-in">
+                    {item.subItems.map(sub => {
+                      const isSubActive = location.pathname === sub.url || (sub.url.includes('?') && location.pathname + location.search === sub.url);
+                      return (
+                        <Link 
+                          key={sub.url} 
+                          to={sub.url} 
+                          onClick={() => setIsSidebarOpen(false)}
+                          className={`flex items-center gap-3 px-6 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${isSubActive ? 'bg-white/10 text-white' : 'text-red-300/80 hover:text-white hover:translate-x-1'}`}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full ${isSubActive ? 'bg-red-400' : 'bg-red-900/50'}`}></span>
+                          {sub.title}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
-        {/* FOOTER SIDEBAR */}
-        <div className="p-4 border-t border-red-900/50 bg-black/10 shrink-0">
-            <div className="flex items-center gap-3 px-3 py-3 mb-2 rounded-xl bg-white/5 border border-white/5">
-              <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center text-[#7f1d1d] font-bold text-sm border-2 border-red-800 shadow-inner shrink-0">
-                {user.full_name[0]}
+        {/* Footer: Profile & Logout */}
+        <div className="p-4 bg-black/10 border-t border-red-900/30 shrink-0">
+          {user && (
+            <div className="flex items-center gap-4 p-4 bg-white/5 rounded-[2rem] border border-white/5 mb-4 shadow-inner">
+              <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-[#7f1d1d] font-black text-lg shadow-xl border-2 border-red-900/20">
+                {user.full_name[0].toUpperCase()}
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold text-white truncate uppercase">{user.full_name}</p>
-                <p className="text-[9px] text-red-300 truncate uppercase font-black tracking-widest">{user.role}</p>
+                <p className="text-[11px] font-black text-white truncate uppercase leading-tight">{user.full_name}</p>
+                <p className="text-[10px] text-red-400 font-bold uppercase tracking-widest mt-1 opacity-80">{user.role}</p>
               </div>
             </div>
-            <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-red-200 hover:bg-red-950/50 hover:text-white transition-colors text-xs font-black uppercase tracking-wider">
-              <LogOut className="w-4 h-4" />
-              <span>Sair do Sistema</span>
-            </button>
+          )}
+          
+          <button 
+            onClick={() => base44.auth.logout().then(() => navigate('/login'))} 
+            className="flex items-center gap-3 w-full px-6 py-4 rounded-2xl text-red-200 hover:bg-red-600 hover:text-white transition-all text-[11px] font-black uppercase tracking-widest group"
+          >
+            <LogOut className="w-5 h-5 group-hover:-translate-x-1 transition-transform" /> 
+            <span>Sair do Sistema</span>
+          </button>
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col overflow-hidden relative">
-        {/* Header Mobile - Apenas Logo */}
-        <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-center px-4 lg:hidden shrink-0 z-30 shadow-sm relative">
-          <div className="flex items-center gap-2">
-             {logoError ? <Shield className="w-5 h-5 text-[#7f1d1d]" /> : <img src={SYSARP_LOGO} className="w-6 h-6" alt="Mini Logo" onError={() => setLogoError(true)} />}
-             <h2 className="font-black text-[#7f1d1d] tracking-widest text-lg">SYSARP</h2>
-          </div>
+      {/* Content Area */}
+      <main className="flex-1 flex flex-col overflow-hidden relative bg-white">
+        {/* Mobile Header */}
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:hidden shrink-0 z-50 shadow-sm">
+           <div className="flex items-center gap-3">
+              <img src={SYSARP_LOGO} className="w-8 h-8 object-contain" alt="Logo" />
+              <h2 className="font-black text-[#7f1d1d] tracking-tighter text-xl uppercase leading-none">SYSARP</h2>
+           </div>
+           <button 
+             onClick={() => setIsSidebarOpen(true)} 
+             className="p-2 text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+           >
+              <Menu className="w-7 h-7" />
+           </button>
         </header>
-
-        {/* Conteúdo Principal com Padding para Bottom Bar no Mobile */}
-        <div className="flex-1 overflow-hidden relative pb-20 lg:pb-0">
-            {children}
-        </div>
-
-        {/* BOTTOM NAVIGATION BAR (Mobile Only) */}
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 flex justify-around items-center h-16 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] px-1">
-            <BottomNavItem to="/" icon={Home} label="Início" isActive={location.pathname === '/'} />
-            <BottomNavItem to="/operations" icon={Radio} label="Ops" isActive={location.pathname === '/operations' && !location.search.includes('create=true')} />
-            
-            {/* Botão NOVA OPERAÇÃO (Destaque Central) */}
-            <Link to="/operations?create=true" className="flex flex-col items-center justify-center w-full h-full gap-1 group">
-                <PlusCircle className="w-8 h-8 text-red-600 fill-red-50 group-hover:scale-110 transition-transform shadow-sm rounded-full" />
-                <span className="text-[9px] font-bold uppercase tracking-wide text-red-700">Nova Op</span>
-            </Link>
-
-            <BottomNavItem to="/summer" icon={Sun} label="Verão" isActive={location.pathname === '/summer'} />
-            <button onClick={() => setIsSidebarOpen(true)} className="flex flex-col items-center justify-center w-full h-full gap-1 text-slate-400 hover:text-slate-600">
-                <Menu className="w-6 h-6" />
-                <span className="text-[9px] font-bold uppercase tracking-wide">Menu</span>
-            </button>
+        
+        {/* Page Container */}
+        <div className="flex-1 relative overflow-hidden">
+          {children}
         </div>
       </main>
     </div>

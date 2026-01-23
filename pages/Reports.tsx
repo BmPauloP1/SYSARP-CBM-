@@ -3,95 +3,83 @@ import React, { useState, useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
-import { Operation, MISSION_HIERARCHY, MISSION_COLORS, MissionType, ORGANIZATION_CHART, Pilot, Drone, SYSARP_LOGO } from "../types";
+import { tacticalService } from "../services/tacticalService"; // Adicionado
+import { Operation, MISSION_HIERARCHY, Pilot, Drone, MISSION_COLORS, MISSION_LABELS, ORGANIZATION_CHART, SYSARP_LOGO, MissionType } from "../types";
 import { Card, Button, Input, Select, Badge } from "../components/ui_components";
 import { 
-  FileText, Download, Filter, Search, Calendar, Map as MapIcon, 
-  RefreshCcw, BarChart3, PieChart as PieChartIcon, LayoutGrid, 
-  TrendingUp, Users, Plane, ClipboardList, ChevronDown, Activity,
-  CheckSquare, Square, FileSignature, Printer, Info, Shield, Clock, Flame, Pencil, Save, X
+  FileText, Search, Calendar, Clock, Printer, RefreshCcw, 
+  BarChart3, PieChart as PieIcon, Map as MapIcon, 
+  Filter, ChevronDown, ChevronUp, Users, Plane, LayoutDashboard, 
+  CheckSquare, Square, TrendingUp, Activity, MousePointer2, Crosshair,
+  MapPin, Download, Table, LayoutGrid, CheckCircle2, Camera, Trash2
 } from "lucide-react";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
   ResponsiveContainer, PieChart, Pie, Cell, Legend 
 } from 'recharts';
 
-const CHART_COLORS = ['#b91c1c', '#1e293b', '#475569', '#94a3b8', '#dc2626', '#f87171'];
+const CHART_COLORS = ['#1e293b', '#b91c1c', '#334155', '#ef4444', '#475569', '#991b1b', '#64748b', '#cbd5e1'];
 
-const isValidCoord = (lat: any, lng: any) => {
-  const nLat = Number(lat);
-  const nLng = Number(lng);
-  return !isNaN(nLat) && !isNaN(nLng) && nLat !== 0 && nLng !== 0;
-};
+type ReportTab = 'stats' | 'heatmap' | 'specific' | 'mgmt';
 
-// Função para dispersar pontos sobrepostos (Cria o efeito de mancha/calor)
-const jitter = (coord: number) => coord + (Math.random() - 0.5) * 0.012;
-
-// Helper: Decimal (0.33) -> HH:MM (00:20)
-const formatDecimalToHHMM = (decimalHours: number | undefined): string => {
-    if (!decimalHours && decimalHours !== 0) return "00:00";
-    const totalMinutes = Math.round(decimalHours * 60);
-    const h = Math.floor(totalMinutes / 60);
-    const m = totalMinutes % 60;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-};
-
-// Helper: HH:MM -> Decimal
-const formatHHMMToDecimal = (hhmm: string): number => {
-    if (!hhmm) return 0;
-    const [h, m] = hhmm.split(':').map(Number);
-    if (isNaN(h) || isNaN(m)) return 0;
-    return h + (m / 60);
-};
-
-// Componente para forçar o mapa a atualizar o tamanho quando a aba muda
-const MapController = ({ activeTab }: { activeTab: string }) => {
+const MapResizer = () => {
   const map = useMap();
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (map) {
-        map.invalidateSize({ animate: true });
-      }
-    }, 400); 
+    const timer = setTimeout(() => { map.invalidateSize(); }, 400);
     return () => clearTimeout(timer);
-  }, [map, activeTab]);
+  }, [map]);
   return null;
 };
 
-// Helper date
-const toLocalISO = (isoStr: string) => {
-  if(!isoStr) return '';
-  const d = new Date(isoStr);
-  const pad = (n: number) => n < 10 ? '0'+n : n;
-  const hours = pad(d.getHours());
-  const minutes = pad(d.getMinutes());
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${hours}:${minutes}`;
+const formatArea = (m2: number) => {
+    if (m2 >= 10000) return `${(m2 / 10000).toFixed(2)} ha`;
+    if (m2 > 0) return `${Math.round(m2).toLocaleString('pt-BR')} m²`;
+    return "0 m²";
 };
 
-type ReportTab = 'statistical' | 'heatmap' | 'specific' | 'managerial';
+// Helper para formatar horas decimais em HH:MM
+const formatFlightHours = (decimalHours: number = 0) => {
+    const hours = Math.floor(decimalHours);
+    const minutes = Math.round((decimalHours - hours) * 60);
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}H VOADAS`;
+};
+
+const getImageData = (url: string): Promise<{data: string, ratio: number}> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width; canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) { 
+        ctx.drawImage(img, 0, 0); 
+        resolve({
+          data: canvas.toDataURL('image/png'),
+          ratio: img.width / img.height
+        }); 
+      }
+      else resolve({data: "", ratio: 1});
+    };
+    img.onerror = () => resolve({data: "", ratio: 1});
+    img.src = url;
+  });
+};
 
 export default function Reports() {
-  const [activeTab, setActiveTab] = useState<ReportTab>('statistical');
+  const [activeTab, setActiveTab] = useState<ReportTab>('stats');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [operations, setOperations] = useState<Operation[]>([]);
   const [pilots, setPilots] = useState<Pilot[]>([]);
   const [drones, setDrones] = useState<Drone[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [generatingPdf, setGeneratingPdf] = useState(false);
   const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
-  
-  // State para seleção múltipla
+  const [loading, setLoading] = useState(true);
   const [selectedOpIds, setSelectedOpIds] = useState<Set<string>>(new Set());
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
-  // Edit State
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editingOp, setEditingOp] = useState<Operation | null>(null);
-  const [editForm, setEditForm] = useState<Partial<Operation> & { start_time_local?: string, end_time_local?: string, flight_hours_hhmm?: string }>({});
-
-  // Filters State
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterMission, setFilterMission] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("all");
+  // Filtros
+  const [filterCrbm, setFilterCrbm] = useState("all");
+  const [filterNature, setFilterNature] = useState("all");
   const [dateStart, setDateStart] = useState("");
   const [dateEnd, setDateEnd] = useState("");
 
@@ -103,156 +91,90 @@ export default function Reports() {
     setLoading(true);
     try {
       const [ops, pils, drns, me] = await Promise.all([
-        base44.entities.Operation.list("-created_at"),
-        base44.entities.Pilot.list(),
-        base44.entities.Drone.list(),
-        base44.auth.me()
+          base44.entities.Operation.list('-start_time'), 
+          base44.entities.Pilot.list(), 
+          base44.entities.Drone.list(),
+          base44.auth.me()
       ]);
-      setOperations(ops);
-      setPilots(pils);
+      setOperations(ops); 
+      setPilots(pils); 
       setDrones(drns);
       setCurrentUser(me);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
   const filteredOps = useMemo(() => {
     return operations.filter(op => {
-      const searchLower = searchTerm.toLowerCase();
-      const matchesSearch = op.name.toLowerCase().includes(searchLower) || 
-                           op.occurrence_number.toLowerCase().includes(searchLower);
-      const matchesMission = filterMission === "all" || op.mission_type === filterMission;
-      const matchesStatus = filterStatus === "all" || op.status === filterStatus;
-      
-      let matchesDate = true;
-      if (dateStart) matchesDate = matchesDate && new Date(op.start_time) >= new Date(dateStart);
-      if (dateEnd) {
-        const end = new Date(dateEnd);
-        end.setDate(end.getDate() + 1);
-        matchesDate = matchesDate && new Date(op.start_time) < end;
-      }
-      return matchesSearch && matchesMission && matchesStatus && matchesDate;
+      const matchCrbm = filterCrbm === "all" || op.op_crbm === filterCrbm;
+      const matchNature = filterNature === "all" || op.mission_type === filterNature;
+      let matchDate = true;
+      if (dateStart) matchDate = matchDate && new Date(op.start_time) >= new Date(dateStart);
+      if (dateEnd) matchDate = matchDate && new Date(op.start_time) <= new Date(dateEnd);
+      return matchCrbm && matchNature && matchDate;
     });
-  }, [operations, searchTerm, filterMission, filterStatus, dateStart, dateEnd]);
+  }, [operations, filterCrbm, filterNature, dateStart, dateEnd]);
 
-  const missionsInView = useMemo(() => {
-    return Array.from(new Set(filteredOps.map(op => op.mission_type)));
-  }, [filteredOps]);
-
-  const toggleSelectOp = (id: string) => {
-    const newSelection = new Set(selectedOpIds);
-    if (newSelection.has(id)) newSelection.delete(id);
-    else newSelection.add(id);
-    setSelectedOpIds(newSelection);
-  };
-
-  const selectAllFiltered = () => {
-    if (selectedOpIds.size === filteredOps.length && filteredOps.length > 0) {
-        setSelectedOpIds(new Set());
-    } else {
-        setSelectedOpIds(new Set(filteredOps.map(o => o.id)));
-    }
-  };
-
-  // Edit Logic
-  const handleEditSelected = () => {
-      if (selectedOpIds.size !== 1) return;
-      const opId = Array.from(selectedOpIds)[0];
-      const op = operations.find(o => o.id === opId);
-      if (op) {
-          setEditingOp(op);
-          setEditForm({
-              ...op,
-              start_time_local: toLocalISO(op.start_time),
-              end_time_local: op.end_time ? toLocalISO(op.end_time) : '',
-              flight_hours_hhmm: formatDecimalToHHMM(op.flight_hours || 0)
-          });
-          setIsEditModalOpen(true);
+  const statsData = useMemo(() => {
+    const totalHours = filteredOps.reduce((acc, op) => acc + (op.flight_hours || 0), 0);
+    const natureMap: Record<string, number> = {};
+    filteredOps.forEach(op => {
+      const label = MISSION_LABELS[op.mission_type] || op.mission_type;
+      natureMap[label] = (natureMap[label] || 0) + 1;
+    });
+    const regionalMap: Record<string, number> = {};
+    filteredOps.forEach(op => {
+      if (op.op_crbm) {
+        const shortLabel = op.op_crbm.split(' - ')[0];
+        regionalMap[shortLabel] = (regionalMap[shortLabel] || 0) + 1;
       }
+    });
+    const pilotMap: Record<string, number> = {};
+    filteredOps.forEach(op => {
+      const p = pilots.find(x => x.id === op.pilot_id);
+      if (p) pilotMap[p.full_name] = (pilotMap[p.full_name] || 0) + (op.flight_hours || 0);
+    });
+    const fleetMap: Record<string, number> = {};
+    filteredOps.forEach(op => {
+      const d = drones.find(x => x.id === op.drone_id);
+      if (d) fleetMap[d.prefix] = (fleetMap[d.prefix] || 0) + (op.flight_hours || 0);
+    });
+    return { 
+        totalHours, 
+        natureData: Object.entries(natureMap).map(([name, value]) => ({ name, value })),
+        regionalData: Object.entries(regionalMap).map(([name, value]) => ({ name, value })),
+        pilotData: Object.entries(pilotMap).map(([name, value]) => ({ name, value: Number(value.toFixed(1)) })).sort((a,b) => b.value - a.value).slice(0, 10),
+        fleetData: Object.entries(fleetMap).map(([name, value]) => ({ name, value: Number(value.toFixed(1)) })).sort((a,b) => b.value - a.value)
+    };
+  }, [filteredOps, pilots, drones]);
+
+  const handleToggleSelect = (id: string) => {
+      const newSet = new Set(selectedOpIds);
+      if (newSet.has(id)) newSet.delete(id);
+      else newSet.add(id);
+      setSelectedOpIds(newSet);
   };
 
-  const handleEditTimeChange = (field: 'start_time_local' | 'end_time_local', value: string) => {
-      const newData = { ...editForm, [field]: value };
-      // REMOVED AUTO CALCULATION TO PREVENT OVERWRITING MANUAL INPUT
-      // Flight hours should be treated as engine hours (independent of operation duration)
-      setEditForm(newData);
-  };
+  const handleDeleteOperations = async () => {
+      if (!currentUser || currentUser.role !== 'admin') return;
+      if (!confirm(`ATENÇÃO: Tem certeza que deseja excluir ${selectedOpIds.size} operações permanentemente do banco de dados?\n\nEsta ação é irreversível e removerá todos os registros associados.`)) return;
 
-  const handleSaveEdit = async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!editingOp) return;
       setLoading(true);
       try {
-          const decimalHours = formatHHMMToDecimal(editForm.flight_hours_hhmm || '00:00');
-
-          const payload: Partial<Operation> = {
-              name: editForm.name,
-              description: editForm.description,
-              actions_taken: editForm.actions_taken,
-              start_time: new Date(editForm.start_time_local!).toISOString(),
-              end_time: editForm.end_time_local ? new Date(editForm.end_time_local).toISOString() : undefined,
-              flight_hours: decimalHours,
-              pilot_id: editForm.pilot_id,
-              drone_id: editForm.drone_id,
-              mission_type: editForm.mission_type
-          };
-
-          await base44.entities.Operation.update(editingOp.id, payload);
-          alert("Registro atualizado com sucesso!");
-          setIsEditModalOpen(false);
-          setEditingOp(null);
+          // Processar exclusões em paralelo
+          const deletePromises = Array.from(selectedOpIds).map(id => base44.entities.Operation.delete(id));
+          await Promise.all(deletePromises);
+          
+          alert("Operações excluídas com sucesso.");
+          setSelectedOpIds(new Set());
           loadData();
-      } catch (err: any) {
-          alert(`Erro ao atualizar: ${err.message}`);
+      } catch (e) {
+          console.error(e);
+          alert("Erro ao excluir operações.");
       } finally {
           setLoading(false);
       }
   };
 
-  // Agregações Estatísticas
-  const statsData = useMemo(() => {
-    const missionCounts: Record<string, number> = {};
-    const regionalCounts: Record<string, number> = {};
-    let totalHours = 0;
-
-    filteredOps.forEach(op => {
-        const label = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
-        missionCounts[label] = (missionCounts[label] || 0) + 1;
-        const regional = op.op_crbm || "Não Informado";
-        regionalCounts[regional] = (regionalCounts[regional] || 0) + 1;
-        totalHours += (op.flight_hours || 0);
-    });
-
-    const missionChart = Object.entries(missionCounts).map(([name, value]) => ({ name, value }));
-    const regionalChart = Object.entries(regionalCounts).map(([name, value]) => ({ name, value }));
-
-    return { missionChart, regionalChart, totalHours };
-  }, [filteredOps]);
-
-  const managerialData = useMemo(() => {
-    const pilotHours: Record<string, number> = {};
-    const droneHours: Record<string, number> = {};
-    filteredOps.forEach(op => {
-        if (op.pilot_id) {
-            const p = pilots.find(x => x.id === op.pilot_id);
-            const name = p?.full_name || "Desconhecido";
-            pilotHours[name] = (pilotHours[name] || 0) + (op.flight_hours || 0);
-        }
-        if (op.drone_id) {
-            const d = drones.find(x => x.id === op.drone_id);
-            const prefix = d?.prefix || "N/A";
-            droneHours[prefix] = (droneHours[prefix] || 0) + (op.flight_hours || 0);
-        }
-    });
-    const pilotRanking = Object.entries(pilotHours).map(([name, hours]) => ({ name, hours })).sort((a, b) => b.hours - a.hours).slice(0, 10);
-    const droneUsage = Object.entries(droneHours).map(([name, hours]) => ({ name, hours })).sort((a, b) => b.hours - a.hours);
-    return { pilotRanking, droneUsage };
-  }, [filteredOps, pilots, drones]);
-
-  // --- GERAÇÃO DE BOLETIM DE OCORRÊNCIA FORMAL ---
   const handleExportBoletim = async () => {
     if (selectedOpIds.size === 0) return;
     setGeneratingPdf(true);
@@ -261,426 +183,303 @@ export default function Reports() {
         const { default: autoTable } = await import('jspdf-autotable');
         const doc = new jsPDF();
         const pageWidth = doc.internal.pageSize.width;
-
+        const pageHeight = doc.internal.pageSize.height;
         const selectedOps = operations.filter(o => selectedOpIds.has(o.id));
+        const logo = await getImageData(SYSARP_LOGO);
 
-        selectedOps.forEach((op, index) => {
+        for (let index = 0; index < selectedOps.length; index++) {
+            const op = selectedOps[index];
             if (index > 0) doc.addPage();
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "bold");
-            doc.text("ESTADO DO PARANÁ", pageWidth / 2, 15, { align: "center" });
-            doc.text("CORPO DE BOMBEIROS MILITAR", pageWidth / 2, 20, { align: "center" });
-            doc.text("SOARP - SISTEMA DE GESTÃO DE RPA (SYSARP)", pageWidth / 2, 25, { align: "center" });
-            doc.line(14, 28, pageWidth - 14, 28);
-            doc.setFontSize(14);
-            doc.text("BOLETIM DE OCORRÊNCIA OPERACIONAL - RPA", pageWidth / 2, 40, { align: "center" });
-            doc.setFontSize(9);
-            doc.setFont("helvetica", "normal");
-            doc.text(`Protocolo: ${op.occurrence_number}`, pageWidth / 2, 46, { align: "center" });
-            doc.setFont("helvetica", "bold");
-            doc.text("1. IDENTIFICAÇÃO DA OCORRÊNCIA", 14, 60);
+            
+            if (logo.data) {
+                const logoWidth = 22;
+                const logoHeight = logoWidth / logo.ratio;
+                doc.addImage(logo.data as string, 'PNG', 14, 8, logoWidth, logoHeight);
+            }
+
+            doc.setFontSize(10); doc.setFont("helvetica", "bold"); doc.setTextColor(0, 0, 0);
+            doc.text("ESTADO DO PARANÁ", pageWidth / 2 + 10, 13, { align: "center" });
+            doc.text("CORPO DE BOMBEIROS MILITAR", pageWidth / 2 + 10, 18, { align: "center" });
+            doc.text("SISTEMA DE GESTÃO DE RPA (SYSARP)", pageWidth / 2 + 10, 23, { align: "center" });
+            
+            doc.setDrawColor(185, 28, 28); doc.setLineWidth(0.6);
+            doc.line(14, 30, pageWidth - 14, 30);
+            
+            doc.setFontSize(14); doc.text("BOLETIM DE OCORRÊNCIA OPERACIONAL - RPA", pageWidth / 2, 42, { align: "center" });
+            doc.setFontSize(9); doc.setFont("helvetica", "normal");
+            doc.text(`Protocolo de Controle: ${op.occurrence_number}`, pageWidth / 2, 48, { align: "center" });
+
+            doc.setFont("helvetica", "bold"); doc.text("1. IDENTIFICAÇÃO DA OCORRÊNCIA", 14, 62);
             autoTable(doc, {
-                startY: 63,
+                startY: 65,
                 body: [
                     ["Título:", op.name.toUpperCase()],
                     ["Natureza:", MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type],
-                    ["Data/Hora Início:", new Date(op.start_time).toLocaleString()],
-                    ["Coordenadas:", `${op.latitude}, ${op.longitude}`],
+                    ["Data/Hora Início:", new Date(op.start_time).toLocaleString('pt-BR')],
+                    ["Coordenadas (PC):", `${op.latitude.toFixed(6)}, ${op.longitude.toFixed(6)}`],
                     ["Unidade/Regional:", `${op.op_unit || 'N/A'} / ${op.op_crbm || 'N/A'}`]
                 ],
-                theme: 'plain',
-                styles: { fontSize: 9, cellPadding: 1 },
-                columnStyles: { 0: { fontStyle: 'bold', cellWidth: 40 } }
+                theme: 'plain', styles: { fontSize: 9, cellPadding: 1 }, columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45 } }
             });
+
             const pilot = pilots.find(p => p.id === op.pilot_id);
             const drone = drones.find(d => d.id === op.drone_id);
-            const yAfterId = (doc as any).lastAutoTable.finalY + 10;
-            doc.setFont("helvetica", "bold");
-            doc.text("2. EQUIPE E EQUIPAMENTO", 14, yAfterId);
+            let yAfter = (doc as any).lastAutoTable.finalY + 10;
+            doc.setFont("helvetica", "bold"); doc.text("2. EQUIPE E EQUIPAMENTO (VETOR)", 14, yAfter);
             autoTable(doc, {
-                startY: yAfterId + 3,
+                startY: yAfter + 3,
                 body: [
-                    ["Piloto em Comando:", pilot?.full_name || 'N/A'],
-                    ["Código SARPAS:", pilot?.sarpas_code || 'N/A'],
-                    ["Aeronave (Prefixo/Modelo):", `${drone?.prefix || 'N/A'} - ${drone?.model || 'N/A'}`],
-                    ["Número de Série / SISANT:", `${drone?.serial_number || 'N/A'} / ${drone?.sisant || 'N/A'}`],
-                    ["Tempo de Voo Estimado:", formatDecimalToHHMM(op.flight_hours) + " h"]
+                    ["Piloto em Comando (PIC):", pilot?.full_name || 'N/A'],
+                    ["Aeronave (Prefixo):", `${drone?.prefix || 'N/A'} (${drone?.model || 'N/A'})`],
+                    ["Tempo de Voo Realizado:", formatFlightHours(op.flight_hours || 0).replace('H VOADAS', ' horas')]
                 ],
-                theme: 'plain',
-                styles: { fontSize: 9, cellPadding: 1 },
-                columnStyles: { 0: { fontStyle: 'bold', cellWidth: 40 } }
+                theme: 'plain', styles: { fontSize: 9, cellPadding: 1 }, columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45 } }
             });
-            const yAfterEquipe = (doc as any).lastAutoTable.finalY + 10;
-            doc.setFont("helvetica", "bold");
-            doc.text("3. RELATO OPERACIONAL E AÇÕES REALIZADAS", 14, yAfterEquipe);
-            const relatoCompleto = `DESCRIÇÃO DA MISSÃO:\n${op.description || 'Sem descrição.'}\n\nAÇÕES REALIZADAS / DESFECHO:\n${op.actions_taken || 'Nenhuma ação detalhada registrada.'}`;
-            const splitNarrative = doc.splitTextToSize(relatoCompleto, pageWidth - 28);
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(9);
-            doc.text(splitNarrative, 14, yAfterEquipe + 7);
-            const footerY = doc.internal.pageSize.height - 30;
-            doc.line(pageWidth / 2 - 40, footerY, pageWidth / 2 + 40, footerY);
-            doc.setFontSize(8);
-            doc.text("Assinatura do Piloto em Comando / Responsável", pageWidth / 2, footerY + 5, { align: "center" });
-            doc.text(`Documento gerado eletronicamente via SYSARP em ${new Date().toLocaleString()}`, 14, doc.internal.pageSize.height - 10);
-        });
-        doc.save(`Boletim_RPA_Formal_${new Date().getTime()}.pdf`);
-    } catch (e) {
-        alert("Erro ao exportar boletim.");
-    } finally {
-        setGeneratingPdf(false);
-    }
+
+            yAfter = (doc as any).lastAutoTable.finalY + 10;
+
+            // --- ITEM 3: INTEGRADO SNAPSHOT DO TEATRO NO PDF ---
+            const snapshot = tacticalService.getMapSnapshot(op.id);
+            // Fix: Use type narrowing instead of casting
+            if (typeof snapshot === 'string' && snapshot.length > 0) {
+                doc.setFont("helvetica", "bold"); doc.text("3. GEOPROCESSAMENTO E TEATRO OPERACIONAL", 14, yAfter);
+                doc.addImage(snapshot, 'JPEG', 14, yAfter + 4, 182, 90); 
+                yAfter += 100;
+            } else {
+                doc.setFont("helvetica", "bold"); doc.text("3. GEOPROCESSAMENTO TÁTICO E RECURSOS", 14, yAfter);
+            }
+
+            if (op.tactical_summary) {
+                const sum = op.tactical_summary;
+                autoTable(doc, {
+                    startY: yAfter + 3,
+                    head: [['Vetores', 'Setores', 'POIs', 'Equipe Solo', 'Viaturas', 'Cães (K9)', 'Área Varredura']],
+                    body: [[
+                        sum.drones_count || 0,
+                        sum.sectors_count || 0,
+                        sum.pois_count || 0,
+                        sum.teams_count || 0,
+                        sum.vehicles_count || 0,
+                        sum.k9_count || 0,
+                        formatArea(sum.total_area_m2 || 0)
+                    ]],
+                    theme: 'grid', styles: { fontSize: 8, halign: 'center' }, headStyles: { fillColor: [30, 41, 59] }
+                });
+                yAfter = (doc as any).lastAutoTable.finalY + 10;
+            }
+
+            doc.setFont("helvetica", "bold"); doc.text("4. RELATO OPERACIONAL E AÇÕES", 14, yAfter);
+            const relato = `NARRATIVA:\n${op.description || 'Sem descrição.'}\n\nAÇÕES TOMADAS:\n${op.actions_taken || 'Nenhuma ação detalhada.'}`;
+            const splitNarrative = doc.splitTextToSize(relato, pageWidth - 28);
+            doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+            doc.text(splitNarrative, 14, yAfter + 7);
+
+            const footerY = pageHeight - 45;
+            doc.setDrawColor(220, 220, 220); doc.setLineWidth(0.2);
+            doc.line(14, footerY, pageWidth - 14, footerY);
+            
+            doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(20, 80, 20);
+            doc.text("DOCUMENTO ASSINADO ELETRONICAMENTE", pageWidth / 2, footerY + 8, { align: "center" });
+            
+            doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(100, 100, 100);
+            doc.text(`Emissor Responsável: ${currentUser?.full_name || 'SISTEMA AUTOMÁTICO'}`, pageWidth / 2, footerY + 13, { align: "center" });
+            doc.text(`Data/Hora: ${new Date().toLocaleString('pt-BR')}`, pageWidth / 2, footerY + 17, { align: "center" });
+            
+            if (logo.data) {
+                const logoW = 18;
+                const logoH = logoW / logo.ratio;
+                doc.addImage(logo.data as string, 'PNG', pageWidth - 14 - logoW, pageHeight - 25, logoW, logoH);
+            }
+            doc.setFontSize(6); doc.text(`ID Digital: ${op.id}`, 14, pageHeight - 8);
+        }
+        doc.save(`BO_SYSARP_${new Date().getTime()}.pdf`);
+    } catch (e) { console.error(e); alert("Erro ao exportar boletim."); } finally { setGeneratingPdf(false); }
   };
 
   return (
     <div className="flex flex-col h-full bg-slate-100 overflow-hidden font-sans">
-      
-      {/* MENU HORIZONTAL */}
-      <nav className="bg-[#1e293b] text-white shrink-0 border-b border-slate-700 shadow-lg z-30">
-        <div className="max-w-[1800px] mx-auto flex flex-col md:flex-row items-stretch md:items-center justify-between px-4">
-            <div className="flex flex-row overflow-x-auto no-scrollbar py-2 gap-1 md:gap-2">
-                <button onClick={() => setActiveTab('statistical')} className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'statistical' ? 'bg-red-700 text-white shadow-md' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-                    <BarChart3 className="w-4 h-4" /> Estatístico
+      <div className="bg-[#1e293b] px-4 pt-4 flex items-center justify-between shrink-0 shadow-lg border-b border-slate-700">
+        <div className="flex gap-0.5">
+            {[
+                { id: 'stats', label: 'Estatístico', icon: BarChart3 },
+                { id: 'heatmap', label: 'Mapa de Calor', icon: Activity },
+                { id: 'specific', label: 'Específicos', icon: FileText },
+                { id: 'mgmt', label: 'Gerenciais', icon: TrendingUp }
+            ].map(tab => (
+                <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as ReportTab)}
+                    className={`flex items-center gap-2 px-6 py-2.5 rounded-t-md text-xs font-bold uppercase tracking-wide transition-all ${
+                        activeTab === tab.id 
+                        ? 'bg-red-700 text-white shadow-lg' 
+                        : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    }`}
+                >
+                    <tab.icon className="w-4 h-4" />
+                    {tab.label}
                 </button>
-                <button onClick={() => setActiveTab('heatmap')} className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'heatmap' ? 'bg-orange-600 text-white shadow-md' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-                    <Flame className="w-4 h-4" /> Mapa de Calor
-                </button>
-                <button onClick={() => setActiveTab('specific')} className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'specific' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-                    <ClipboardList className="w-4 h-4" /> Específicos
-                </button>
-                <button onClick={() => setActiveTab('managerial')} className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'managerial' ? 'bg-slate-700 text-white shadow-md' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}>
-                    <TrendingUp className="w-4 h-4" /> Gerenciais
-                </button>
-            </div>
-
-            <div className="py-2 md:py-0 flex gap-2">
-                {activeTab === 'specific' && selectedOpIds.size === 1 && currentUser?.role === 'admin' && (
-                    <Button onClick={handleEditSelected} className="bg-amber-600 hover:bg-amber-700 text-xs h-9 px-4 font-bold shadow-md">
-                        <Pencil className="w-3.5 h-3.5 mr-2" /> Editar
-                    </Button>
-                )}
-                {activeTab === 'specific' && selectedOpIds.size > 0 && (
-                    <Button onClick={handleExportBoletim} disabled={generatingPdf} className="bg-blue-600 hover:bg-blue-700 text-xs h-9 px-4 font-bold shadow-md">
-                        <FileSignature className="w-3.5 h-3.5 mr-2" /> {generatingPdf ? 'Gerando...' : `Gerar Boletim (${selectedOpIds.size})`}
-                    </Button>
-                )}
-                <Button onClick={loadData} variant="outline" className="bg-white/10 text-white border-white/20 text-xs h-9 px-3">
-                    <RefreshCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-                </Button>
-            </div>
-        </div>
-      </nav>
-
-      {/* FILTROS RECOLHÍVEIS */}
-      <div className="bg-white border-b shadow-sm shrink-0 z-20">
-        <div className="max-w-[1800px] mx-auto">
-            <button onClick={() => setIsFilterOpen(!isFilterOpen)} className="w-full flex justify-between items-center p-4 text-left hover:bg-slate-50 transition-colors">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-widest">
-                    <Filter className="w-3 h-3 text-red-700" /> Filtros Ativos
-                </div>
-                <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform ${isFilterOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {isFilterOpen && (
-                <div className="p-4 md:p-6 border-t border-slate-100 animate-fade-in bg-slate-50/50">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
-                        <div className="relative">
-                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
-                            <Input placeholder="Protocolo ou título..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 h-10 text-sm bg-white" />
-                        </div>
-                        <Select value={filterMission} onChange={e => setFilterMission(e.target.value)} className="h-10 text-sm bg-white">
-                            <option value="all">Todas Naturezas</option>
-                            {Object.entries(MISSION_HIERARCHY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                        </Select>
-                        <Select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="h-10 text-sm bg-white">
-                            <option value="all">Todos Status</option>
-                            <option value="active">Em Andamento</option>
-                            <option value="completed">Concluídas</option>
-                            <option value="cancelled">Canceladas</option>
-                        </Select>
-                        <div className="lg:col-span-2 flex gap-2">
-                            <Input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} className="h-10 text-sm flex-1 bg-white" />
-                            <Input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} className="h-10 text-sm flex-1 bg-white" />
-                        </div>
-                    </div>
-                </div>
-            )}
+            ))}
         </div>
       </div>
 
-      <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50">
-        <div className="max-w-[1800px] mx-auto">
-            
-            {/* NOVO: ABA MAPA DE CALOR */}
-            {activeTab === 'heatmap' && (
-                <div className="animate-fade-in flex flex-col gap-6 h-[calc(100vh-250px)]">
-                    <Card className="flex-1 overflow-hidden border border-slate-200 shadow-xl relative bg-slate-200">
-                        {/* Overlay de Legenda Dinâmica */}
-                        <div className="absolute bottom-6 left-6 bg-white/95 backdrop-blur p-3 rounded-lg shadow-xl border border-slate-200 z-[400] text-[10px] max-w-[200px]">
-                            <div className="font-black text-slate-700 mb-2 border-b pb-1 uppercase tracking-tighter flex items-center gap-1">
-                                <Shield className="w-3 h-3 text-red-700"/> Legenda do Calor
-                            </div>
-                            <div className="grid grid-cols-1 gap-y-1.5 max-h-40 overflow-y-auto custom-scrollbar">
-                                {missionsInView.map(key => (
-                                    <div key={key as string} className="flex items-center gap-2">
-                                        <div className="w-2.5 h-2.5 rounded-full shadow-sm shrink-0" style={{ backgroundColor: MISSION_COLORS[key as MissionType] }}></div>
-                                        <span className="text-slate-600 truncate">{(MISSION_HIERARCHY[key as MissionType]?.label || key).split('. ')[1] || key}</span>
-                                    </div>
-                                ))}
-                                {missionsInView.length === 0 && <span className="italic text-slate-400">Nenhum dado no filtro</span>}
-                            </div>
-                        </div>
+      <div className="bg-white border-b border-slate-200 shadow-sm z-10 shrink-0">
+          <button 
+            onClick={() => setIsFilterOpen(!isFilterOpen)}
+            className="w-full px-6 py-2.5 flex items-center justify-between text-[10px] font-black text-slate-500 uppercase tracking-widest hover:bg-slate-50 transition-colors"
+          >
+             <div className="flex items-center gap-3">
+                <Filter className="w-3.5 h-3.5 text-red-700" />
+                FILTROS ATIVOS
+             </div>
+             {isFilterOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          
+          {isFilterOpen && (
+              <div className="px-6 pb-6 pt-2 grid grid-cols-1 md:grid-cols-4 gap-4 animate-fade-in bg-slate-50 border-t border-slate-100">
+                  <Select label="Regional" value={filterCrbm} onChange={e => setFilterCrbm(e.target.value)}>
+                      <option value="all">Todas as Regionais</option>
+                      {Object.keys(ORGANIZATION_CHART).map(c => <option key={c} value={c}>{c}</option>)}
+                  </Select>
+                  <Select label="Natureza" value={filterNature} onChange={e => setFilterNature(e.target.value)}>
+                      <option value="all">Todas as Naturezas</option>
+                      {Object.entries(MISSION_HIERARCHY).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
+                  </Select>
+                  <Input label="Data Inicial" type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} />
+                  <Input label="Data Final" type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} />
+              </div>
+          )}
+      </div>
 
-                        <MapContainer center={[-25.2521, -52.0215]} zoom={7} style={{ height: '100%', width: '100%' }}>
-                            <MapController activeTab={activeTab} />
-                            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                            {filteredOps.map(op => (
-                                isValidCoord(op.latitude, op.longitude) && (
-                                    <CircleMarker 
-                                        key={op.id}
-                                        center={[jitter(Number(op.latitude)), jitter(Number(op.longitude))]}
-                                        pathOptions={{ 
-                                            color: MISSION_COLORS[op.mission_type] || 'gray', 
-                                            fillColor: MISSION_COLORS[op.mission_type] || 'gray', 
-                                            fillOpacity: 0.4,
-                                            weight: 0
-                                        }}
-                                        radius={8}
-                                    >
-                                        <Popup>
-                                            <div className="text-xs font-bold uppercase">{op.name}</div>
-                                            <div className="text-[10px] text-slate-500 mt-1">#{op.occurrence_number}</div>
-                                            <div className="text-[10px] text-slate-400 mt-0.5">{new Date(op.start_time).toLocaleDateString()}</div>
-                                        </Popup>
-                                    </CircleMarker>
-                                )
-                            ))}
-                        </MapContainer>
+      <div className="flex-1 overflow-y-auto bg-slate-50 custom-scrollbar">
+        {activeTab === 'stats' && (
+            <div className="p-6 space-y-6 max-w-[1600px] mx-auto animate-fade-in">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <Card className="p-6 border-l-[6px] border-l-slate-800 shadow-sm bg-white">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">OPERAÇÕES</p>
+                        <h3 className="text-3xl font-black text-slate-800 mt-1">{filteredOps.length}</h3>
+                    </Card>
+                    <Card className="p-6 border-l-[6px] border-l-blue-600 shadow-sm bg-white">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">HORAS VOADAS</p>
+                        <h3 className="text-3xl font-black text-slate-800 mt-1">{statsData.totalHours.toFixed(1)}h</h3>
+                    </Card>
+                    <Card className="p-6 border-l-[6px] border-l-slate-800 shadow-sm bg-white">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">AERONAVES</p>
+                        <h3 className="text-3xl font-black text-slate-800 mt-1">{drones.length}</h3>
+                    </Card>
+                    <Card className="p-6 border-l-[6px] border-l-green-600 shadow-sm bg-white">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">EFETIVO</p>
+                        <h3 className="text-3xl font-black text-slate-800 mt-1">{pilots.filter(p => p.status === 'active').length}</h3>
                     </Card>
                 </div>
-            )}
 
-            {/* ABA ESPECÍFICOS SEM MAPA - FOCADA EM LISTA E SELEÇÃO */}
-            {activeTab === 'specific' && (
-                <div className="animate-fade-in space-y-6">
-                    <Card className="flex flex-col overflow-hidden bg-white shadow-lg border border-slate-200">
-                        <div className="p-4 bg-slate-800 text-white font-bold text-xs uppercase tracking-widest flex justify-between items-center">
-                            <div className="flex items-center gap-2">
-                                <button onClick={selectAllFiltered} className="p-1 hover:bg-white/10 rounded transition-colors">
-                                    {selectedOpIds.size === filteredOps.length && filteredOps.length > 0 ? <CheckSquare className="w-4 h-4"/> : <Square className="w-4 h-4"/>}
-                                </button>
-                                <span>Resultados Filtrados ({filteredOps.length})</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Badge variant="danger">{selectedOpIds.size} Selecionados</Badge>
-                            </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <Card className="p-6 shadow-md bg-white border border-slate-200">
+                        <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-6 flex items-center gap-2">
+                           <LayoutGrid className="w-4 h-4 text-red-600"/> NATUREZA DAS MISSÕES
+                        </h4>
+                        <div className="h-[400px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie data={statsData.natureData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={80} outerRadius={130} paddingAngle={5} stroke="none">
+                                        {statsData.natureData.map((_, index) => <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
+                                    </Pie>
+                                    <Tooltip />
+                                    <Legend verticalAlign="bottom" align="center" wrapperStyle={{fontSize: '9px', fontWeight: 700, textTransform: 'uppercase'}} />
+                                </PieChart>
+                            </ResponsiveContainer>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-0 divide-y md:divide-y-0 md:gap-px bg-slate-200">
-                            {filteredOps.map(op => (
-                                <div key={op.id} onClick={() => toggleSelectOp(op.id)} className={`p-5 bg-white hover:bg-slate-50 transition-colors cursor-pointer relative ${selectedOpIds.has(op.id) ? 'ring-2 ring-inset ring-blue-500 bg-blue-50/30' : ''}`}>
-                                    <div className="flex justify-between items-start mb-2">
-                                        <div className="pr-4">
-                                            <h5 className="text-sm font-black text-slate-800 uppercase leading-tight">{op.name}</h5>
-                                            <p className="text-[10px] text-slate-400 mt-1 font-mono">{op.occurrence_number}</p>
-                                        </div>
-                                        {selectedOpIds.has(op.id) ? <CheckSquare className="w-5 h-5 text-blue-600 shrink-0"/> : <Square className="w-5 h-5 text-slate-300 shrink-0"/>}
-                                    </div>
-                                    <div className="flex flex-wrap gap-2 mt-3">
-                                        <Badge className="text-[9px]">{MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}</Badge>
-                                        <Badge variant={op.status === 'completed' ? 'success' : op.status === 'active' ? 'warning' : 'danger'} className="text-[9px]">{op.status.toUpperCase()}</Badge>
-                                    </div>
-                                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500 font-bold uppercase tracking-tight">
-                                        <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {new Date(op.start_time).toLocaleDateString()}</span>
-                                        <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> {formatDecimalToHHMM(op.flight_hours)}h voadas</span>
-                                    </div>
-                                </div>
-                            ))}
+                    </Card>
+                    <Card className="p-6 shadow-md bg-white border border-slate-200">
+                        <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-6 flex items-center gap-2">
+                           <MapIcon className="w-4 h-4 text-red-600"/> EMPENHO POR REGIONAL
+                        </h4>
+                        <div className="h-[400px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={statsData.regionalData}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                    <XAxis dataKey="name" hide />
+                                    <YAxis tick={{fontSize: 11, fontWeight: 600}} axisLine={false} tickLine={false} />
+                                    <Tooltip />
+                                    <Bar dataKey="value" fill="#b91c1c" radius={[4, 4, 0, 0]} barSize={45} />
+                                </BarChart>
+                            </ResponsiveContainer>
                         </div>
-                        {filteredOps.length === 0 && (
-                            <div className="p-20 text-center text-slate-400 italic text-sm bg-white">
-                                <Search className="w-12 h-12 mx-auto mb-4 opacity-20" />
-                                Nenhuma missão encontrada com os filtros aplicados.
-                            </div>
-                        )}
                     </Card>
                 </div>
-            )}
+            </div>
+        )}
 
-            {/* ABA ESTATÍSTICO */}
-            {activeTab === 'statistical' && (
-                <div className="animate-fade-in space-y-6">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <Card className="p-4 bg-white border-l-4 border-l-red-700 shadow-sm"><p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Operações</p><h3 className="text-xl md:text-2xl font-bold">{filteredOps.length}</h3></Card>
-                        <Card className="p-4 bg-white border-l-4 border-l-blue-600 shadow-sm"><p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Horas Voadas</p><h3 className="text-xl md:text-2xl font-bold">{statsData.totalHours.toFixed(1)}h</h3></Card>
-                        <Card className="p-4 bg-white border-l-4 border-l-slate-800 shadow-sm"><p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Aeronaves</p><h3 className="text-xl md:text-2xl font-bold">{new Set(filteredOps.map(o => o.drone_id)).size}</h3></Card>
-                        <Card className="p-4 bg-white border-l-4 border-l-green-600 shadow-sm"><p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Efetivo</p><h3 className="text-xl md:text-2xl font-bold">{new Set(filteredOps.map(o => o.pilot_id)).size}</h3></Card>
-                    </div>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <Card className="p-5 md:p-6 shadow-sm"><h4 className="text-sm font-bold text-slate-700 mb-6 flex items-center gap-2 uppercase tracking-tight"><LayoutGrid className="w-4 h-4 text-red-700" /> Natureza das Missões</h4><div className="h-72 md:h-80"><ResponsiveContainer width="100%" height="100%"><PieChart>
-                          <Pie data={statsData.missionChart} innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value">
-                            {statsData.missionChart.map((_, index) => <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
-                          </Pie>
-                          <Tooltip />
-                          <Legend verticalAlign="bottom" wrapperStyle={{ fontSize: '10px' }} />
-                        </PieChart></ResponsiveContainer></div></Card>
-                        <Card className="p-5 md:p-6 shadow-sm"><h4 className="text-sm font-bold text-slate-700 mb-6 flex items-center gap-2 uppercase tracking-tight"><MapIcon className="w-4 h-4 text-red-700" /> Empenho por Regional</h4><div className="h-72 md:h-80"><ResponsiveContainer width="100%" height="100%"><BarChart data={statsData.regionalChart}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" hide /><YAxis /><Tooltip /><Bar dataKey="value" fill="#b91c1c" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer></div></Card>
-                    </div>
-                </div>
-            )}
-            
-            {/* ABA GERENCIAL */}
-            {activeTab === 'managerial' && (
-                <div className="animate-fade-in space-y-6">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <Card className="p-5 md:p-6 shadow-sm">
-                            <h4 className="text-sm font-bold text-slate-700 mb-6 flex items-center gap-2 uppercase tracking-tight"><Users className="w-4 h-4 text-red-700" /> Produtividade: Horas por Piloto (Top 10)</h4>
-                            <div className="h-80 md:h-96">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={managerialData.pilotRanking} layout="vertical" margin={{ left: 20, right: 30 }}>
-                                        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                                        <XAxis type="number" />
-                                        <YAxis dataKey="name" type="category" width={100} style={{ fontSize: '9px' }} />
-                                        <Tooltip />
-                                        <Bar dataKey="hours" fill="#1e293b" radius={[0, 4, 4, 0]} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </Card>
-                        <Card className="p-5 md:p-6 shadow-sm">
-                            <h4 className="text-sm font-bold text-slate-700 mb-6 flex items-center gap-2 uppercase tracking-tight"><Plane className="w-4 h-4 text-red-700" /> Emprego da Frota: Horas por RPA</h4>
-                            <div className="h-80 md:h-96">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={managerialData.droneUsage}>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                        <XAxis dataKey="name" style={{ fontSize: '9px' }} />
-                                        <YAxis />
-                                        <Tooltip />
-                                        <Bar dataKey="hours" fill="#b91c1c" radius={[4, 4, 0, 0]} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </Card>
+        {activeTab === 'heatmap' && (
+            <div className="h-full relative animate-fade-in">
+                <MapContainer center={[-24.8, -51.5]} zoom={7} style={{ height: '100%', width: '100%' }}>
+                    <MapResizer />
+                    <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
+                    {filteredOps.map(op => (
+                        <CircleMarker key={op.id} center={[op.latitude, op.longitude]} radius={8} pathOptions={{ color: MISSION_COLORS[op.mission_type] || '#ef4444', fillColor: MISSION_COLORS[op.mission_type] || '#ef4444', fillOpacity: 0.6 }}>
+                            <Popup><div className="p-1 min-w-[200px] text-center"><p className="font-black text-slate-800 text-xs uppercase leading-tight">{op.name}</p><p className="text-[9px] text-slate-400 font-mono mt-1">#{op.occurrence_number}</p><p className="text-[9px] text-slate-500 font-bold mt-1 uppercase">{new Date(op.start_time).toLocaleDateString()}</p></div></Popup>
+                        </CircleMarker>
+                    ))}
+                </MapContainer>
+                <div className="absolute bottom-10 left-6 bg-white/95 backdrop-blur-md p-5 rounded-xl shadow-2xl z-[1000] border border-slate-200">
+                    <h5 className="text-[10px] font-black text-slate-500 uppercase mb-4 border-b pb-2 flex items-center gap-2"><Activity className="w-3.5 h-3.5 text-red-600"/> LEGENDA DO CALOR</h5>
+                    <div className="space-y-2.5">
+                        {Object.entries(MISSION_LABELS).slice(0, 8).map(([key, label]) => (
+                            <div key={key} className="flex items-center gap-3"><div className="w-3.5 h-3.5 rounded-full shadow-sm" style={{ backgroundColor: MISSION_COLORS[key] }}></div><span className="text-[10px] font-bold text-slate-700 uppercase">{label.split('. ')[1] || label}</span></div>
+                        ))}
                     </div>
                 </div>
-            )}
-        </div>
-      </main>
+            </div>
+        )}
 
-      {/* MODAL DE EDIÇÃO */}
-      {isEditModalOpen && editForm && (
-          <div className="fixed inset-0 z-[3000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-              <Card className="w-full max-w-lg bg-white shadow-2xl p-6">
-                  <div className="flex justify-between items-center mb-6 border-b pb-3">
-                      <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                          <Pencil className="w-5 h-5 text-blue-600" /> Editar Registro Operacional
-                      </h2>
-                      <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                          <X className="w-6 h-6" />
-                      </button>
-                  </div>
-                  
-                  <form onSubmit={handleSaveEdit} className="space-y-4">
-                      
-                      <div>
-                          <Input 
-                              label="Título da Operação" 
-                              value={editForm.name || ''} 
-                              onChange={e => setEditForm({...editForm, name: e.target.value})} 
-                              required 
-                          />
-                      </div>
+        {activeTab === 'specific' && (
+            <div className="p-6 space-y-6 max-w-[1600px] mx-auto animate-fade-in">
+                <div className="bg-slate-900 px-6 py-4 rounded-xl flex justify-between items-center text-white shadow-xl">
+                   <div className="flex items-center gap-4"><button onClick={() => selectedOpIds.size === filteredOps.length ? setSelectedOpIds(new Set()) : setSelectedOpIds(new Set(filteredOps.map(o => o.id)))} className="flex items-center gap-2 hover:opacity-80 transition-opacity">{selectedOpIds.size === filteredOps.length && filteredOps.length > 0 ? <CheckSquare className="w-5 h-5 text-red-500"/> : <Square className="w-5 h-5 text-slate-400"/>}<span className="text-xs font-black uppercase tracking-widest">RESULTADOS FILTRADOS ({filteredOps.length})</span></button></div>
+                   
+                   <div className="flex items-center gap-4">
+                       <Badge className="bg-red-900/50 text-red-200 border-red-800 font-black text-[9px] h-6 px-3">{selectedOpIds.size} SELECIONADOS</Badge>
+                       {selectedOpIds.size > 0 && (
+                           <div className="flex items-center gap-2">
+                               {currentUser?.role === 'admin' && (
+                                   <Button onClick={handleDeleteOperations} disabled={loading} className="bg-red-900 hover:bg-black text-white h-9 px-4 text-[10px] font-black uppercase tracking-widest shadow-lg">
+                                       <Trash2 className="w-3.5 h-3.5 mr-2"/> EXCLUIR
+                                   </Button>
+                               )}
+                               <Button onClick={handleExportBoletim} disabled={generatingPdf} className="bg-red-700 hover:bg-red-800 text-white h-9 px-6 text-[10px] font-black uppercase tracking-widest shadow-lg">
+                                   <Printer className="w-3.5 h-3.5 mr-2"/> {generatingPdf ? 'PROCESSANDO...' : 'GERAR BOLETINS'}
+                               </Button>
+                           </div>
+                       )}
+                   </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filteredOps.map(op => (
+                        <Card key={op.id} onClick={() => handleToggleSelect(op.id)} className={`p-4 border-2 transition-all cursor-pointer relative hover:shadow-lg ${selectedOpIds.has(op.id) ? 'border-blue-500 bg-blue-50/20' : 'border-white bg-white shadow-sm'}`}>
+                            <div className="absolute top-4 right-4">{selectedOpIds.has(op.id) ? <CheckSquare className="w-5 h-5 text-blue-600"/> : <Square className="w-5 h-5 text-slate-200"/>}</div>
+                            <div className="pr-8 mb-4"><h4 className="font-black text-slate-800 text-sm uppercase leading-tight truncate">{op.name}</h4><p className="text-[10px] text-slate-400 font-mono mt-1 uppercase">#{op.occurrence_number}</p></div>
+                            <div className="flex gap-2 mb-6"><Badge className="bg-slate-100 text-slate-600 text-[9px] font-black border-none uppercase">{MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}</Badge><Badge variant={op.status === 'completed' ? 'success' : 'warning'} className="text-[9px] font-black uppercase">{op.status === 'active' ? 'ACTIVE' : op.status.toUpperCase()}</Badge></div>
+                            <div className="flex justify-between items-center pt-3 border-t border-slate-100 text-slate-400"><div className="flex items-center gap-1.5 font-bold text-[10px]"><Calendar className="w-3.5 h-3.5"/> {new Date(op.start_time).toLocaleDateString('pt-BR')}</div><div className="flex items-center gap-1.5 font-mono text-[10px] font-black text-slate-500"><Clock className="w-3.5 h-3.5"/> {formatFlightHours(op.flight_hours || 0)}</div></div>
+                        </Card>
+                    ))}
+                </div>
+            </div>
+        )}
 
-                      <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 grid grid-cols-2 gap-3">
-                          <Input 
-                              label="Início" 
-                              type="datetime-local" 
-                              value={editForm.start_time_local || ''} 
-                              onChange={e => handleEditTimeChange('start_time_local', e.target.value)} 
-                              required 
-                          />
-                          <Input 
-                              label="Término" 
-                              type="datetime-local" 
-                              value={editForm.end_time_local || ''} 
-                              onChange={e => handleEditTimeChange('end_time_local', e.target.value)} 
-                          />
-                          <div className="bg-white p-2 rounded border border-slate-200 col-span-2 flex items-center justify-between">
-                              <label className="text-xs font-bold text-slate-500 uppercase">Horas Voadas (HH:MM)</label>
-                              <Input 
-                                  type="text" 
-                                  className="w-24 font-mono font-bold text-lg text-right outline-none text-blue-600"
-                                  placeholder="00:00"
-                                  value={editForm.flight_hours_hhmm || ''} 
-                                  onChange={e => {
-                                      // Mask basic input HH:MM
-                                      let val = e.target.value.replace(/[^0-9:]/g, '');
-                                      if (val.length === 2 && !val.includes(':')) val += ':';
-                                      setEditForm({...editForm, flight_hours_hhmm: val});
-                                  }}
-                              />
-                          </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                          <Select 
-                              label="Piloto" 
-                              value={editForm.pilot_id || ''} 
-                              onChange={e => setEditForm({...editForm, pilot_id: e.target.value})} 
-                              required
-                          >
-                              {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-                          </Select>
-                          <Select 
-                              label="Aeronave" 
-                              value={editForm.drone_id || ''} 
-                              onChange={e => setEditForm({...editForm, drone_id: e.target.value})} 
-                              required
-                          >
-                              {drones.map(d => <option key={d.id} value={d.id}>{d.prefix}</option>)}
-                          </Select>
-                      </div>
-
-                      <div>
-                          <label className="text-sm font-medium text-slate-700 mb-1 block">Natureza</label>
-                          <select 
-                              className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white"
-                              value={editForm.mission_type} 
-                              onChange={e => setEditForm({...editForm, mission_type: e.target.value as any})}
-                          >
-                              {Object.entries(MISSION_HIERARCHY).map(([key, val]) => (
-                                  <option key={key} value={key}>{val.label}</option>
-                              ))}
-                          </select>
-                      </div>
-
-                      <div>
-                          <label className="text-sm font-medium text-slate-700 mb-1 block">Descrição / Relato</label>
-                          <textarea 
-                              className="w-full p-2 border border-slate-300 rounded-lg text-sm h-20 resize-none"
-                              value={editForm.description || ''}
-                              onChange={e => setEditForm({...editForm, description: e.target.value})}
-                          />
-                      </div>
-
-                      <div>
-                          <label className="text-sm font-medium text-slate-700 mb-1 block">Ações Tomadas</label>
-                          <textarea 
-                              className="w-full p-2 border border-slate-300 rounded-lg text-sm h-20 resize-none"
-                              value={editForm.actions_taken || ''}
-                              onChange={e => setEditForm({...editForm, actions_taken: e.target.value})}
-                          />
-                      </div>
-
-                      <div className="flex justify-end gap-3 pt-2">
-                          <Button type="button" variant="outline" onClick={() => setIsEditModalOpen(false)}>Cancelar</Button>
-                          <Button type="submit" disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white shadow-md">
-                              <Save className="w-4 h-4 mr-2" /> Salvar Alterações
-                          </Button>
-                      </div>
-                  </form>
-              </Card>
-          </div>
-      )}
-
+        {activeTab === 'mgmt' && (
+            <div className="p-6 space-y-6 max-w-[1600px] mx-auto animate-fade-in">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <Card className="p-8 shadow-md bg-white border border-slate-100">
+                        <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-10 flex items-center gap-3"><Users className="w-5 h-5 text-red-700"/> PRODUTIVIDADE: HORAS POR PILOTO (TOP 10)</h4>
+                        <div className="h-[500px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={statsData.pilotData} layout="vertical" margin={{ left: 60, right: 20 }}><CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" /><XAxis type="number" tick={{fontSize: 11, fontWeight: 600}} axisLine={false} tickLine={false} /><YAxis dataKey="name" type="category" width={140} tick={{fontSize: 9, fontWeight: 700, fill: '#475569', textTransform: 'uppercase'}} axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="value" fill="#1e293b" radius={[0, 8, 8, 0]} barSize={24} /></BarChart></ResponsiveContainer></div>
+                    </Card>
+                    <Card className="p-8 shadow-md bg-white border border-slate-100">
+                        <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-10 flex items-center gap-3"><Plane className="w-5 h-5 text-red-700"/> EMPREGO DA FROTA: HORAS POR RPA</h4>
+                        <div className="h-[500px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={statsData.fleetData} margin={{ bottom: 30 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" /><XAxis dataKey="name" tick={{fontSize: 9, fontWeight: 800, fill: '#64748b'}} axisLine={false} tickLine={false} /><YAxis tick={{fontSize: 11, fontWeight: 600}} axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="value" fill="#b91c1c" radius={[6, 6, 0, 0]} barSize={40} /></BarChart></ResponsiveContainer></div>
+                    </Card>
+                </div>
+            </div>
+        )}
+      </div>
     </div>
   );
 }

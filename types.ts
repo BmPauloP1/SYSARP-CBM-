@@ -74,7 +74,7 @@ export interface Drone {
     checklist?: DroneDocument[];
     importantes?: DroneDocument[];
     manual?: DroneDocument[];
-    aro?: DroneDocument[]; // Adicionado para suportar ARO Preventiva
+    aro?: DroneDocument[]; 
   };
 }
 
@@ -210,6 +210,7 @@ export interface Operation {
   status: OperationStatus;
   start_time: string;
   end_time?: string;
+  estimated_end_time?: string;
   flight_hours?: number;
   photos: string[];
   gpx_file?: string;
@@ -225,6 +226,16 @@ export interface Operation {
   aro?: AroAssessment;
   flight_plan_data?: string;
   shapes?: any;
+  tactical_summary?: {
+      drones_count: number;
+      sectors_count: number;
+      pois_count: number;
+      teams_count: number;
+      vehicles_count: number;
+      k9_count: number;
+      victims_count: number;
+      total_area_m2: number;
+  };
   is_paused?: boolean;
   last_pause_start?: string | null;
   total_pause_duration?: number;
@@ -549,5 +560,5 @@ export const ORGANIZATION_CHART: Record<string, string[]> = {
 
 export const LGPD_TERMS = `
 POLÍTICA DE PRIVACIDADE E TERMOS DE USO DE DADOS - SYSARP CBMPR
-... (restante omitido para brevidade) ...
+...
 `;

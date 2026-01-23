@@ -1,5 +1,5 @@
 {
-  "name": "Copy of SYSARP-v.1.2",
+  "name": "Copy of SYSARP-v.2.0",
   "description": "Sistema de gestão de operações com drones para o Corpo de Bombeiros, incluindo monitoramento em tempo real, gestão de frota e pilotos.",
   "requestFramePermissions": [
     "geolocation"

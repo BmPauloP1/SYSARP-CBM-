@@ -3,9 +3,9 @@ import React, { useEffect, useState, useCallback, memo, useRef, useMemo } from "
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
-import { Operation, Drone, Pilot, MISSION_HIERARCHY, MISSION_COLORS, MISSION_LABELS, ConflictNotification, Maintenance } from "../types";
+import { Operation, Drone, Pilot, MISSION_HIERARCHY, MISSION_COLORS, ConflictNotification, Maintenance } from "../types";
 import { Badge, Button, Card } from "../components/ui_components";
-import { Radio, Video, AlertTriangle, Map as MapIcon, Wrench, List, Shield, Check, Info, Share2, User, Plane, Building2, UserCheck, Navigation, Clock, History } from "lucide-react";
+import { Radio, Video, Map as MapIcon, Shield, Check, User, Plane, Building2, Navigation, Clock, History, Crosshair, Share2, UserCheck, AlertTriangle, Play } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { OperationalInfoTicker } from "../components/OperationalInfoTicker";
 
@@ -62,9 +62,8 @@ const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
       // No operations: Focus on User Location
       map.locate({ setView: true, maxZoom: 14, enableHighAccuracy: true });
       
-      // Fallback handlers if locate fails (optional, but good for UX)
       map.on('locationerror', () => {
-         // Fallback to central Paraná if location denied
+         // Fallback to central Paraná
          map.setView([-24.5, -51.0], 7); 
       });
     }
@@ -85,7 +84,6 @@ export default function Dashboard() {
   const [pendingPilotsCount, setPendingPilotsCount] = useState(0);
   const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   
-  // New States for Ticker
   const [totalOpsCount, setTotalOpsCount] = useState(0);
   const [totalFlightHours, setTotalFlightHours] = useState(0);
   
@@ -105,20 +103,17 @@ export default function Dashboard() {
 
       const active = ops.filter(o => o.status === 'active');
       const pendingCount = pils.filter(p => p.status === 'pending').length;
-      
-      // Calculate Total Flight Hours from Drones
       const totalHours = drn.reduce((acc, d) => acc + (d.total_flight_hours || 0), 0);
 
       setCurrentUser(me);
       setActiveOps(active);
-      setRecentOps(ops.filter(o => o.status !== 'active').slice(0, 5)); // Apenas histórico no recent
+      setRecentOps(ops.filter(o => o.status !== 'active').slice(0, 5));
       setMaintenanceAlerts(maints);
       setLiveStreams(active.filter(o => o.stream_url));
       setDrones(drn);
       setPilots(pils);
       setPendingPilotsCount(pendingCount);
       
-      // Update new metrics
       setTotalOpsCount(ops.length);
       setTotalFlightHours(totalHours);
 
@@ -141,13 +136,6 @@ export default function Dashboard() {
     };
   }, [loadData]);
 
-  const handleAckConflict = async (id: string) => {
-     try {
-         await base44.entities.ConflictNotification.update(id, { acknowledged: true });
-         setConflictAlerts(prev => prev.filter(c => c.id !== id));
-     } catch (e) { console.error(e); }
-  };
-
   const handleShareOp = async (op: Operation) => {
       const pilot = pilots.find(p => p.id === op.pilot_id);
       const drone = drones.find(d => d.id === op.drone_id);
@@ -159,17 +147,13 @@ export default function Dashboard() {
       text += `🚁 *Ocorrência:* ${op.name.toUpperCase()}\n`;
       text += `🔢 *Protocolo:* ${op.occurrence_number}\n`;
       text += `📋 *Natureza:* ${MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}\n\n`;
-
       text += `👤 *PIC:* ${pilot?.full_name || 'N/A'}\n`;
       text += `📞 *Contato:* ${pilot?.phone || 'N/A'}\n`;
       text += `🛡️ *Aeronave:* ${drone ? `${drone.prefix} (${drone.model})` : 'N/A'}\n\n`;
-
       text += `📍 *Coord:* ${op.latitude.toFixed(6)}, ${op.longitude.toFixed(6)}\n`;
       text += `🗺️ *Google Maps:* ${mapsLink}\n\n`;
-
       text += `📏 *Raio:* ${op.radius}m\n`;
       text += `✈️ *Altitude:* ${op.flight_altitude || 60}m\n\n`;
-
       text += `🕒 *Início:* ${startTime.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}\n`;
       text += `🏁 *Término Previsto:* ${endTime}`;
 
@@ -226,12 +210,23 @@ export default function Dashboard() {
                    <span className="flex items-center gap-1"><Clock className="w-3" /> {new Date(op.start_time).toLocaleTimeString()}</span>
                    <span className="flex items-center gap-1"><Navigation className="w-3" /> Raio: {op.radius}m</span>
                 </div>
+                
+                <div className="mt-3 pt-3 border-t border-slate-100">
+                    <Button 
+                        size="sm" 
+                        className="w-full h-9 text-xs font-bold uppercase bg-red-700 hover:bg-red-800 shadow-lg"
+                        onClick={() => navigate(`/operations/${op.id}/gerenciar`)}
+                    >
+                        <Crosshair className="w-4 h-4 mr-2" />
+                        ACESSAR CCO TÁTICO
+                    </Button>
+                </div>
               </div>
             </Popup>
           </Marker>
         );
     });
-  }, [activeOps, pilots, drones]);
+  }, [activeOps, pilots, drones, navigate]);
 
   return (
     <div className="flex flex-col h-full bg-white lg:overflow-hidden overflow-y-auto">
@@ -308,28 +303,27 @@ export default function Dashboard() {
                 <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
                   <Radio className="w-4 h-4 animate-pulse" /> Operações Ativas
                 </h3>
-                <Badge variant="default" className="bg-white/20 text-white border-0 text-[10px]">{activeOps.length}</Badge>
+                <div className="bg-red-800 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">{activeOps.length}</div>
               </div>
               <div className="max-h-[350px] overflow-y-auto custom-scrollbar p-0">
                 {activeOps.length === 0 ? (
-                   <div className="p-8 text-center">
-                      <div className="bg-slate-50 p-3 rounded-full inline-block mb-3 border border-slate-100"><Check className="w-6 h-6 text-slate-300" /></div>
+                   <div className="p-8 text-center flex flex-col items-center">
+                      <div className="bg-slate-50 p-3 rounded-full mb-3 border border-slate-100"><Check className="w-6 h-6 text-slate-300" /></div>
                       <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">Sem operações no momento</p>
                    </div>
                 ) : (
                    <div className="divide-y divide-slate-100">
                       {activeOps.map(op => {
                          const pilot = pilots.find(p => p.id === op.pilot_id);
-                         const drone = drones.find(d => d.id === op.drone_id);
                          return (
-                           <div key={op.id} className="p-3 hover:bg-red-50/30 transition-colors group relative">
+                           <div key={op.id} className="p-3 hover:bg-red-50/30 transition-colors group relative cursor-pointer" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>
                               <div className="absolute left-0 top-3 bottom-3 w-1 bg-red-600 rounded-r opacity-0 group-hover:opacity-100 transition-opacity"></div>
                               <div className="flex justify-between items-start mb-1.5 pl-2">
                                  <span className="text-[9px] font-black text-red-600 uppercase tracking-wider flex items-center gap-1.5 bg-red-50 px-2 py-0.5 rounded-full border border-red-100">
                                     <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse shadow-sm"></span>
                                     Em Andamento
                                  </span>
-                                 <button onClick={() => handleShareOp(op)} className="text-slate-300 hover:text-green-600 transition-colors bg-white hover:bg-green-50 p-1.5 rounded border border-transparent hover:border-green-100"><Share2 className="w-3.5 h-3.5" /></button>
+                                 <button onClick={(e) => { e.stopPropagation(); handleShareOp(op); }} className="text-slate-300 hover:text-green-600 transition-colors bg-white hover:bg-green-50 p-1.5 rounded border border-transparent hover:border-green-100"><Share2 className="w-3.5 h-3.5" /></button>
                               </div>
                               <div className="pl-2">
                                   <h4 className="font-bold text-slate-800 text-sm leading-tight mb-1 truncate pr-2">{op.name}</h4>
@@ -338,6 +332,13 @@ export default function Dashboard() {
                                      <span>•</span>
                                      <span className="truncate max-w-[120px]">{MISSION_HIERARCHY[op.mission_type]?.label}</span>
                                   </div>
+                                  
+                                  <div className="mb-2" onClick={e => e.stopPropagation()}>
+                                      <button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="w-full bg-red-50 hover:bg-red-100 text-red-700 text-[9px] font-bold uppercase py-1.5 rounded border border-red-100 flex items-center justify-center gap-1 transition-colors">
+                                          <Crosshair className="w-3 h-3" /> ACESSAR CCO TÁTICO
+                                      </button>
+                                  </div>
+
                                   <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
                                      <div className="flex items-center gap-1.5 min-w-0">
                                         <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-[9px] font-bold text-slate-600 shrink-0">
@@ -369,49 +370,68 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* TRANSMISSÕES */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="bg-slate-800 px-4 py-2 flex justify-between items-center">
-                <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
-                  <Video className="w-3 h-3" /> Transmissões
-                </h3>
-              </div>
-              <div className="p-3">
-                {liveStreams.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic text-center py-2">Nenhuma transmissão ativa.</p>
-                ) : (
-                  liveStreams.map(op => (
-                    <div key={op.id} className="p-2 bg-red-50 border border-red-100 rounded-lg flex justify-between items-center mb-1 last:mb-0">
-                       <span className="text-xs font-bold text-slate-800 truncate">{op.name}</span>
-                       <a href="#/transmissions" className="text-red-600 hover:text-red-800"><Video className="w-4 h-4" /></a>
+            {/* TRANSMISSÕES AO VIVO */}
+            <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
+                <div className="bg-[#1e293b] px-4 py-3 flex justify-between items-center">
+                  <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
+                    <Video className="w-4 h-4 text-white" /> Transmissões
+                  </h3>
+                </div>
+                <div className="p-4 flex items-center justify-center min-h-[80px]">
+                  {liveStreams.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic">Nenhuma transmissão ativa.</p>
+                  ) : (
+                    <div className="w-full space-y-2">
+                      {liveStreams.map(op => (
+                        <div key={op.id} className="p-3 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer flex items-center justify-between rounded-lg border border-slate-100" onClick={() => navigate('/transmissions')}>
+                           <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 bg-black rounded-md flex items-center justify-center border border-slate-700 shadow-sm">
+                                 <Play className="w-3 h-3 text-white" />
+                              </div>
+                              <div className="min-w-0">
+                                 <p className="text-xs font-bold text-slate-800 truncate">{op.name}</p>
+                                 <p className="text-[10px] text-slate-500 uppercase">Live Cam</p>
+                              </div>
+                           </div>
+                           <div className="text-[9px] font-bold text-red-600 bg-red-50 px-2 py-1 rounded border border-red-100 uppercase animate-pulse">
+                              No Ar
+                           </div>
+                        </div>
+                      ))}
                     </div>
-                  ))
-                )}
-              </div>
+                  )}
+                </div>
             </div>
 
-            {/* TRÁFEGO AÉREO / CONFLITOS */}
-            <div className={`bg-white rounded-xl shadow-sm border ${conflictAlerts.length > 0 ? 'border-red-500' : 'border-green-200'} overflow-hidden`}>
-              <div className={`${conflictAlerts.length > 0 ? 'bg-red-600 animate-pulse' : 'bg-green-600'} px-4 py-2 flex justify-between items-center`}>
-                <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
-                  <Shield className="w-3 h-3" /> Tráfego Aéreo
-                </h3>
-              </div>
-              <div className="p-3">
-                 {conflictAlerts.length === 0 ? (
-                    <div className="text-xs text-green-700 bg-green-50 p-2 rounded text-center font-medium">Sem conflitos de espaço aéreo.</div>
-                 ) : (
-                    conflictAlerts.map(alert => (
-                       <div key={alert.id} className="bg-red-50 p-2 rounded text-[10px] flex justify-between items-center mb-2 last:mb-0 border border-red-100">
-                          <span className="font-bold text-red-800">{alert.new_op_name}</span>
-                          <Button size="sm" className="h-6 text-[9px] bg-red-600 hover:bg-red-700 text-white" onClick={() => handleAckConflict(alert.id)}>CIENTE</Button>
-                       </div>
-                    ))
-                 )}
-              </div>
+            {/* TRÁFEGO AÉREO */}
+            <div className="bg-white rounded-xl shadow-md border border-green-100 overflow-hidden">
+                <div className="bg-green-600 px-4 py-3 flex justify-between items-center">
+                  <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
+                    <Shield className="w-4 h-4" /> Tráfego Aéreo
+                  </h3>
+                </div>
+                <div className="p-4">
+                  {conflictAlerts.length === 0 ? (
+                    <div className="bg-green-50 border border-green-100 text-green-700 text-xs font-bold text-center py-3 rounded-lg">
+                        Sem conflitos de espaço aéreo.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {conflictAlerts.map(conflict => (
+                        <div key={conflict.id} className="bg-white p-3 rounded-lg border-l-4 border-red-500 shadow-sm text-xs relative overflow-hidden">
+                          <div className="absolute top-0 right-0 p-1 opacity-10"><AlertTriangle className="w-12 h-12 text-red-600"/></div>
+                          <p className="font-bold text-red-700 uppercase mb-1">Conflito Detectado</p>
+                          <p className="font-bold text-slate-800">{conflict.new_op_name}</p>
+                          <p className="text-slate-600 mt-1">Piloto: {conflict.new_pilot_name}</p>
+                          <p className="text-slate-500 mt-0.5">Alt: {conflict.new_op_altitude}m | Raio: {conflict.new_op_radius}m</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
             </div>
 
-            {/* HISTÓRICO RECENTE (ANTIGO 'OPERAÇÕES RECENTES') */}
+            {/* HISTÓRICO RECENTE */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden opacity-90 hover:opacity-100 transition-opacity">
               <div className="bg-slate-100 px-4 py-2 border-b border-slate-200">
                 <h3 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">

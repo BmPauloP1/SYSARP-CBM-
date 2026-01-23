@@ -4,7 +4,7 @@ import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout';
 
 /*
-  Lazy loading of all page components to optimize performance and fix reference errors.
+  Lazy loading of all page components to optimize performance.
 */
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Login = lazy(() => import('./pages/Login'));
@@ -21,6 +21,9 @@ const SystemAudit = lazy(() => import('./pages/SystemAudit'));
 const DatabaseUpdates = lazy(() => import('./pages/DatabaseUpdates'));
 const CautelaManagement = lazy(() => import('./pages/CautelaManagement'));
 
+// TACTICAL MAP ONLY
+const TacticalMapPage = lazy(() => import('./pages/TacticalOperationCenter'));
+
 /*
   The main App component handles application-wide routing and lazy loading boundaries.
 */
@@ -35,6 +38,12 @@ export default function App() {
           {/* Private Routes wrapped in Layout */}
           <Route path="/" element={<Layout><Dashboard /></Layout>} />
           <Route path="/operations" element={<Layout><OperationManagement /></Layout>} />
+          
+          {/* LEVEL 2: TACTICAL MAP (Execution - Now the Main Map) */}
+          <Route path="/operations/:id/gerenciar" element={<TacticalMapPage />} />
+          {/* Backward compatibility redirect if user tries old URL */}
+          <Route path="/operations/:id/tactical" element={<Navigate to="../gerenciar" relative="path" replace />} />
+
           <Route path="/pilots" element={<Layout><PilotManagement /></Layout>} />
           <Route path="/drones" element={<Layout><DroneManagement /></Layout>} />
           <Route path="/maintenance" element={<Layout><MaintenanceManagement /></Layout>} />

@@ -170,7 +170,6 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
           const column = orderBy.replace('-', '');
           query = query.order(column, { ascending });
         } else {
-          // A tabela de migrations não tem 'created_at', então usamos 'id'
           if (entityName !== 'SchemaMigration') {
              query = query.order('created_at', { ascending: false });
           }
@@ -191,26 +190,33 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
       } catch (e: any) {
         const msg = e.message || '';
         
-        // NOVO: Tratamento específico para a tabela de migrações que pode não existir na primeira execução.
         if (entityName === 'SchemaMigration' && msg.includes("relation") && msg.includes("does not exist")) {
             console.warn("[SYSARP DB] Tabela 'schema_migrations' não encontrada, assumindo primeira execução.");
-            setLocal(storageKey, []); // Limpa o cache local para garantir consistência
-            return []; // Retorna array vazio, permitindo que o script de criação seja exibido.
+            setLocal(storageKey, []); 
+            return []; 
         }
         
-        // CORREÇÃO: Tratamento silencioso de erro de conexão ("Failed to fetch")
+        // CRITICAL FIX: Tratamento de erro de autenticação (JWT inválido/claims faltantes)
+        if (msg.includes("invalid claim") || msg.includes("missing sub claim") || msg.includes("JWT expired")) {
+            console.error("[Auth Error] Token inválido detectado. Limpando sessão.");
+            localStorage.removeItem('sysarp_user_session');
+            localStorage.removeItem('sb-hcnlrzzwwcbhkxfcolgw-auth-token');
+            // Redirecionamento forçado
+            if (window.location.hash !== '#/login') {
+                window.location.href = '/#/login';
+            }
+            return cachedData;
+        }
+        
         if (msg.includes("Failed to fetch") || msg === "Timeout") {
            console.warn(`[Offline Mode] Falha ao conectar ao servidor para ${entityName}. Usando cache local.`);
-           
            if (cachedData.length === 0) {
                if (entityName === 'Drone') return seedDronesIfEmpty() as any;
                if (entityName === 'Pilot') return seedPilotsIfEmpty() as any;
            }
-           
            return cachedData;
         }
 
-        // Se for outro erro (ex: tabela inexistente), loga mas não quebra se tiver cache
         console.error(`Erro ao carregar ${entityName}:`, e);
         if (hasCache) return cachedData;
         
@@ -233,7 +239,6 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
          return applyLocalFilter();
       }
 
-      // Adaptive Timeout também para filtros
       const cachedData = getLocal<T>(storageKey);
       const hasCache = cachedData.length > 0;
       const adaptiveTimeout = hasCache ? 2500 : 8000;
@@ -253,7 +258,6 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
           return data as unknown as T[];
         }
         
-        // Se o predicado for função, precisamos buscar tudo
         const { data, error } = await supabase.from(tableName).select('*');
         if (error) throw error;
         
@@ -261,7 +265,6 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
         return (data as unknown as T[]).filter(predicate);
 
       } catch (e: any) {
-        // Fallback silently on fetch error
         if (e.message?.includes("Failed to fetch") || e.message === "Timeout") {
            return applyLocalFilter();
         }
@@ -280,7 +283,6 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
          setLocal(storageKey, items);
       };
 
-      // Helper function for offline creation
       const createOffline = () => {
          const newItem = { 
              ...cleanItem, 
@@ -296,7 +298,6 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
       }
 
       try {
-        // Create usually needs longer timeout as it's critical
         const { data, error } = await supabase
           .from(tableName)
           .insert([cleanItem])
@@ -311,7 +312,6 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
       } catch (e: any) {
         const msg = e.message || '';
         
-        // Network or Fetch error -> Fallback to Offline Mode
         if (msg.includes("Failed to fetch") || msg.includes("Timeout")) {
           console.warn(`[Offline Fallback] Erro de conexão ao criar ${entityName}. Salvando localmente.`);
           return createOffline();
@@ -319,11 +319,9 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
 
         const missingCol = msg.match(/Could not find the '(.+?)' column/)?.[1];
         if (missingCol) {
-           // Fallback gracioso para a tabela de Auditoria se ela não existir
            if (entityName === 'SystemAudit' || entityName === 'SchemaMigration') {
              return createOffline();
            }
-           // Fallback para novas tabelas de Operações Multidias
            if (['OperationDay', 'OperationDayAsset', 'OperationDayPilot'].includes(entityName)) {
              throw new Error("DB_TABLE_MISSING");
            }
@@ -331,12 +329,10 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
         }
         
         if (msg.includes("relation") && msg.includes("does not exist")) {
-             // Fallback gracioso se a tabela de migrações não existir no primeiro uso
              if(entityName === 'SchemaMigration') return createOffline();
              throw new Error("DB_TABLE_MISSING");
         }
         
-        // Fallback for SystemAudit on any error to prevent blocking main flow
         if (entityName === 'SystemAudit') {
            return createOffline();
         }
@@ -428,7 +424,6 @@ const authHandler = {
     const isAdminSession = localStorage.getItem('sysarp_admin_session');
     const localSession = localStorage.getItem('sysarp_user_session');
     
-    // Check Local Session First if Offline is suspected or forced
     if (!isConfigured) {
        if (isAdminSession === 'true') return MOCK_ADMIN;
        if (localSession) return JSON.parse(localSession) as Pilot;
@@ -438,7 +433,6 @@ const authHandler = {
     }
 
     try {
-      // Short timeout for auth check to prevent hanging on load
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000));
       
       const { data: authData, error: authError } = await Promise.race([
@@ -447,11 +441,12 @@ const authHandler = {
       ]) as any;
 
       if (authError || !authData?.user) {
-        // CORREÇÃO CRÍTICA: Se houver erro de token inválido, limpa a sessão local para evitar loop de erro
-        if (authError?.message?.includes("Refresh Token") || authError?.message?.includes("Invalid session")) {
-            console.warn("[Auth] Sessão inválida ou expirada detectada. Limpando estado local.");
+        const errorMsg = authError?.message || "";
+        // CRITICAL FIX: Handle 'invalid claim: missing sub claim' specifically
+        if (errorMsg.includes("Refresh Token") || errorMsg.includes("Invalid session") || errorMsg.includes("missing sub claim") || errorMsg.includes("invalid claim")) {
+            console.warn("[Auth] Sessão inválida/corrompida detectada. Limpando estado local.");
             localStorage.removeItem('sysarp_user_session');
-            localStorage.removeItem('sb-hcnlrzzwwcbhkxfcolgw-auth-token'); // Limpa token do Supabase
+            localStorage.removeItem('sb-hcnlrzzwwcbhkxfcolgw-auth-token'); 
         }
         throw new Error(authError?.message || "Não autenticado");
       }
@@ -465,7 +460,6 @@ const authHandler = {
         .single();
 
       if (error || !profile) {
-         // Auto-healing logic
          try {
            const { data: newProfile } = await supabase
               .from('profiles')
@@ -488,7 +482,6 @@ const authHandler = {
       }
       return profile as Pilot;
     } catch (e: any) {
-      // Fallback para sessão local se a rede falhar
       if (localSession && (e.message.includes("Failed to fetch") || e.message === "Timeout")) {
          console.warn("[Auth] Network error, using local session.");
          return JSON.parse(localSession) as Pilot;
@@ -506,7 +499,6 @@ const authHandler = {
     if (!isConfigured || (adminEmails.includes(email.toLowerCase()) && password === 'admin123' && !navigator.onLine)) {
       if(adminEmails.includes(email.toLowerCase()) && password === 'admin123') {
         localStorage.setItem('sysarp_admin_session', 'true');
-        // Audit Mock
         const auditLog = { user_id: MOCK_ADMIN.id, action: 'LOGIN', entity: 'System', details: 'Login de Admin (Offline)', timestamp: new Date().toISOString() };
         const logs = getLocal('sysarp_system_audit'); logs.unshift(auditLog); setLocal('sysarp_system_audit', logs);
         return MOCK_ADMIN;
@@ -558,7 +550,6 @@ const authHandler = {
 
       localStorage.setItem('sysarp_user_session', JSON.stringify(profile));
 
-      // Audit Login
       try {
           base44.entities.SystemAudit.create({
               user_id: profile.id,
@@ -602,7 +593,7 @@ const authHandler = {
          unit: pilotData.unit || '',
          license: pilotData.license || '',
          role: pilotData.role || 'operator',
-         status: 'pending', // Garante status pendente no metadata
+         status: 'pending', 
          terms_accepted: pilotData.terms_accepted || false,
          change_password_required: pilotData.change_password_required === true
        };
@@ -615,8 +606,6 @@ const authHandler = {
  
        if (error) throw error;
        if (!data.user) throw new Error("Erro ao criar usuário no Auth.");
- 
-       // Perfil é criado via trigger no DB. Não é mais necessário upsert no cliente.
  
      } catch (e: any) {
        const msg = e.message || '';
@@ -652,7 +641,6 @@ const authHandler = {
          terms_accepted_at: termsAcceptedAt
        }).eq('id', userId);
 
-       // Audit
        base44.entities.SystemAudit.create({
             user_id: userId,
             action: 'UPDATE',
@@ -685,14 +673,12 @@ const authHandler = {
         });
 
         if (error) {
-            // Specific error for missing function
             if (error.code === '42883' || error.message.includes('function admin_reset_user_password')) {
                 throw new Error("RPC_NOT_FOUND");
             }
             throw error;
         }
 
-        // Also force change_password_required to true on the profile client-side for consistency
         await base44.entities.Pilot.update(userId, { change_password_required: true });
 
     } catch (e: any) {
@@ -702,7 +688,6 @@ const authHandler = {
   },
 
   logout: async () => {
-    // Try to log logout action before removing session
     try {
         const localSession = localStorage.getItem('sysarp_user_session');
         if (localSession) {
