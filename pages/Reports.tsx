@@ -178,14 +178,13 @@ export default function Reports() {
     if (selectedOpIds.size === 0) return;
     setGeneratingPdf(true);
     try {
-        /* FIX: Corrected dynamic imports by casting result to any to avoid TypeScript errors where module exports are inferred as 'unknown'. Added explicit any types to prevent unknown type inference errors on line 163. */
-        const jsPDFModule: any = await import('jspdf');
-        const jsPDF: any = jsPDFModule.default || jsPDFModule;
-        const autoTableModule: any = await import('jspdf-autotable');
-        /* FIX: autoTable defined from module as any to ensure it is callable and recognized by the compiler. Added explicit any types to prevent unknown type inference errors on line 163. */
-        const autoTable: any = autoTableModule.default || autoTableModule;
+        /* FIX: Corrected dynamic imports by properly casting (await import(...)) to any to resolve TS 'unknown' errors on lines 163-166. */
+        const jsPDFModule = (await import('jspdf')) as any;
+        const jsPDF = jsPDFModule.default || jsPDFModule;
+        const autoTableModule = (await import('jspdf-autotable')) as any;
+        const autoTable = autoTableModule.default || autoTableModule;
 
-        const doc: any = new jsPDF();
+        const doc = new jsPDF();
         const pageWidth = doc.internal.pageSize.width;
         const pageHeight = doc.internal.pageSize.height;
         const selectedOps = operations.filter(o => selectedOpIds.has(o.id));
@@ -228,8 +227,8 @@ export default function Reports() {
 
             const pilot = pilots.find(p => p.id === op.pilot_id);
             const drone = drones.find(d => d.id === op.drone_id);
-            // FIX: Robust check for finalY property
-            let yAfter = Number(doc.lastAutoTable?.finalY || 120) + 10;
+            // FIX: Explicitly cast doc to any to access doc.lastAutoTable to resolve TypeScript errors where property 'lastAutoTable' might not exist or be unknown.
+            let yAfter = Number((doc as any).lastAutoTable?.finalY || 120) + 10;
             doc.setFont("helvetica", "bold"); doc.text("2. EQUIPE E EQUIPAMENTO (VETOR)", 14, yAfter);
             autoTable(doc, {
                 startY: yAfter + 3,
@@ -241,7 +240,7 @@ export default function Reports() {
                 theme: 'plain', styles: { fontSize: 9, cellPadding: 1 }, columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45 } }
             });
 
-            yAfter = Number(doc.lastAutoTable?.finalY || yAfter + 40) + 10;
+            yAfter = Number((doc as any).lastAutoTable?.finalY || yAfter + 40) + 10;
 
             // --- ITEM 3: INTEGRADO SNAPSHOT DO TEATRO NO PDF ---
             const snapshot = tacticalService.getMapSnapshot(op.id);
@@ -270,7 +269,7 @@ export default function Reports() {
                     ]],
                     theme: 'grid', styles: { fontSize: 8, halign: 'center' }, headStyles: { fillColor: [30, 41, 59] }
                 });
-                yAfter = Number(doc.lastAutoTable?.finalY || yAfter + 20) + 10;
+                yAfter = Number((doc as any).lastAutoTable?.finalY || yAfter + 20) + 10;
             }
 
             doc.setFont("helvetica", "bold"); doc.text("4. RELATO OPERACIONAL E AÇÕES", 14, yAfter);

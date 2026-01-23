@@ -169,7 +169,7 @@ export default function TacticalOperationCenter() {
           const canvas = await html2canvas(mapEl, {
               useCORS: true, allowTaint: true, logging: false, scale: 2, backgroundColor: '#0f172a',
               ignoreElements: (element) => {
-                 // FIX ERROR _leaflet_pos: Ignora containers de controle e painéis de sombra do Leaflet
+                 // FIX ERROR _leaflet_pos: Ignora containers de controle e painéis de sombra do Leaflet que quebram o html2canvas
                  return (
                      element.classList.contains('leaflet-control-container') || 
                      (element.classList.contains('leaflet-pane') && !element.classList.contains('leaflet-map-pane')) ||
