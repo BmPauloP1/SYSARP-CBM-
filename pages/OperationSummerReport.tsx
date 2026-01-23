@@ -98,9 +98,11 @@ export default function OperationSummerReport() {
       const mostFrequentMission = Object.entries(statsByMission).sort((a, b) => b[1].flights - a[1].flights)[0];
 
       // 3. Gerar o PDF com jspdf e jspdf-autotable
-      // @FIX: Use modern dynamic import syntax to prevent type conflicts.
-      const { default: jsPDF } = await import('jspdf');
-      const { default: autoTable } = await import('jspdf-autotable');
+      // @FIX: Corrected dynamic imports by casting result to any to avoid 'unknown' type errors during destructuring.
+      const jsPDFModule = (await import('jspdf')) as any;
+      const jsPDF = jsPDFModule.default || jsPDFModule;
+      const autoTableModule = (await import('jspdf-autotable')) as any;
+      const autoTable = autoTableModule.default || autoTableModule;
 
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.width;
@@ -216,9 +218,8 @@ export default function OperationSummerReport() {
       }
       
       // Footer
-      // @FIX: Correctly call `doc.internal.getNumberOfPages()` to get the page count.
-      // FIX: The `getNumberOfPages` method is on the `doc` object itself, not on `doc.internal`.
-      const pageCount = doc.getNumberOfPages();
+      // FIX: The getNumberOfPages method is on the doc instance itself.
+      const pageCount = (doc as any).getNumberOfPages();
       for(let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
         doc.setFontSize(8);

@@ -178,15 +178,13 @@ export default function Reports() {
     if (selectedOpIds.size === 0) return;
     setGeneratingPdf(true);
     try {
-        // Fix: Use any cast for dynamic imports to avoid type inference issues with 'unknown' being destructured
+        /* FIX: Corrected dynamic imports by casting result to any to avoid TypeScript errors where module exports are inferred as 'unknown'. Added explicit any types to prevent unknown type inference errors on line 163. */
         const jsPDFModule: any = await import('jspdf');
-        const jsPDF = jsPDFModule.default || jsPDFModule;
+        const jsPDF: any = jsPDFModule.default || jsPDFModule;
         const autoTableModule: any = await import('jspdf-autotable');
-        // Add comment above fix
-        // Fix: Explicitly type autoTable as any on line 163 to avoid 'unknown' type errors when calling it as a function.
+        /* FIX: autoTable defined from module as any to ensure it is callable and recognized by the compiler. Added explicit any types to prevent unknown type inference errors on line 163. */
         const autoTable: any = autoTableModule.default || autoTableModule;
 
-        // FIX: Cast doc to any to avoid "unknown" type errors from dynamic import inference
         const doc: any = new jsPDF();
         const pageWidth = doc.internal.pageSize.width;
         const pageHeight = doc.internal.pageSize.height;
