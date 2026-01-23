@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -165,9 +164,9 @@ export default function Reports() {
           await Promise.all(deletePromises);
           
           alert("Operações excluídas com sucesso.");
-          setSelectedOpIds(new Set());
+          setSelectedOpIds(new Set<string>());
           loadData();
-      } catch (e) {
+      } catch (e: any) {
           console.error(e);
           alert("Erro ao excluir operações.");
       } finally {
@@ -293,7 +292,7 @@ export default function Reports() {
             doc.setFontSize(6); doc.text(`ID Digital: ${op.id}`, 14, pageHeight - 8);
         }
         doc.save(`BO_SYSARP_${new Date().getTime()}.pdf`);
-    } catch (e) { console.error(e); alert("Erro ao exportar boletim."); } finally { setGeneratingPdf(false); }
+    } catch (e: any) { console.error(e); alert("Erro ao exportar boletim."); } finally { setGeneratingPdf(false); }
   };
 
   return (

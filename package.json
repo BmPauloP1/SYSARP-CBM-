@@ -18,7 +18,7 @@
     "leaflet": "^1.9.4",
     "react-leaflet": "^4.2.1",
     "leaflet-draw": "^1.0.4",
-    "react-leaflet-draw": "^0.21.0",
+    "react-leaflet-draw": "0.20.4",
     "lucide-react": "^0.344.0",
     "recharts": "^2.12.2",
     "jspdf": "^2.5.1",
