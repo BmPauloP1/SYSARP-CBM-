@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
-import { tacticalService } from "../services/tacticalService"; // Adicionado
+import { tacticalService } from "../services/tacticalService";
 import { Operation, MISSION_HIERARCHY, Pilot, Drone, MISSION_COLORS, MISSION_LABELS, ORGANIZATION_CHART, SYSARP_LOGO, MissionType } from "../types";
 import { Card, Button, Input, Select, Badge } from "../components/ui_components";
 import { 
@@ -240,10 +240,10 @@ export default function Reports() {
 
             // --- ITEM 3: INTEGRADO SNAPSHOT DO TEATRO NO PDF ---
             const snapshot = tacticalService.getMapSnapshot(op.id);
-            // Fix: Use type narrowing instead of casting
-            if (typeof snapshot === 'string' && snapshot.length > 0) {
+            
+            if (snapshot && typeof snapshot === 'string' && snapshot.length > 0) {
                 doc.setFont("helvetica", "bold"); doc.text("3. GEOPROCESSAMENTO E TEATRO OPERACIONAL", 14, yAfter);
-                doc.addImage(snapshot, 'JPEG', 14, yAfter + 4, 182, 90); 
+                doc.addImage(snapshot as string, 'JPEG', 14, yAfter + 4, 182, 90); 
                 yAfter += 100;
             } else {
                 doc.setFont("helvetica", "bold"); doc.text("3. GEOPROCESSAMENTO TÁTICO E RECURSOS", 14, yAfter);
