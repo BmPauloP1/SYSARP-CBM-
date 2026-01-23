@@ -169,9 +169,8 @@ export default function OperationManagement() {
 
   const [controlModal, setControlModal] = useState<{type: 'pause' | 'cancel' | 'end' | null, op: Operation | null}>({type: null, op: null});
   const [reason, setReason] = useState('');
-  const [cancelConfirmed, setCancelConfirmed] = useState(false); // Checkbox state for cancel
+  const [cancelConfirmed, setCancelConfirmed] = useState(false); 
   
-  // Alterado: flightHours agora é armazenado como string "HH:MM" para input, convertido depois
   const [flightDurationStr, setFlightDurationStr] = useState("00:00");
   const [actionsTaken, setActionsTaken] = useState('');
 
@@ -251,6 +250,30 @@ export default function OperationManagement() {
     } catch(e) {}
   };
 
+  const handleShareOp = (op: Operation) => {
+      const pilot = pilots.find(p => p.id === op.pilot_id);
+      const drone = drones.find(d => d.id === op.drone_id);
+      const startTime = new Date(op.start_time);
+      const endTime = op.estimated_end_time || 'Não definido';
+      const mapsLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
+
+      let text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n`;
+      text += `🚁 *Ocorrência:* ${op.name.toUpperCase()}\n`;
+      text += `🔢 *Protocolo:* ${op.occurrence_number}\n`;
+      text += `📋 *Natureza:* ${MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}\n\n`;
+      text += `👤 *PIC:* ${pilot?.full_name || 'N/A'}\n`;
+      text += `📞 *Contato:* ${pilot?.phone || 'N/A'}\n`;
+      text += `🛡️ *Aeronave:* ${drone ? `${drone.prefix} (${drone.model})` : 'N/A'}\n\n`;
+      text += `📍 *Coord:* ${op.latitude.toFixed(6)}, ${op.longitude.toFixed(6)}\n`;
+      text += `🗺️ *Google Maps:* ${mapsLink}\n\n`;
+      text += `📏 *Raio:* ${op.radius}m\n`;
+      text += `✈️ *Altitude:* ${op.flight_altitude || 60}m\n\n`;
+      text += `🕒 *Início:* ${startTime.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}\n`;
+      text += `🏁 *Término Previsto:* ${endTime}`;
+
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
   const handleOpenNewMission = () => {
       setFormData({
           id: '', name: '', occurrence_number: '', 
@@ -270,7 +293,6 @@ export default function OperationManagement() {
   };
 
   const handleEditMission = async (op: Operation) => {
-      // Carregar elementos táticos existentes
       let existingSectors: any[] = [];
       let existingPOIs: any[] = [];
       
@@ -285,18 +307,14 @@ export default function OperationManagement() {
           console.warn("Erro ao carregar dados táticos:", e);
       }
 
-      // CORREÇÃO DE BUG DE DATA/HORA:
-      // Parsing manual da string ISO para evitar conversão de fuso horário indesejada.
       let sDate = '';
       let sTime = '';
       if (op.start_time) {
           if (op.start_time.includes('T')) {
               const parts = op.start_time.split('T');
               sDate = parts[0];
-              // Pega HH:MM sem converter para local
               sTime = parts[1].substring(0, 5); 
           } else {
-              // Fallback para datas legadas
               const d = new Date(op.start_time);
               sDate = d.toISOString().split('T')[0];
               sTime = d.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
@@ -335,13 +353,10 @@ export default function OperationManagement() {
           pois: existingPOIs
       });
 
-      // Try to parse summer info from fields if marked as summer op
       if (op.is_summer_op) {
-          // Heuristic: If city name is in op_unit, use it.
           const foundCity = Object.keys(SUMMER_LOCATIONS).find(c => op.op_unit?.includes(c));
           if (foundCity) {
               setSummerCity(foundCity);
-              // Try to find PGV in description or name
               const desc = op.description || '';
               const foundPgv = SUMMER_LOCATIONS[foundCity].find(p => desc.includes(p));
               if (foundPgv) setSummerPgv(foundPgv);
@@ -355,10 +370,8 @@ export default function OperationManagement() {
       setIsMissionModalOpen(true);
   };
 
-  // Callback quando o usuário desenha no mapa do modal
   const handleMapElementCreated = (e: { type: string, geojson: any }) => {
       if (e.type === 'Marker') {
-          // Criar POI
           const [lng, lat] = e.geojson.geometry.coordinates;
           const newPOI = {
               name: `Ponto ${plannedElements.pois.length + 1}`,
@@ -369,7 +382,6 @@ export default function OperationManagement() {
           } as Partial<TacticalPOI>;
           setPlannedElements(prev => ({ ...prev, pois: [...prev.pois, newPOI] }));
       } else {
-          // Criar Setor (Polígono) ou Rota (Linha)
           const isRoute = e.type === 'Line';
           const newSector = {
               name: isRoute ? `Rota ${plannedElements.sectors.length + 1}` : `Área ${plannedElements.sectors.length + 1}`,
@@ -380,7 +392,7 @@ export default function OperationManagement() {
           } as Partial<TacticalSector>;
           setPlannedElements(prev => ({ ...prev, sectors: [...prev.sectors, newSector] }));
       }
-      setModalMapMode('pc'); // Volta para modo normal após desenhar
+      setModalMapMode('pc'); 
   };
 
   const handleSaveMission = async (e: React.FormEvent) => {
@@ -389,20 +401,16 @@ export default function OperationManagement() {
       try {
           const finalStartTime = `${formData.start_date}T${formData.start_time}:00`;
           
-          // Remove fields that are not columns in the database (start_date)
-          // Also remove occurrence_number if it's empty (so DB generates it, or we do it below)
           const { start_date, id, occurrence_number, ...dataToSave } = formData;
 
-          // Summer Logic: Inject city and PGV
           let finalDescription = dataToSave.description;
           let finalUnit = dataToSave.op_unit;
           let finalName = dataToSave.name;
 
           if (dataToSave.is_summer_op) {
-              if (summerCity) finalUnit = summerCity; // Override unit with City
+              if (summerCity) finalUnit = summerCity; 
               if (summerPgv) {
                   finalDescription = `${finalDescription || ''}\n[PGV]: ${summerPgv}`.trim();
-                  // Optionally prefix name
                   if (!finalName.startsWith("VERÃO:")) finalName = `VERÃO: ${finalName}`;
               }
           }
@@ -420,66 +428,42 @@ export default function OperationManagement() {
           if (opId) {
               await base44.entities.Operation.update(opId, payload);
           } else {
-              // --- GENERATION LOGIC START ---
               const now = new Date();
               const year = now.getFullYear();
               
-              // 1. Unit Code
               let unitSource = payload.op_unit;
               if (!unitSource && payload.pilot_id) {
                   const p = pilots.find(x => x.id === payload.pilot_id);
                   if (p) unitSource = p.unit || p.crbm;
               }
-              // Fallback
               if (!unitSource) unitSource = "Geral";
-
-              // Clean: "2º BBM - Ponta Grossa" -> "2BBM"
-              // Remove non-alphanumeric, take first part split by '-'
               const unitClean = unitSource.split('-')[0].replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-
-              // 2. Sequence (PER UNIT)
-              // Calculate prefix to filter by: YYYY + ARP + UNIT
               const protocolPrefix = `${year}ARP${unitClean}`;
-              
               let seq = 1;
-              
-              // Filter existing operations that match this specific unit/year prefix
-              // We use the 'operations' state which contains all current ops
               const unitOps = operations.filter(op => 
                   op.occurrence_number && op.occurrence_number.startsWith(protocolPrefix)
               );
-
               if (unitOps.length > 0) {
-                  // Extract the sequence number (last 5 digits) from each matching op
                   const sequences = unitOps.map(op => {
                       const match = op.occurrence_number.match(/(\d{5})$/);
                       return match ? parseInt(match[1], 10) : 0;
                   });
-                  
-                  // Find max and increment
                   const maxSeq = Math.max(...sequences);
                   seq = maxSeq + 1;
               }
-              
               const seqStr = String(seq).padStart(5, '0');
-
-              // 3. Final Protocol
               const autoProtocol = `${protocolPrefix}${seqStr}`;
-              // --- GENERATION LOGIC END ---
 
               const newOp = await base44.entities.Operation.create({ 
                   ...payload, 
-                  occurrence_number: autoProtocol, // Insert generated protocol
+                  occurrence_number: autoProtocol, 
                   status: 'active' 
               } as any);
               opId = newOp.id;
               if (formData.drone_id) await base44.entities.Drone.update(formData.drone_id, { status: 'in_operation' });
           }
 
-          // Salvar Elementos Táticos (Setores e POIs) via tacticalService
-          // 1. Setores
           for (const sector of plannedElements.sectors) {
-              // Se não tem ID, é novo
               if (!(sector as any).id) {
                   await tacticalService.createSector({
                       operation_id: opId,
@@ -490,7 +474,6 @@ export default function OperationManagement() {
                   });
               }
           }
-          // 2. POIs
           for (const poi of plannedElements.pois) {
               if (!(poi as any).id) {
                   await tacticalService.createPOI({
@@ -524,7 +507,6 @@ export default function OperationManagement() {
               await base44.entities.Operation.update(op.id, { status: 'cancelled', notes: `${op.notes || ''}\nCANCELADA: ${reason}` });
               if (op.drone_id) await base44.entities.Drone.update(op.drone_id, { status: 'available' });
           } else if (controlModal.type === 'end') {
-              // Convert HH:MM duration to decimal flight_hours
               let decimalHours = 0;
               if (flightDurationStr) {
                   const [hh, mm] = flightDurationStr.split(':').map(Number);
@@ -594,7 +576,6 @@ export default function OperationManagement() {
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
               <UserLocationLayer active={mapLayers.gps} />
               
-              {/* GLOBAL TACTICAL ELEMENTS (Global State Map) */}
               {mapLayers.ops && globalTacticalData.sectors.map(s => (
                   s.type === 'route' ? 
                   <Polyline key={`glob-s-${s.id}`} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 0) as any} pathOptions={{ color: s.color, dashArray: '5, 10', weight: 4 }} /> :
@@ -638,7 +619,6 @@ export default function OperationManagement() {
                   );
               })}
 
-              {/* POPUPS DE PILOTOS E DRONES */}
               {mapLayers.pilots && (Object.values(groupedPilots) as any[]).map((group, idx) => (
                     <Marker key={`p-g-${idx}`} position={group.coords} icon={createTacticalIcon('#2563eb', 'pilot', group.pilots.length)}>
                         <Popup className="tactical-popup">
@@ -676,7 +656,6 @@ export default function OperationManagement() {
           </MapContainer>
       </div>
 
-      {/* PAINEL LATERAL DIREITO - FIEL À IMAGEM */}
       <div className="w-[450px] bg-white flex flex-col shadow-2xl z-10 border-l border-slate-200">
           <div className="p-6 bg-white border-b border-slate-100 flex justify-between items-center shrink-0">
              <div><h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight leading-none">Missões RPA</h2><p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-2">Monitoramento Tempo Real</p></div>
@@ -710,7 +689,7 @@ export default function OperationManagement() {
                           </div>
                           <div className="w-full h-px bg-slate-100 my-1" />
                           <div className="flex gap-2.5">
-                              <button onClick={() => { const p = pilots.find(x => x.id === op.pilot_id); const d = drones.find(x => x.id === op.drone_id); const t = `🚨 *CCO SYSARP - MISSÃO* 🚨\n\n📌 *Título:* ${op.name}\n🔢 *Prot:* ${op.occurrence_number}\n👤 *PIC:* ${p?.full_name}\n🛡️ *RPA:* ${d?.prefix}\n🕒 *Início:* ${new Date(op.start_time).toLocaleString()}`; window.open(`https://wa.me/?text=${encodeURIComponent(t)}`); }} className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 hover:bg-blue-100 transition-colors shadow-sm"><Share2 className="w-5 h-5" /></button>
+                              <button onClick={() => handleShareOp(op)} className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 hover:bg-blue-100 transition-colors shadow-sm"><Share2 className="w-5 h-5" /></button>
                               <button onClick={() => { setControlModal({type: 'pause', op}); setReason(''); }} className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-colors shadow-sm ${op.is_paused ? 'bg-green-50 text-green-600 border-green-100' : 'bg-orange-50 text-orange-600 border-orange-100'}`}>{op.is_paused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}</button>
                               <button onClick={() => handleEditMission(op)} className="w-12 h-12 rounded-xl bg-slate-50 text-slate-600 flex items-center justify-center border border-slate-200 hover:bg-slate-100 transition-colors shadow-sm"><Pencil className="w-5 h-5" /></button>
                               <button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="h-12 flex-1 rounded-xl bg-slate-900 text-white flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest"><Crosshair className="w-5 h-5 text-red-500 animate-pulse" /> CCO TÁTICO</button>
@@ -730,7 +709,6 @@ export default function OperationManagement() {
           </div>
       </div>
 
-      {/* MODAL COMPLETO: LANÇAR OPERAÇÃO RPA (ITENS 1 A 10) */}
       {isMissionModalOpen && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 animate-fade-in">
               <Card className="w-full max-w-4xl h-[92vh] bg-white shadow-2xl rounded-[1.5rem] flex flex-col overflow-hidden border border-slate-200">
@@ -744,7 +722,6 @@ export default function OperationManagement() {
 
                   <form onSubmit={handleSaveMission} className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar bg-[#f8fafc]">
                       
-                      {/* 1. LOTAÇÃO OPERACIONAL */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Shield className="w-3.5 h-3.5"/> 1. Lotação Operacional</h4>
                           <div className="grid grid-cols-2 gap-4">
@@ -759,10 +736,8 @@ export default function OperationManagement() {
                           </div>
                       </div>
 
-                      {/* 2. DADOS DA MISSÃO */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Navigation className="w-3.5 h-3.5"/> 2. Dados da Missão</h4>
-                          {/* CAMPO DE PROTOCOLO REMOVIDO PARA EVITAR EDIÇÃO MANUAL/VISUALIZAÇÃO PRECOCE */}
                           <Input label="Título da Ocorrência" placeholder="Ex: Incêndio Urbano..." value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600" />
                           <div className="grid grid-cols-2 gap-4">
                               <Select label="Natureza" value={formData.mission_type} onChange={e => setFormData({...formData, mission_type: e.target.value as any})} labelClassName="text-[11px] font-bold text-slate-600">
@@ -775,7 +750,6 @@ export default function OperationManagement() {
                           </div>
                       </div>
 
-                      {/* 3. EQUIPE E AERONAVE */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Users className="w-3.5 h-3.5"/> 3. Equipe e Aeronave</h4>
                           <div className="grid grid-cols-2 gap-4">
@@ -791,7 +765,6 @@ export default function OperationManagement() {
                           <Input label="Observador / Auxiliar" placeholder="Nome do militar de apoio" value={formData.observer_name} onChange={e => setFormData({...formData, observer_name: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600" />
                       </div>
 
-                      {/* 4. LOCALIZAÇÃO (MINI CCO TÁTICO) */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><MapPin className="w-3.5 h-3.5"/> 4. Localização e Mapa Tático</h4>
                           <div className="grid grid-cols-2 gap-4">
@@ -801,12 +774,10 @@ export default function OperationManagement() {
                               <Input label="Altitude Máx (m)" type="number" value={formData.flight_altitude} onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})} labelClassName="text-[11px] font-bold text-slate-600" />
                           </div>
                           
-                          {/* Botão para Mostrar/Esconder Mapa Tático */}
                           <div className="w-full bg-red-50 border border-red-100 rounded-lg p-2 text-center text-red-700 text-xs font-bold uppercase cursor-default">
                              <Target className="w-3 h-3 inline-block mr-1 mb-0.5" /> Definição de Área Tática
                           </div>
 
-                          {/* CONTAINER DO MAPA */}
                           <div className="h-[350px] w-full rounded-2xl border border-slate-200 overflow-hidden relative">
                               <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex bg-white rounded-lg shadow-lg p-1 gap-1 border border-slate-200">
                                   <button type="button" onClick={() => setModalMapMode('pc')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'pc' ? 'bg-red-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>
@@ -852,7 +823,6 @@ export default function OperationManagement() {
                                       onElementCreated={handleMapElementCreated}
                                   />
                                   
-                                  {/* Renderizar Elementos Planejados ou Existentes */}
                                   {plannedElements.sectors.map((s, i) => (
                                       s.type === 'route' 
                                       ? <Polyline key={i} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 0) as any} pathOptions={{ color: s.color, weight: 4, dashArray: '5, 10' }} />
@@ -874,7 +844,6 @@ export default function OperationManagement() {
                           </div>
                       </div>
 
-                      {/* 5. CRONOGRAMA OPERACIONAL */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Clock className="w-3.5 h-3.5"/> 5. Cronograma Operacional</h4>
                           <div className="grid grid-cols-3 gap-4">
@@ -884,7 +853,6 @@ export default function OperationManagement() {
                           </div>
                       </div>
 
-                      {/* 6. DESCRIÇÃO / NOTAS */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileText className="w-3.5 h-3.5"/> 6. Descrição / Notas Operacionais</h4>
                           <textarea 
@@ -895,20 +863,17 @@ export default function OperationManagement() {
                           />
                       </div>
 
-                      {/* 7. LINK DE TRANSMISSÃO */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Youtube className="w-3.5 h-3.5"/> 7. Link de Transmissão</h4>
                           <Input placeholder="Link YouTube (Opcional)" value={formData.stream_url} onChange={e => setFormData({...formData, stream_url: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600" />
                       </div>
 
-                      {/* 8. SARPAS */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 relative">
                           <div className="absolute top-4 right-6"><Badge className="bg-amber-100 text-amber-700 border-none font-black text-[8px] uppercase px-2 py-0.5"><Zap className="w-2.5 h-2.5 mr-1 inline"/> Em Construção</Badge></div>
                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Navigation className="w-3.5 h-3.5 text-blue-600"/> 8. Integração SARPAS NG (Manual)</h4>
                           <Input label="Protocolo SARPAS" placeholder="Ex: XXXXXX" value={formData.sarpas_protocol} onChange={e => setFormData({...formData, sarpas_protocol: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600" />
                       </div>
 
-                      {/* 9. OPERAÇÃO VERÃO (ATUALIZADO COM SELEÇÃO DE CIDADE/PGV) */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Sun className="w-3.5 h-3.5 text-orange-500"/> 9. Operação Verão</h4>
                           <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer group">
@@ -942,7 +907,6 @@ export default function OperationManagement() {
                           )}
                       </div>
 
-                      {/* 10. DIÁRIO DE BORDO (COMPLETO) */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calendar className="w-3.5 h-3.5 text-blue-600"/> 10. Diário de Bordo</h4>
                           <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer group">
@@ -982,11 +946,9 @@ export default function OperationManagement() {
           </div>
       )}
 
-      {/* MODAL DE PAUSA / CANCELAR / ENCERRAR */}
       {controlModal.type && controlModal.op && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[3000] flex items-center justify-center p-4 animate-fade-in">
               <Card className={`w-full max-w-md bg-white shadow-2xl rounded-[1.5rem] overflow-hidden ${controlModal.type === 'cancel' ? 'border-none' : (controlModal.type === 'pause' ? 'border-t-[10px] border-orange-500' : 'border-t-[10px] border-red-600')}`}>
-                  {/* CANCEL MODAL SPECIFIC DESIGN */}
                   {controlModal.type === 'cancel' ? (
                       <div className="p-6">
                           <div className="flex items-center gap-3 text-red-700 mb-6">
@@ -1048,7 +1010,6 @@ export default function OperationManagement() {
                           </form>
                       </div>
                   ) : (
-                      // DEFAULT MODAL FOR PAUSE/END
                       <div className="p-8">
                           <div className="flex justify-between items-center mb-8">
                               <h3 className={`text-2xl font-black uppercase tracking-tight flex items-center gap-3 ${controlModal.type === 'pause' ? 'text-orange-700' : 'text-slate-900'}`}>
@@ -1069,7 +1030,6 @@ export default function OperationManagement() {
                                         required 
                                         value={flightDurationStr} 
                                         onChange={e => {
-                                            // Máscara Simples HH:MM
                                             let val = e.target.value.replace(/\D/g, '');
                                             if (val.length > 4) val = val.slice(0, 4);
                                             if (val.length > 2) val = val.slice(0, 2) + ':' + val.slice(2);

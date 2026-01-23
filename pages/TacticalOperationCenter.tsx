@@ -157,6 +157,7 @@ export default function TacticalOperationCenter() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const mapRef = useRef<HTMLDivElement>(null); 
+  const leafletMapRef = useRef<L.Map | null>(null);
   
   const [operation, setOperation] = useState<Operation | null>(null);
   const [sectors, setSectors] = useState<TacticalSector[]>([]);
@@ -220,6 +221,8 @@ export default function TacticalOperationCenter() {
           totalAreaM2, 
           resources: {
             drones: tacticalDrones.length,
+            sectors: sectors.filter(s => s.type === 'sector').length,
+            pois: pois.length,
             k9: pois.filter(p => p.type === 'k9').length,
             teams: pois.filter(p => p.type === 'ground_team').length,
             vehicles: pois.filter(p => p.type === 'vehicle').length,
@@ -228,6 +231,28 @@ export default function TacticalOperationCenter() {
       };
   }, [sectors, pois, tacticalDrones]);
 
+  // Função para persistir os números táticos na operação principal (para o relatório)
+  const syncTacticalSummary = async () => {
+      if (!id || !operation) return;
+      try {
+          await base44.entities.Operation.update(id, {
+              tactical_summary: {
+                  drones_count: operationalSummary.resources.drones,
+                  sectors_count: operationalSummary.resources.sectors,
+                  pois_count: operationalSummary.resources.pois,
+                  teams_count: operationalSummary.resources.teams,
+                  vehicles_count: operationalSummary.resources.vehicles,
+                  k9_count: operationalSummary.resources.k9,
+                  victims_count: operationalSummary.resources.victims,
+                  total_area_m2: operationalSummary.totalAreaM2
+              }
+          });
+          console.log("[TACTICAL] Resumo tático sincronizado com a operação.");
+      } catch (e) {
+          console.warn("[TACTICAL] Falha ao sincronizar resumo operacional:", e);
+      }
+  };
+
   const addLog = (text: string, icon: any) => {
       setTimeline(prev => [{ id: crypto.randomUUID(), text, time: new Date().toLocaleTimeString(), icon }, ...prev]);
   };
@@ -235,24 +260,39 @@ export default function TacticalOperationCenter() {
   const handleCaptureSnapshot = async () => {
       if (!id || isCapturing) return;
       setIsCapturing(true);
-      addLog("INICIANDO CAPTURA DO TEATRO...", Camera);
+      addLog("SINCRONIZANDO RECURSOS E CAPTURANDO TEATRO...", Camera);
       
       try {
-          const mapEl = document.querySelector('.leaflet-container') as HTMLElement;
+          // 1. Sincroniza os contadores antes do print
+          await syncTacticalSummary();
+
+          const mapEl = mapRef.current?.querySelector('.leaflet-container') as HTMLElement;
           if (!mapEl) throw new Error("Mapa não encontrado");
+
+          // Força o Leaflet a se estabilizar
+          if (leafletMapRef.current) {
+              leafletMapRef.current.invalidateSize();
+              // Pequena pausa para garantir que o Canvas terminou de renderizar os vetores
+              await new Promise(r => setTimeout(r, 600));
+          }
 
           const canvas = await html2canvas(mapEl, {
               useCORS: true,
               allowTaint: true,
               logging: false,
-              scale: 2
+              scale: 2,
+              backgroundColor: '#0f172a',
+              ignoreElements: (element) => {
+                 // Ignora elementos que costumam causar erros de posição ou renderização
+                 return element.classList.contains('leaflet-control-container');
+              }
           });
 
           const base64 = canvas.toDataURL('image/jpeg', 0.8);
           tacticalService.saveMapSnapshot(id, base64);
           
-          addLog("SNAPSHOT DO TEATRO SALVO PARA RELATÓRIO.", CheckCircle);
-          alert("Teatro operacional capturado com sucesso! Esta imagem aparecerá no Boletim de Ocorrência.");
+          addLog("SNAPSHOT E CONTADORES SALVOS PARA RELATÓRIO.", CheckCircle);
+          alert("Teatro operacional capturado! Os dados de área e recursos foram atualizados no Boletim.");
       } catch (e) {
           console.error("Erro na captura:", e);
           alert("Falha ao capturar mapa. Tente novamente em alguns segundos.");
@@ -283,7 +323,11 @@ export default function TacticalOperationCenter() {
           } else {
               await tacticalService.createSector({ operation_id: id, name: newItemName, type: newItemType === 'line' ? 'route' : 'sector', color: newItemColor, geojson: tempGeometry.geometry, responsible: "N/A" });
           }
-          setActivePanel(null); setTempGeometry(null); loadTacticalData(id); 
+          setActivePanel(null); 
+          setTempGeometry(null); 
+          await loadTacticalData(id); 
+          // Atualiza os contadores na base global após adicionar item
+          syncTacticalSummary();
       } catch (e) { alert("Falha ao persistir dados."); }
   };
 
@@ -303,7 +347,8 @@ export default function TacticalOperationCenter() {
   const handleAssignDrone = async (droneId: string, pilotId: string) => {
       if (!droneId || !id) return;
       await tacticalService.assignDrone({ operation_id: id, drone_id: droneId, pilot_id: pilotId, status: 'active', current_lat: operation?.latitude, current_lng: operation?.longitude, flight_altitude: 60, radius: 200 });
-      loadTacticalData(id);
+      await loadTacticalData(id);
+      syncTacticalSummary();
   };
 
   if (loading || !operation) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white font-black"><Crosshair className="w-8 h-8 animate-spin mr-3 text-red-600"/> SINCRONIZANDO TEATRO OPERACIONAL...</div>;
@@ -425,7 +470,6 @@ export default function TacticalOperationCenter() {
                                           <div><p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Aeronave Ativa</p><h4 className="text-lg font-black">{selectedEntity.drone?.prefix}</h4></div>
                                       </div>
                                       
-                                      {/* ITEM 4: ADICIONADO CAMPO DE URL INDIVIDUAL */}
                                       <div className="space-y-1.5 p-4 bg-orange-50 border border-orange-200 rounded-2xl">
                                           <label className="text-[10px] font-black uppercase text-orange-700 flex items-center gap-1.5"><Video className="w-3 h-3"/> URL de Live do Vetor (Opcional)</label>
                                           <Input 
@@ -444,7 +488,25 @@ export default function TacticalOperationCenter() {
                                           <Input label="Altitude (m)" type="number" value={selectedEntity.flight_altitude} onChange={e => { const val = Number(e.target.value); tacticalService.updateDroneStatus(selectedEntity.id, { flight_altitude: val }); setSelectedEntity({...selectedEntity, flight_altitude: val}); loadTacticalData(id!); }} className="text-xs h-10 font-black" labelClassName="text-[10px] font-black uppercase text-slate-500" />
                                           <Input label="Raio (m)" type="number" value={selectedEntity.radius} onChange={e => { const val = Number(e.target.value); tacticalService.updateDroneStatus(selectedEntity.id, { radius: val }); setSelectedEntity({...selectedEntity, radius: val}); loadTacticalData(id!); }} className="text-xs h-10 font-black" labelClassName="text-[10px] font-black uppercase text-slate-500" />
                                       </div>
-                                      <Button variant="danger" onClick={async () => { if(confirm("Confirmar desmobilização?")) { await tacticalService.removeDroneFromOp(selectedEntity.id); setActivePanel(null); loadTacticalData(id!); } }} className="w-full h-11 text-[10px] font-black uppercase">Desmobilizar Unidade</Button>
+                                      <Button variant="danger" onClick={async () => { if(confirm("Confirmar desmobilização?")) { await tacticalService.removeDroneFromOp(selectedEntity.id); setActivePanel(null); loadTacticalData(id!); syncTacticalSummary(); } }} className="w-full h-11 text-[10px] font-black uppercase">Desmobilizar Unidade</Button>
+                                  </div>
+                              )}
+                              
+                              {activePanel === 'manage' && entityType === 'sector' && selectedEntity && (
+                                  <div className="space-y-5">
+                                      <div className="p-4 bg-slate-900 rounded-3xl flex items-center justify-between text-white border border-slate-800 shadow-2xl">
+                                          <div><p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{selectedEntity.type === 'route' ? 'Rota Tática' : 'Zona / Área'}</p><h4 className="text-lg font-black">{selectedEntity.name}</h4></div>
+                                      </div>
+                                      <Button variant="danger" onClick={async () => { if(confirm("Remover área do mapa?")) { await tacticalService.deleteSector(selectedEntity.id); setActivePanel(null); loadTacticalData(id!); syncTacticalSummary(); } }} className="w-full h-11 text-[10px] font-black uppercase"><Trash2 className="w-4 h-4 mr-2"/>Remover Elemento</Button>
+                                  </div>
+                              )}
+
+                              {activePanel === 'manage' && entityType === 'poi' && selectedEntity && (
+                                  <div className="space-y-5">
+                                      <div className="p-4 bg-slate-900 rounded-3xl flex items-center justify-between text-white border border-slate-800 shadow-2xl">
+                                          <div><p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Ponto de Interesse</p><h4 className="text-lg font-black">{selectedEntity.name || 'Ponto sem nome'}</h4></div>
+                                      </div>
+                                      <Button variant="danger" onClick={async () => { if(confirm("Remover ponto do mapa?")) { await tacticalService.deletePOI(selectedEntity.id); setActivePanel(null); loadTacticalData(id!); syncTacticalSummary(); } }} className="w-full h-11 text-[10px] font-black uppercase"><Trash2 className="w-4 h-4 mr-2"/>Remover Elemento</Button>
                                   </div>
                               )}
                           </div>
@@ -493,7 +555,16 @@ export default function TacticalOperationCenter() {
                   </div>
               </div>
 
-              <MapContainer center={[operation.latitude, operation.longitude]} zoom={17} style={{ height: '100%', width: '100%', background: '#0f172a' }}>
+              {/* CRITICAL FIX: Adicionado preferCanvas={true} para alinhar polígonos no snapshot html2canvas */}
+              <MapContainer 
+                center={[operation.latitude, operation.longitude]} 
+                zoom={17} 
+                style={{ height: '100%', width: '100%', background: '#0f172a' }}
+                preferCanvas={true}
+                whenReady={(mapInstance: any) => {
+                    leafletMapRef.current = mapInstance.target;
+                }}
+              >
                   <MapController center={[operation.latitude, operation.longitude]} isCreating={!!tempGeometry} />
                   <MapDrawingBridge drawMode={currentDrawMode} setDrawMode={setCurrentDrawMode} />
                   <TileLayer url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} />

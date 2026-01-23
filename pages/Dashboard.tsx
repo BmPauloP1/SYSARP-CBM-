@@ -140,7 +140,7 @@ export default function Dashboard() {
       const pilot = pilots.find(p => p.id === op.pilot_id);
       const drone = drones.find(d => d.id === op.drone_id);
       const startTime = new Date(op.start_time);
-      const endTime = op.end_time ? new Date(op.end_time).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}) : 'Indefinido';
+      const endTime = op.estimated_end_time || 'Não definido';
       const mapsLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
 
       let text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n`;
@@ -357,7 +357,7 @@ export default function Dashboard() {
                                             </span>
                                         </div>
                                         <div className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
-                                           <Clock className="w-3 h-3" />
+                                           <Clock className="w-3 h-3 m-3" />
                                         </div>
                                      </div>
                                   </div>
