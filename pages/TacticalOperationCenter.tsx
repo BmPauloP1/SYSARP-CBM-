@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, Circle, useMap } from 'react-leaflet';
@@ -169,11 +168,14 @@ export default function TacticalOperationCenter() {
           const canvas = await html2canvas(mapEl, {
               useCORS: true, allowTaint: true, logging: false, scale: 2, backgroundColor: '#0f172a',
               ignoreElements: (element) => {
-                 // FIX ERROR _leaflet_pos: Ignora containers de controle e painéis de sombra do Leaflet que quebram o html2canvas
+                 const cls = element.classList;
+                 // Ignorar elementos problemáticos que causam erro '_leaflet_pos'
                  return (
-                     element.classList.contains('leaflet-control-container') || 
-                     (element.classList.contains('leaflet-pane') && !element.classList.contains('leaflet-map-pane')) ||
-                     element.classList.contains('leaflet-shadow-pane')
+                     cls.contains('leaflet-control-container') || 
+                     cls.contains('leaflet-shadow-pane') ||
+                     cls.contains('leaflet-marker-shadow') ||
+                     (cls.contains('leaflet-pane') && !cls.contains('leaflet-map-pane')) ||
+                     (element.tagName === 'svg' && cls.contains('leaflet-zoom-animated'))
                  );
               }
           });
@@ -181,7 +183,7 @@ export default function TacticalOperationCenter() {
           tacticalService.saveMapSnapshot(id, base64);
           addLog("SNAPSHOT E CONTADORES SALVOS PARA RELATÓRIO.", CheckCircle);
           alert("Teatro operacional capturado! Dados atualizados no Boletim.");
-      } catch (e) { alert("Falha ao capturar mapa. Tente novamente em alguns segundos."); } finally { setIsCapturing(false); }
+      } catch (e) { alert("Falha ao capturar mapa. Tente novamente."); } finally { setIsCapturing(false); }
   };
 
   const handleDrawCreated = (e: any) => {
