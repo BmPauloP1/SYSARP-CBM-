@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, CircleMarker, Polygon, Polyline, useMapEvents } from "react-leaflet";
 import L from "leaflet";
@@ -229,18 +228,17 @@ export default function OperationManagement() {
       e.preventDefault();
       setLoading(true);
       try {
-          // FIX OFFSET 3H: Garante persistência UTC correta
           const localDate = new Date(`${formData.start_date}T${formData.start_time}:00`);
           const finalStartTime = localDate.toISOString();
           
           const { start_date, id, occurrence_number, ...dataToSave } = formData;
-          let finalDescription = dataToSave.description;
+          let finalDescription = dataToSave.description || '';
           let finalName = dataToSave.name;
 
           if (dataToSave.is_summer_op) {
-              if (summerCity) finalDescription = `${finalDescription || ''}\n[CIDADE]: ${summerCity}`.trim();
-              if (summerPgv) {
-                  finalDescription = `${finalDescription || ''}\n[PGV]: ${summerPgv}`.trim();
+              if (summerCity && !finalDescription.includes(`[CIDADE]: ${summerCity}`)) finalDescription = `${finalDescription}\n[CIDADE]: ${summerCity}`.trim();
+              if (summerPgv && !finalDescription.includes(`[PGV]: ${summerPgv}`)) {
+                  finalDescription = `${finalDescription}\n[PGV]: ${summerPgv}`.trim();
                   if (!finalName.startsWith("VERÃO:")) finalName = `VERÃO: ${finalName}`;
               }
           }
@@ -254,7 +252,6 @@ export default function OperationManagement() {
               const now = new Date();
               const year = now.getFullYear();
               
-              // HIERARQUIA DE PROTOCOLO: UNIDADE > CRBM > PILOTO
               let unitSource = formData.op_unit || formData.op_crbm;
               if (!unitSource && payload.pilot_id) {
                   const p = pilots.find(x => x.id === payload.pilot_id);
@@ -262,7 +259,6 @@ export default function OperationManagement() {
               }
               
               const shortName = (unitSource || "GERAL").split(' - ')[0];
-              // Limpeza Institucional Rigorosa (Remove º, acentos, espaços)
               const unitClean = shortName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
               const protocolPrefix = `${year}ARP${unitClean}`;
               
@@ -291,22 +287,71 @@ export default function OperationManagement() {
       finally { setLoading(false); }
   };
 
-  const handleAction = async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!controlModal.op) return;
+  const handleResume = async (op: Operation) => {
       setLoading(true);
       try {
-          const op = controlModal.op;
-          if (controlModal.type === 'pause') { await base44.entities.Operation.update(op.id, { is_paused: !op.is_paused, notes: `${op.notes || ''}\n[PAUSA]: ${reason}` }); }
-          else if (controlModal.type === 'cancel') { await base44.entities.Operation.update(op.id, { status: 'cancelled', notes: `${op.notes || ''}\nCANCELADA: ${reason}` }); if (op.drone_id) await base44.entities.Drone.update(op.drone_id, { status: 'available' }); }
+          const timestamp = new Date().toLocaleTimeString('pt-BR');
+          await base44.entities.Operation.update(op.id, { 
+              is_paused: false, 
+              notes: `${op.notes || ''}\n[RETOMADA] em ${timestamp}: Retomada manual automática`.trim() 
+          });
+          loadData();
+      } catch(e) {
+          alert("Erro ao retomar missão.");
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleAction = async (e: React.FormEvent) => {
+      e.preventDefault();
+      const op = controlModal.op;
+      if (!op) return;
+      
+      setLoading(true);
+      try {
+          if (controlModal.type === 'pause') { 
+              const timestamp = new Date().toLocaleTimeString('pt-BR');
+              try {
+                  const updatePayload = { 
+                    is_paused: true, 
+                    notes: `${op.notes || ''}\n[PAUSA] em ${timestamp}: ${reason || 'Ação manual'}`.trim() 
+                  };
+                  await base44.entities.Operation.update(op.id, updatePayload); 
+              } catch (updateErr: any) {
+                  if (updateErr.message && updateErr.message.includes("notes")) throw new Error("SCHEMA_MISSING_NOTES");
+                  throw updateErr;
+              }
+          }
+          else if (controlModal.type === 'cancel') { 
+              await base44.entities.Operation.update(op.id, { status: 'cancelled', notes: `${op.notes || ''}\nCANCELADA em ${new Date().toLocaleString()}: ${reason}`.trim() }); 
+              if (op.drone_id) await base44.entities.Drone.update(op.drone_id, { status: 'available' }); 
+          }
           else if (controlModal.type === 'end') {
               let decimalHours = 0;
-              if (flightDurationStr) { const [hh, mm] = flightDurationStr.split(':').map(Number); if (!isNaN(hh) && !isNaN(mm)) decimalHours = hh + (mm / 60); }
+              if (flightDurationStr) { 
+                const parts = flightDurationStr.split(':');
+                if (parts.length === 2) {
+                  const hh = Number(parts[0]);
+                  const mm = Number(parts[1]);
+                  if (!isNaN(hh) && !isNaN(mm)) decimalHours = hh + (mm / 60);
+                }
+              }
               await base44.entities.Operation.update(op.id, { status: 'completed', flight_hours: decimalHours, actions_taken: actionsTaken, end_time: new Date().toISOString() });
               if (op.drone_id) await base44.entities.Drone.update(op.drone_id, { status: 'available' });
           }
-          setControlModal({type: null, op: null}); setReason(''); setFlightDurationStr("00:00"); setActionsTaken(''); setCancelConfirmed(false); loadData();
-      } catch(e) { alert("Erro ao processar."); }
+          
+          setControlModal({type: null, op: null}); 
+          setReason(''); 
+          setFlightDurationStr("00:00"); 
+          setActionsTaken(''); 
+          setCancelConfirmed(false); 
+          loadData();
+      } catch(e: any) { 
+          console.error("Action error detail:", e);
+          if (e.message === "SCHEMA_MISSING_NOTES") alert("ERRO DE ESTRUTURA: A coluna 'notes' ou 'is_paused' não foi encontrada no banco de dados.\n\nPor favor, vá em Administração > Estrutura DB e execute o script de correção.");
+          else alert("Erro ao processar a ação. Verifique se as colunas 'is_paused' e 'notes' foram criadas no banco de dados via menu Administração."); 
+      }
       finally { setLoading(false); }
   };
 
@@ -359,15 +404,15 @@ export default function OperationManagement() {
                                 <div className="p-4 bg-white border-b border-slate-100"><h4 className="font-black text-slate-900 text-lg uppercase leading-none">{op.name}</h4><p className="text-[10px] font-mono text-slate-400 mt-2 uppercase tracking-tighter">#{op.occurrence_number}</p></div>
                                 <div className="p-4 space-y-4"><div className="inline-block bg-red-50 text-red-700 px-3 py-1.5 rounded-full text-[10px] font-black uppercase border border-red-100">{MISSION_HIERARCHY[op.mission_type]?.label}</div>
                                     <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3"><div className="flex items-center gap-3 text-sm font-bold text-slate-700 truncate"><User className="w-4 h-4 text-slate-400" /> Piloto: <span className="font-medium text-slate-600">{pilot?.full_name}</span></div><div className="flex items-center gap-3 text-sm font-bold text-slate-700 truncate"><Plane className="w-4 h-4 text-slate-400" /> RPA: <span className="font-medium text-slate-600">{drone?.prefix} - {drone?.model}</span></div><div className="flex items-start gap-3 text-sm font-bold text-slate-700"><Building2 className="w-4 h-4 text-slate-400 mt-0.5" /><div className="flex flex-col"><div className="text-sm font-bold text-slate-700 uppercase">Área / Unidade</div><div className="text-xs text-slate-500">{op.op_unit || pilot?.unit || 'N/A'}</div><div className="text-[10px] text-slate-400 font-bold uppercase">{op.op_crbm || pilot?.crbm}</div></div></div></div>
-                                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-black uppercase pt-3 border-t border-slate-100"><span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> {new Date(op.start_time).toLocaleTimeString('pt-BR')}</span><span className="flex items-center gap-1.5 text-blue-600"><Navigation className="w-3.5 h-3.5" /> RAIO: {op.radius}M</span></div>
+                                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-black uppercase pt-3 border-t border-slate-100"><span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> {new Date(op.start_time).toLocaleTimeString()}</span><span className="flex items-center gap-1.5 text-blue-600"><Navigation className="w-3.5 h-3.5" /> RAIO: {op.radius}M</span></div>
                                 </div>
                             </div>
                         </Popup>
                       </Marker>
                   );
               })}
-              {mapLayers.pilots && (Object.values(groupedPilots) as any[]).map((group, idx) => (<Marker key={`p-g-${idx}`} position={group.coords} icon={createTacticalIcon('#2563eb', 'pilot', group.pilots.length)}><Popup className="tactical-popup"><div className="min-w-[280px]"><div className="bg-[#2563eb] p-3 text-white font-black text-[10px] uppercase text-center rounded-t-lg">PILOTOS ATIVOS - {group.label}</div><div className="p-3 space-y-2 max-h-[200px] overflow-y-auto">{(group.pilots as Pilot[]).map((p: Pilot) => (<div key={p.id} className="flex justify-between items-center bg-slate-50 p-2.5 px-3 rounded-xl border border-slate-100 shadow-sm"><span className="font-bold text-slate-800 text-xs">{p.full_name}</span><button onClick={() => window.open(`https://wa.me/55${p.phone.replace(/\D/g,'')}`)} className="text-green-500 hover:scale-110 transition-transform"><Phone className="w-4 h-4 fill-green-500 text-white" /></button></div>))}</div></div></Popup></Marker>))}
-              {mapLayers.drones && (Object.values(groupedDrones) as any[]).map((group, idx) => (<Marker key={`d-g-${idx}`} position={group.coords} icon={createTacticalIcon('#f97316', 'drone', group.drones.length)}><Popup className="tactical-popup"><div className="min-w-[260px]"><div className="bg-[#f97316] p-3 text-white font-black text-[10px] uppercase text-center rounded-t-lg">AERONAVES - {group.label}</div><div className="p-3 space-y-2 max-h-[200px] overflow-y-auto">{(group.drones as Drone[]).map((d: Drone) => (<div key={d.id} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100 shadow-sm"><span className="font-black text-slate-800 text-xs">{d.prefix}</span><Badge variant="success" className="text-[9px] font-black uppercase px-2">DISPONÍVEL</Badge></div>))}</div></div></Popup></Marker>))}
+              {mapLayers.pilots && Object.values(groupedPilots).map((group: any, idx) => (<Marker key={`p-g-${idx}`} position={group.coords} icon={createTacticalIcon('#2563eb', 'pilot', group.pilots.length)}><Popup className="tactical-popup"><div className="min-w-[280px]"><div className="bg-[#2563eb] p-3 text-white font-black text-[10px] uppercase text-center rounded-t-lg">PILOTOS ATIVOS - {group.label}</div><div className="p-3 space-y-2 max-h-[200px] overflow-y-auto">{group.pilots.map((p: Pilot) => (<div key={p.id} className="flex justify-between items-center bg-slate-50 p-2.5 px-3 rounded-xl border border-slate-100 shadow-sm"><span className="font-bold text-slate-800 text-xs">{p.full_name}</span><button onClick={() => window.open(`https://wa.me/55${p.phone.replace(/\D/g,'')}`)} className="text-green-500 hover:scale-110 transition-transform"><Phone className="w-4 h-4 fill-green-500 text-white" /></button></div>))}</div></div></Popup></Marker>))}
+              {mapLayers.drones && Object.values(groupedDrones).map((group: any, idx) => (<Marker key={`d-g-${idx}`} position={group.coords} icon={createTacticalIcon('#f97316', 'drone', group.drones.length)}><Popup className="tactical-popup"><div className="min-w-[260px]"><div className="bg-[#f97316] p-3 text-white font-black text-[10px] uppercase text-center rounded-t-lg">AERONAVES - {group.label}</div><div className="p-3 space-y-2 max-h-[200px] overflow-y-auto">{group.drones.map((d: Drone) => (<div key={d.id} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100 shadow-sm"><span className="font-black text-slate-800 text-xs">{d.prefix}</span><Badge variant="success" className="text-[9px] font-black uppercase px-2">DISPONÍVEL</Badge></div>))}</div></div></Popup></Marker>))}
           </MapContainer>
       </div>
 
@@ -375,17 +420,24 @@ export default function OperationManagement() {
           <div className="p-6 bg-white border-b border-slate-100 flex justify-between items-center shrink-0"><div><h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight leading-none">Missões RPA</h2><p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-2">Monitoramento Tempo Real</p></div><Button onClick={handleOpenNewMission} className="bg-red-700 hover:bg-red-800 text-white h-11 px-5 font-black text-[11px] uppercase shadow-lg"><Plus className="w-4 h-4 mr-2" /> Nova Missão</Button></div>
           <div className="flex p-2 bg-slate-100 mx-6 mt-6 rounded-2xl shrink-0 border border-slate-200"><button onClick={() => setActiveTab('active')} className={`flex-1 py-3 text-[11px] font-black uppercase rounded-xl transition-all ${activeTab === 'active' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500'}`}>Ativas</button><button onClick={() => setActiveTab('history')} className={`flex-1 py-3 text-[11px] font-black uppercase rounded-xl transition-all ${activeTab === 'history' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500'}`}>Histórico</button></div>
           <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-white">
-              {activeTab === 'active' ? (operations.filter(o => o.status === 'active').map(op => {
+              {activeTab === 'active' ? (
+                  operations.filter(o => o.status === 'active').map(op => {
                     const pilot = pilots.find(p => p.id === op.pilot_id);
+                    const isPaused = op.is_paused === true || String(op.is_paused) === 'true';
                     return (
                       <Card key={op.id} className="bg-white border-l-[6px] border-l-red-600 shadow-xl p-6 flex flex-col gap-5 relative transition-all">
-                          <div className="flex justify-between items-start"><div className="min-w-0 flex-1"><h4 className="font-black text-slate-900 text-lg uppercase leading-none truncate">{op.name}</h4><p className="text-[10px] font-mono text-slate-400 mt-2 uppercase tracking-tighter font-bold">#{op.occurrence_number}</p></div><div className="flex flex-col items-end gap-1.5">{op.is_paused && <Badge className="bg-amber-100 text-amber-700 border-none text-[9px] font-black uppercase px-3 py-1.5 rounded-lg shadow-sm">PAUSADA</Badge>}<Badge className="bg-green-100 text-green-700 border-none text-[9px] font-black uppercase px-3 py-1.5 rounded-lg shadow-sm">EM ANDAMENTO</Badge></div></div>
-                          <div className="space-y-3"><div className="flex items-center gap-3 text-slate-500 font-black text-[11px] uppercase tracking-tighter"><Clock className="w-4 h-4 text-slate-300" /><span>{new Date(op.start_time).toLocaleString('pt-BR')}</span></div><div className="flex items-center gap-3 text-slate-500 font-black text-[11px] uppercase tracking-tighter"><User className="w-4 h-4 text-slate-300" /><span className="truncate">PIC: {pilot?.full_name}</span></div></div>
-                          <div className="w-full h-px bg-slate-100 my-1" /><div className="flex gap-2.5"><button onClick={() => handleShareOp(op)} className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 hover:bg-blue-100 transition-colors shadow-sm"><Share2 className="w-5 h-5" /></button><button onClick={() => { setControlModal({type: 'pause', op}); setReason(''); }} className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-colors shadow-sm ${op.is_paused ? 'bg-green-50 text-green-600 border-green-100' : 'bg-orange-50 text-orange-600 border-orange-100'}`}>{op.is_paused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}</button><button onClick={() => handleEditMission(op)} className="w-12 h-12 rounded-xl bg-slate-50 text-slate-600 flex items-center justify-center border border-slate-200 hover:bg-slate-100 transition-colors shadow-sm"><Pencil className="w-5 h-5" /></button><button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="h-12 flex-1 rounded-xl bg-slate-900 text-white flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest"><Crosshair className="w-5 h-5 text-red-500 animate-pulse" /> CCO TÁTICO</button></div>
+                          <div className="flex justify-between items-start"><div className="min-w-0 flex-1"><h4 className="font-black text-slate-900 text-lg uppercase leading-none truncate">{op.name}</h4><p className="text-[10px] font-mono text-slate-400 mt-2 uppercase tracking-tighter font-bold">#{op.occurrence_number}</p></div><div className="flex flex-col items-end gap-1.5">{isPaused ? (<Badge className="bg-amber-100 text-amber-700 border-none text-[9px] font-black uppercase px-3 py-1.5 rounded-lg shadow-sm">PAUSADA</Badge>) : (<Badge className="bg-green-100 text-green-700 border-none text-[9px] font-black uppercase px-3 py-1.5 rounded-lg shadow-sm">EM ANDAMENTO</Badge>)}</div></div>
+                          <div className="space-y-3"><div className="flex items-center gap-3 text-slate-500 font-black text-[11px] uppercase tracking-tighter"><Clock className="w-4 h-4 text-slate-300" /><span>{new Date(op.start_time).toLocaleString()}</span></div><div className="flex items-center gap-3 text-slate-500 font-black text-[11px] uppercase tracking-tighter"><User className="w-4 h-4 text-slate-300" /><span className="truncate">PIC: {pilot?.full_name}</span></div></div>
+                          <div className="w-full h-px bg-slate-100 my-1" /><div className="flex gap-2.5"><button onClick={() => handleShareOp(op)} className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 hover:bg-blue-100 transition-colors shadow-sm"><Share2 className="w-5 h-5" /></button>
+                          <button onClick={(e) => { e.stopPropagation(); isPaused ? handleResume(op) : setControlModal({type: 'pause', op}); }} className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-colors shadow-sm ${isPaused ? 'bg-green-50 text-green-600 border-green-100 hover:bg-green-100' : 'bg-orange-50 text-orange-600 border-orange-100 hover:bg-orange-100'}`}>{isPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}</button>
+                          <button onClick={() => handleEditMission(op)} className="w-12 h-12 rounded-xl bg-slate-50 text-slate-600 flex items-center justify-center border border-slate-200 hover:bg-slate-100 transition-colors shadow-sm"><Pencil className="w-5 h-5" /></button><button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="h-12 flex-1 rounded-xl bg-slate-900 text-white flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest"><Crosshair className="w-5 h-5 text-red-500 animate-pulse" /> CCO TÁTICO</button></div>
                           <div className="grid grid-cols-2 gap-3 mt-1 pt-2 border-t border-slate-50"><button onClick={() => { setControlModal({type: 'cancel', op}); setReason(''); setCancelConfirmed(false); }} className="flex-1 h-12 rounded-xl border border-slate-200 text-slate-500 font-black text-[11px] uppercase flex items-center justify-center gap-2 hover:bg-slate-50 transition-all"><X className="w-4 h-4" /> Cancelar</button><button onClick={() => { setControlModal({type: 'end', op}); setFlightDurationStr("00:00"); setActionsTaken(''); }} className="flex-1 h-12 rounded-xl bg-red-600 text-white font-black text-[11px] uppercase flex items-center justify-center gap-2 shadow-xl shadow-red-200 hover:bg-red-700 transition-all"><CheckCircle className="w-4 h-4" /> Encerrar</button></div>
                       </Card>
                     );
-                  })) : (operations.filter(o => o.status !== 'active').map(op => (<Card key={op.id} className="p-4 bg-white border border-slate-200 rounded-2xl flex justify-between items-center shadow-sm opacity-80 hover:opacity-100 transition-all"><div className="min-w-0 flex-1"><p className="font-black text-slate-700 text-xs truncate uppercase leading-none">{op.name}</p><p className="text-[9px] text-slate-400 font-mono mt-1.5 uppercase font-bold tracking-tighter">{new Date(op.start_time).toLocaleDateString('pt-BR')} • {op.occurrence_number}</p></div><Badge variant={op.status === 'completed' ? 'success' : 'danger'} className="text-[8px] font-black uppercase px-3 py-1 rounded-lg">{op.status === 'completed' ? 'CONCLUÍDA' : 'CANCELADA'}</Badge></Card>)))}
+                  })
+              ) : (
+                  operations.filter(o => o.status !== 'active').map(op => (<Card key={op.id} className="p-4 bg-white border border-slate-200 rounded-2xl flex justify-between items-center shadow-sm opacity-80 hover:opacity-100 transition-all"><div className="min-w-0 flex-1"><p className="font-black text-slate-700 text-xs truncate uppercase leading-none">{op.name}</p><p className="text-[9px] text-slate-400 font-mono mt-1.5 uppercase font-bold tracking-tighter">{new Date(op.start_time).toLocaleDateString()} • {op.occurrence_number}</p></div><Badge variant={op.status === 'completed' ? 'success' : 'danger'} className="text-[8px] font-black uppercase px-3 py-1 rounded-lg">{op.status === 'completed' ? 'CONCLUÍDA' : 'CANCELADA'}</Badge></Card>))
+              )}
           </div>
       </div>
 
@@ -394,24 +446,43 @@ export default function OperationManagement() {
               <Card className="w-full max-w-4xl h-[92vh] bg-white shadow-2xl rounded-[1.5rem] flex flex-col overflow-hidden border border-slate-200">
                   <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center shrink-0"><h3 className="text-xl font-black uppercase tracking-tight text-[#1e293b] flex items-center gap-3"><Radio className="w-6 h-6 text-red-600" />{formData.id ? 'Atualizar Missão RPA' : 'Lançar Operação RPA'}</h3><button onClick={() => setIsMissionModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X className="w-6 h-6 text-slate-400"/></button></div>
                   <form onSubmit={handleSaveMission} className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar bg-[#f8fafc]">
+                      {/* 1. SEÇÃO LOTAÇÃO */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Shield className="w-3.5 h-3.5"/> 1. Lotação Operacional</h4><div className="grid grid-cols-2 gap-4"><Select label="CRBM" value={formData.op_crbm} onChange={e => setFormData({...formData, op_crbm: e.target.value, op_unit: ''})} labelClassName="text-[11px] font-bold text-slate-600"><option value="">Selecione...</option>{Object.keys(ORGANIZATION_CHART).map(c => <option key={c} value={c}>{c}</option>)}</Select><Select label="Unidade" value={formData.op_unit} onChange={e => setFormData({...formData, op_unit: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600"><option value="">Selecione...</option>{formData.op_crbm && ORGANIZATION_CHART[formData.op_crbm]?.map(u => <option key={u} value={u}>{u}</option>)}</Select></div></div>
+                      
+                      {/* 2. SEÇÃO DADOS MISSÃO */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Navigation className="w-3.5 h-3.5"/> 2. Dados da Missão</h4><Input label="Título da Ocorrência" placeholder="Ex: Incêndio Urbano..." value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600" /><div className="grid grid-cols-2 gap-4"><Select label="Natureza" value={formData.mission_type} onChange={e => setFormData({...formData, mission_type: e.target.value as any})} labelClassName="text-[11px] font-bold text-slate-600">{Object.entries(MISSION_HIERARCHY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</Select><Select label="Subnatureza" value={formData.sub_mission_type} onChange={e => setFormData({...formData, sub_mission_type: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600"><option value="">Selecione...</option>{MISSION_HIERARCHY[formData.mission_type]?.subtypes.map(s => <option key={s} value={s}>{s}</option>)}</Select></div></div>
+                      
+                      {/* 3. SEÇÃO EQUIPE */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Users className="w-3.5 h-3.5"/> 3. Equipe e Aeronave</h4><div className="grid grid-cols-2 gap-4"><Select label="Piloto (PIC)" required value={formData.pilot_id} onChange={e => setFormData({...formData, pilot_id: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600"><option value="">Selecione...</option>{pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}</Select><Select label="Aeronave (RPA)" required value={formData.drone_id} onChange={e => { setFormData({...formData, drone_id: e.target.value}); }} labelClassName="text-[11px] font-bold text-slate-600"><option value="">Selecione...</option>{drones.map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}</Select></div><Input label="Observador / Auxiliar" placeholder="Nome do militar de apoio" value={formData.observer_name} onChange={e => setFormData({...formData, observer_name: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600" /></div>
+                      
+                      {/* 4. SEÇÃO LOCALIZAÇÃO */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><MapPin className="w-3.5 h-3.5"/> 4. Localização e Mapa Tático</h4><div className="grid grid-cols-2 gap-4"><Input label="Latitude PC" type="number" step="any" value={formData.latitude} onChange={e => setFormData({...formData, latitude: Number(e.target.value)})} labelClassName="text-[11px] font-bold text-slate-600" /><Input label="Longitude PC" type="number" step="any" value={formData.longitude} onChange={e => setFormData({...formData, longitude: Number(e.target.value)})} labelClassName="text-[11px] font-bold text-slate-600" /><Input label="Raio de Voo (m)" type="number" value={formData.radius} onChange={e => setFormData({...formData, radius: Number(e.target.value)})} labelClassName="text-[11px] font-bold text-slate-600" /><Input label="Altitude Máx (m)" type="number" value={formData.flight_altitude} onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})} labelClassName="text-[11px] font-bold text-slate-600" /></div>
-                          <div className="h-[350px] w-full rounded-2xl border border-slate-200 overflow-hidden relative"><div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex bg-white rounded-lg shadow-lg p-1 gap-1 border border-slate-200"><button type="button" onClick={() => setModalMapMode('pc')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'pc' ? 'bg-red-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><MousePointer2 className="w-3 h-3" /> PC</button><button type="button" onClick={() => setModalMapMode('polygon')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'polygon' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><Hexagon className="w-3 h-3" /> Área</button><button type="button" onClick={() => setModalMapMode('line')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'line' ? 'bg-orange-500 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><Navigation className="w-3 h-3" /> Rota</button><button type="button" onClick={() => setModalMapMode('poi')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'poi' ? 'bg-green-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><Flag className="w-3 h-3" /> Ponto</button></div>
+                          <div className="h-[350px] w-full rounded-2xl border border-slate-200 overflow-hidden relative"><div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex bg-white rounded-lg shadow-lg p-1 gap-1 border border-slate-200"><button type="button" onClick={() => setModalMapMode('pc')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'pc' ? 'bg-red-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><MousePointer2 className="w-3 h-3" /> PC</button><button type="button" onClick={() => setModalMapMode('polygon')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'polygon' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><Hexagon className="w-3 h-3" /> Área</button><button type="button" onClick={() => setModalMapMode('line')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'line' ? 'bg-orange-50 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><Navigation className="w-3 h-3" /> Rota</button><button type="button" onClick={() => setModalMapMode('poi')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'poi' ? 'bg-green-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><Flag className="w-3 h-3" /> Ponto</button></div>
                               <MapContainer center={[formData.latitude, formData.longitude]} zoom={14} style={{ height: '100%', width: '100%' }}><LocationSelectorMap mode={modalMapMode} center={[formData.latitude, formData.longitude]} radius={formData.radius} onPositionChange={(lat: number, lng: number) => setFormData({...formData, latitude: lat, longitude: lng})} onElementCreated={handleMapElementCreated}/>
                                   {plannedElements.sectors.map((s, i) => (s.type === 'route' ? <Polyline key={i} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 0) as any} pathOptions={{ color: s.color, weight: 4, dashArray: '5, 10' }} /> : <Polygon key={i} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 1) as any} pathOptions={{ color: s.color, fillOpacity: 0.2 }} />))}
                                   {plannedElements.pois.map((p, i) => (<Marker key={i} position={[p.lat!, p.lng!]} icon={L.divIcon({className: 'custom-poi-marker', html: `<div style="background-color: blue; width: 10px; height: 10px; border-radius: 50%;"></div>`})} />))}
                               </MapContainer>
                           </div>
                       </div>
+                      
+                      {/* 5. SEÇÃO CRONOGRAMA */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Clock className="w-3.5 h-3.5"/> 5. Cronograma Operacional</h4><div className="grid grid-cols-3 gap-4"><Input label="Data" type="date" value={formData.start_date} onChange={e => setFormData({...formData, start_date: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600" /><Input label="Início" type="time" value={formData.start_time} onChange={e => setFormData({...formData, start_time: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600" /><Input label="Término Previsto" type="time" value={formData.estimated_end_time} onChange={e => setFormData({...formData, estimated_end_time: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600" /></div></div>
+                      
+                      {/* 6. SEÇÃO DESCRIÇÃO */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileText className="w-3.5 h-3.5"/> 6. Descrição / Notas Operacionais</h4><textarea className="w-full p-4 border border-slate-200 rounded-xl text-sm min-h-[120px] outline-none focus:ring-2 focus:ring-red-600 resize-none bg-white text-slate-900" placeholder="Relate detalhes, obstáculos or observações importantes da missão..." value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} /></div>
+                      
+                      {/* 7. SEÇÃO TRANSMISSÃO */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Youtube className="w-3.5 h-3.5"/> 7. Link de Transmissão</h4><Input placeholder="Link YouTube/RTSP..." value={formData.stream_url} onChange={e => setFormData({...formData, stream_url: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600" /></div>
+                      
+                      {/* 8. SEÇÃO SARPAS */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Zap className="w-3.5 h-3.5 text-blue-600"/> 8. Integração SARPAS NG (Manual)</h4><Input label="Protocolo SARPAS" placeholder="Ex: XXXXXX" value={formData.sarpas_protocol} onChange={e => setFormData({...formData, sarpas_protocol: e.target.value})} labelClassName="text-[11px] font-bold text-slate-600" /></div>
+                      
+                      {/* 9. SEÇÃO OPERAÇÃO VERÃO */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Sun className="w-3.5 h-3.5 text-orange-500"/> 9. Operação Verão</h4><label className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer group"><input type="checkbox" className="w-5 h-5 rounded border-slate-300 accent-red-600" checked={formData.is_summer_op} onChange={e => setFormData({...formData, is_summer_op: e.target.checked})} /><div className="flex items-center gap-2"><Sun className="w-4 h-4 text-orange-500"/><span className="text-xs font-black uppercase text-slate-700 tracking-wider">Vincular à Operação Verão</span></div></label>
                           {formData.is_summer_op && (<div className="grid grid-cols-2 gap-4 mt-2 p-3 bg-orange-50 border border-orange-100 rounded-lg animate-fade-in"><Select label="Cidade Base" value={summerCity} onChange={(e) => { setSummerCity(e.target.value); setSummerPgv(''); }} labelClassName="text-[10px] font-bold text-orange-800 uppercase" className="bg-white border-orange-200 text-xs"><option value="">Selecione a cidade...</option>{Object.keys(SUMMER_LOCATIONS).map(city => <option key={city} value={city}>{city}</option>)}</Select><Select label="Posto (PGV)" value={summerPgv} onChange={(e) => setSummerPgv(e.target.value)} disabled={!summerCity} labelClassName="text-[10px] font-bold text-orange-800 uppercase" className="bg-white border-orange-200 text-xs disabled:bg-slate-100"><option value="">Selecione o posto...</option>{summerCity && SUMMER_LOCATIONS[summerCity]?.map(pgv => <option key={pgv} value={pgv}>{pgv}</option>)}</Select></div>)}
                       </div>
+                      
+                      {/* 10. SEÇÃO DIÁRIO DE BORDO */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calendar className="w-3.5 h-3.5 text-blue-600"/> 10. Diário de Bordo</h4><label className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer group"><input type="checkbox" className="w-5 h-5 rounded border-slate-300 accent-blue-600" checked={formData.is_multi_day} onChange={e => setFormData({...formData, is_multi_day: e.target.checked})} /><div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-blue-600"/><span className="text-xs font-black uppercase text-slate-700 tracking-wider">Ativar Modo Multidias</span></div></label>
                           {formData.is_multi_day && (<div className="mt-4 border-t border-slate-100 pt-4">{formData.id ? (<OperationDailyLog operationId={formData.id} pilots={pilots} drones={drones} currentUser={currentUser} />) : (<div className="p-4 bg-blue-50 text-blue-700 rounded-lg text-center text-xs font-bold border border-blue-100 flex items-center justify-center gap-2"><Info className="w-4 h-4"/>Salve a missão primeiro para gerenciar o diário.</div>)}</div>)}
                       </div>
