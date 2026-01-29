@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, Circle, useMap } from 'react-leaflet';
@@ -13,7 +14,7 @@ import {
   MapPin, Settings, X, Save, Eye, EyeOff, Move, Navigation,
   ShieldAlert, Target, Video, ListFilter, History, Zap, 
   Map as MapIcon, Globe, ChevronRight, ChevronLeft, Maximize, Minimize, MousePointer2,
-  Users, Truck, Dog, UserCheck, Ruler, LayoutDashboard, Camera, CheckCircle, Loader2
+  Users, Truck, Dog, UserCheck, Ruler, LayoutDashboard, Camera, CheckCircle, Loader2, Layers
 } from 'lucide-react';
 import SectorsLayer from '../components/maps/tactical/SectorsLayer';
 
@@ -129,24 +130,62 @@ export default function TacticalOperationCenter() {
   const [newItemColor, setNewItemColor] = useState('#ef4444');
   const [newItemSubType, setNewItemSubType] = useState('victim'); 
   const [tempGeometry, setTempGeometry] = useState<any>(null); 
+  
+  // State to hold the main resources (Principal Pilot/Drone) for the "PC" marker
+  const [mainResources, setMainResources] = useState<{ pilot?: Pilot, drone?: Drone }>({});
 
   useEffect(() => { if (id) loadTacticalData(id); }, [id]);
 
   const loadTacticalData = async (opId: string) => {
     try {
-      const [op, sects, points, tDrones, allDrones, allPilots] = await Promise.all([base44.entities.Operation.filter({ id: opId }).then(res => res[0]), tacticalService.getSectors(opId), tacticalService.getPOIs(opId), tacticalService.getTacticalDrones(opId), base44.entities.Drone.list(), base44.entities.Pilot.list()]);
+      const [op, sects, points, tDrones, allDrones, allPilots] = await Promise.all([
+          base44.entities.Operation.filter({ id: opId }).then(res => res[0]), 
+          tacticalService.getSectors(opId), 
+          tacticalService.getPOIs(opId), 
+          tacticalService.getTacticalDrones(opId), 
+          base44.entities.Drone.list(), 
+          base44.entities.Pilot.list()
+      ]);
       if (!op) { navigate('/operations'); return; }
+      
+      // Enrich additional tactical drones
       const enriched = tDrones.map(td => ({ ...td, drone: allDrones.find(d => d.id === td.drone_id), pilot: allPilots.find(p => p.id === td.pilot_id) }));
-      setOperation(op); if (!pcPosition) setPcPosition([op.latitude, op.longitude]);
-      setSectors(sects); setPois(points); setTacticalDrones(enriched); 
-      setAvailableDrones(allDrones); setAvailablePilots(allPilots);
+      
+      // Load main resources for the operation (Pilot and Drone)
+      const mainPilot = allPilots.find(p => p.id === op.pilot_id);
+      const mainDrone = allDrones.find(d => d.id === op.drone_id);
+      setMainResources({ pilot: mainPilot, drone: mainDrone });
+
+      setOperation(op); 
+      if (!pcPosition) setPcPosition([op.latitude, op.longitude]);
+      
+      setSectors(sects); 
+      setPois(points); 
+      setTacticalDrones(enriched); 
+      setAvailableDrones(allDrones); 
+      setAvailablePilots(allPilots);
     } catch (e) {} finally { setLoading(false); }
   };
 
   const operationalSummary = useMemo(() => {
+      // Calculate total drones including the main one (if exists) + additional ones
+      const mainDroneCount = (operation?.drone_id) ? 1 : 0;
+      const totalDrones = tacticalDrones.length + mainDroneCount;
+
       const totalAreaM2 = sectors.filter(s => s.type === 'sector' && s.geojson?.coordinates).reduce((acc, s) => acc + calculatePolygonArea(s.geojson.coordinates), 0);
-      return { totalAreaM2, resources: { drones: tacticalDrones.length, sectors: sectors.filter(s => s.type === 'sector').length, pois: pois.length, k9: pois.filter(p => p.type === 'k9').length, teams: pois.filter(p => p.type === 'ground_team').length, vehicles: pois.filter(p => p.type === 'vehicle').length, victims: pois.filter(p => p.type === 'victim').length } };
-  }, [sectors, pois, tacticalDrones]);
+      return { 
+          totalAreaM2, 
+          resources: { 
+              drones: totalDrones, 
+              sectors: sectors.filter(s => s.type === 'sector').length, 
+              pois: pois.length, 
+              k9: pois.filter(p => p.type === 'k9').length, 
+              teams: pois.filter(p => p.type === 'ground_team').length, 
+              vehicles: pois.filter(p => p.type === 'vehicle').length, 
+              victims: pois.filter(p => p.type === 'victim').length 
+          } 
+      };
+  }, [sectors, pois, tacticalDrones, operation]);
 
   const syncTacticalSummary = async () => {
       if (!id || !operation) return;
@@ -215,6 +254,18 @@ export default function TacticalOperationCenter() {
       await loadTacticalData(id); syncTacticalSummary();
   };
 
+  // Helper to update Main Operation Position (dragging the main drone)
+  const handleMainDroneDragEnd = async (e: any) => {
+      const pos = e.target.getLatLng();
+      setPcPosition([pos.lat, pos.lng]);
+      // Optionally update the operation coordinates in DB if needed:
+      if (operation) {
+          try {
+              await base44.entities.Operation.update(operation.id, { latitude: pos.lat, longitude: pos.lng });
+          } catch(e) { console.error("Failed to update op coords", e); }
+      }
+  };
+
   if (loading || !operation) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white font-black"><Crosshair className="w-8 h-8 animate-spin mr-3 text-red-600"/> SINCRONIZANDO TEATRO OPERACIONAL...</div>;
 
   return (
@@ -226,7 +277,19 @@ export default function TacticalOperationCenter() {
               <div className="flex-1 overflow-y-auto custom-scrollbar p-3 relative bg-white">
                   {activeTab === 'plan' && !activePanel && (<div className="space-y-5 animate-fade-in"><div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-4 shadow-sm"><h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b pb-2"><LayoutDashboard className="w-3.5 h-3.5"/> Resumo de Cena</h3><div className="grid grid-cols-2 gap-3"><div className="bg-white p-3 rounded-xl border border-slate-100 shadow-inner"><p className="text-[8px] font-black text-slate-400 uppercase">Área Total</p><p className="text-sm font-black text-blue-600">{formatArea(operationalSummary.totalAreaM2)}</p></div><div className="bg-white p-3 rounded-xl border border-slate-100 shadow-inner"><p className="text-[8px] font-black text-slate-400 uppercase">Drones no Ar</p><p className="text-sm font-black text-red-600">{operationalSummary.resources.drones} Unid.</p></div></div><div className="bg-white p-3 rounded-xl border border-slate-100 shadow-inner flex justify-between gap-2"><div className="flex flex-col items-center flex-1"><Users className="w-4 h-4 text-blue-600 mb-1" /><span className="text-xs font-black text-slate-700">{operationalSummary.resources.teams}</span></div><div className="w-px bg-slate-100"></div><div className="flex flex-col items-center flex-1"><Dog className="w-4 h-4 text-amber-600 mb-1" /><span className="text-xs font-black text-slate-700">{operationalSummary.resources.k9}</span></div><div className="w-px bg-slate-100"></div><div className="flex flex-col items-center flex-1"><Truck className="w-4 h-4 text-red-600 mb-1" /><span className="text-xs font-black text-slate-700">{operationalSummary.resources.vehicles}</span></div></div></div>
                           <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3 shadow-2xl"><h3 className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-2"><Plus className="w-3.5 h-3.5"/> Ativar Vetor RPA</h3><div className="space-y-2"><Select className="h-9 text-[11px] bg-slate-800 border-slate-700 text-white" id="drone-select"><option value="">Aeronave...</option>{availableDrones.filter(d => d.status === 'available').map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}</Select><Select className="h-9 text-[11px] bg-slate-800 border-slate-700 text-white" id="pilot-select"><option value="">Comandante...</option>{availablePilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}</Select><Button className="w-full h-10 bg-red-600 hover:bg-red-700 text-white font-black uppercase text-[10px] tracking-widest shadow-lg" onClick={() => handleAssignDrone((document.getElementById('drone-select') as HTMLSelectElement).value, (document.getElementById('pilot-select') as HTMLSelectElement).value)}>Lançar no Mapa</Button></div></div>
-                          <div className="space-y-3"><h3 className="text-[10px] font-black text-slate-400 uppercase border-b pb-1">Unidades Ativas</h3>{tacticalDrones.map(td => (<div key={td.id} onClick={() => { setSelectedEntity({...td}); setEntityType('drone'); setActivePanel('manage'); }} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-2xl hover:border-red-500 cursor-pointer transition-all shadow-sm group"><div className="flex items-center gap-3"><div className={`w-11 h-11 rounded-xl flex items-center justify-center border transition-colors ${td.status === 'active' ? 'bg-green-50 border-green-100 group-hover:bg-green-500 group-hover:text-white' : 'bg-orange-50 border-orange-100'}`}><Zap className="w-5 h-5" /></div><div><div className="font-black text-xs text-slate-800 uppercase leading-none">{td.drone?.prefix}</div><div className="text-[9px] text-slate-400 font-bold uppercase mt-1.5">{td.pilot?.full_name?.split(' ')[0]}</div></div></div><div className="text-right"><div className="text-[11px] font-black text-slate-700">{td.flight_altitude || 60}m</div>{td.stream_url && <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse ml-auto mt-1" title="Live Ativa"></div>}</div></div>))}</div></div>)}
+                          <div className="space-y-3"><h3 className="text-[10px] font-black text-slate-400 uppercase border-b pb-1">Unidades Ativas</h3>
+                            {/* Main Drone Listing */}
+                            {mainResources.drone && (
+                                <div onClick={() => { mapRef.current?.querySelector('.leaflet-container')?.scrollIntoView(); }} className="flex items-center justify-between p-3 bg-red-50 border border-red-200 rounded-2xl cursor-pointer hover:border-red-400 transition-all shadow-sm">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-red-600 text-white shadow-md"><Zap className="w-5 h-5" /></div>
+                                        <div><div className="font-black text-xs text-red-900 uppercase leading-none">{mainResources.drone.prefix} (PRINCIPAL)</div><div className="text-[9px] text-red-700 font-bold uppercase mt-1.5">{mainResources.pilot?.full_name?.split(' ')[0]}</div></div>
+                                    </div>
+                                    <div className="text-right"><div className="text-[11px] font-black text-red-800">{operation.flight_altitude || 60}m</div></div>
+                                </div>
+                            )}
+                            {/* Additional Drones */}
+                            {tacticalDrones.map(td => (<div key={td.id} onClick={() => { setSelectedEntity({...td}); setEntityType('drone'); setActivePanel('manage'); }} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-2xl hover:border-red-500 cursor-pointer transition-all shadow-sm group"><div className="flex items-center gap-3"><div className={`w-11 h-11 rounded-xl flex items-center justify-center border transition-colors ${td.status === 'active' ? 'bg-green-50 border-green-100 group-hover:bg-green-500 group-hover:text-white' : 'bg-orange-50 border-orange-100'}`}><Zap className="w-5 h-5" /></div><div><div className="font-black text-xs text-slate-800 uppercase leading-none">{td.drone?.prefix}</div><div className="text-[9px] text-slate-400 font-bold uppercase mt-1.5">{td.pilot?.full_name?.split(' ')[0]}</div></div></div><div className="text-right"><div className="text-[11px] font-black text-slate-700">{td.flight_altitude || 60}m</div>{td.stream_url && <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse ml-auto mt-1" title="Live Ativa"></div>}</div></div>))}</div></div>)}
                   {activeTab === 'timeline' && (<div className="p-2 space-y-4 animate-fade-in bg-white">{timeline.map(e => (<div key={e.id} className="flex gap-3 bg-white p-3 rounded-xl border border-slate-100 items-start shadow-sm"><div className="p-2 bg-slate-50 rounded-lg shadow-sm"><e.icon className="w-4 h-4 text-red-500" /></div><div className="min-w-0"><p className="font-bold text-[11px] text-slate-800 leading-tight">{e.text}</p><p className="text-[9px] text-slate-400 font-black mt-1.5 uppercase">{e.time}</p></div></div>))}</div>)}
                   {(activePanel === 'create' || activePanel === 'manage') && (<div className="absolute inset-0 bg-white z-[600] animate-fade-in flex flex-col p-5 space-y-5 border-l-4 border-red-600"><div className="flex justify-between items-center border-b pb-3"><h2 className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">{activePanel === 'create' ? <><Plus className="w-4 h-4 text-blue-600"/> Identificar Elemento</> : <><Settings className="w-4 h-4 text-slate-600"/> Gerenciar Ativo</>}</h2><button onClick={() => { setActivePanel(null); setTempGeometry(null); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X className="w-5 h-5 text-slate-400"/></button></div><div className="space-y-5 overflow-y-auto pr-1">
                               {activePanel === 'create' && (<><Input label="Identificação Tática" autoFocus value={newItemName} onChange={e => setNewItemName(e.target.value)} className="font-black text-xs uppercase h-10 bg-slate-50 border-slate-200" labelClassName="text-[10px] font-black uppercase text-slate-500" />{newItemType === 'poi' && (<div className="grid grid-cols-2 gap-2">{[{ id: 'base', label: 'Base / PC', icon: MapPin }, { id: 'victim', label: 'Vítima', icon: UserCheck }, { id: 'hazard', label: 'Zona Perigo', icon: ShieldAlert }, { id: 'ground_team', label: 'Equipe Solo', icon: Users }, { id: 'vehicle', label: 'Viatura BM', icon: Truck }, { id: 'k9', label: 'Cão Busca', icon: Dog }].map(t => (<button key={t.id} onClick={() => setNewItemSubType(t.id)} className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${newItemSubType === t.id ? 'bg-red-600 text-white shadow-xl' : 'bg-slate-50 text-slate-500'}`}><t.icon className="w-5 h-5" /><span className="text-[9px] font-black uppercase">{t.label}</span></button>))}</div>)}<Button onClick={saveNewItem} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-black uppercase text-[11px] tracking-widest shadow-xl">Salvar Elemento</Button></>)}
@@ -236,8 +299,38 @@ export default function TacticalOperationCenter() {
           </div>
           <div className="flex-1 relative z-0 bg-slate-100" ref={mapRef}>
               <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[2000] flex pointer-events-none"><div className="bg-white/95 backdrop-blur-2xl border border-slate-200 rounded-2xl shadow-2xl flex items-center p-2 gap-1 pointer-events-auto ring-4 ring-black/5"><div className="px-5 border-r border-slate-200 flex items-center gap-3"><MousePointer2 className="w-5 h-5 text-sysarp-primary" /><span className="text-[11px] font-black text-slate-900 uppercase tracking-tighter">CCO Tático</span></div><div className="flex items-center gap-1"><button onClick={() => setCurrentDrawMode('sector')} className="p-3 hover:bg-blue-600 hover:text-white rounded-xl text-blue-600 transition-all group relative"><Hexagon className="w-6 h-6"/><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase">ÁREA</span></button><button onClick={() => setCurrentDrawMode('route')} className="p-3 hover:bg-orange-600 hover:text-white rounded-xl text-orange-600 transition-all group relative"><Navigation className="w-6 h-6"/><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase">ROTA</span></button><button onClick={() => setCurrentDrawMode('poi')} className="p-3 hover:bg-red-600 hover:text-white rounded-xl text-red-600 transition-all group relative"><Flag className="w-6 h-6"/><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase">PONTO</span></button></div></div></div>
+              
+              {/* Map Type Toggle */}
+              <div className="absolute top-5 right-5 z-[2000] pointer-events-auto">
+                  <button 
+                      onClick={() => setMapType(prev => prev === 'street' ? 'satellite' : 'street')}
+                      className="bg-white hover:bg-slate-50 text-slate-700 p-3 rounded-xl shadow-xl border border-slate-200 transition-all"
+                      title="Alternar Satélite/Rua"
+                  >
+                      <Layers className="w-6 h-6" />
+                  </button>
+              </div>
+
               <MapContainer center={[operation.latitude, operation.longitude]} zoom={17} style={{ height: '100%', width: '100%', background: '#0f172a' }} preferCanvas={true} whenReady={(mapInstance: any) => { leafletMapRef.current = mapInstance.target; }}><MapController center={[operation.latitude, operation.longitude]} isCreating={!!tempGeometry} /><MapDrawingBridge drawMode={currentDrawMode} setDrawMode={setCurrentDrawMode} /><TileLayer url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} /><SectorsLayer onCreated={handleDrawCreated} />
-                  {visibleLayers.base && pcPosition && (<Marker position={pcPosition} icon={getPoiIcon('base')} draggable={true} eventHandlers={{ dragend: (e) => setPcPosition([e.target.getLatLng().lat, e.target.getLatLng().lng]) }} />)}
+                  {/* MAIN DRONE MARKER (REPLACES OLD BASE MARKER) */}
+                  {visibleLayers.base && pcPosition && (
+                      <Marker 
+                          position={pcPosition} 
+                          icon={createTacticalDroneIcon({
+                              id: 'main-drone-virtual',
+                              operation_id: operation.id,
+                              drone_id: operation.drone_id,
+                              pilot_id: operation.pilot_id,
+                              status: 'active',
+                              flight_altitude: operation.flight_altitude,
+                              radius: operation.radius,
+                              drone: mainResources.drone,
+                              pilot: mainResources.pilot
+                          })} 
+                          draggable={true} 
+                          eventHandlers={{ dragend: handleMainDroneDragEnd }} 
+                      />
+                  )}
                   {visibleLayers.sectors && sectors.filter(s => s.type !== 'route').map(s => (<Polygon key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 1) as any} pathOptions={{ color: s.color, fillOpacity: 0.25, weight: 3 }} eventHandlers={{ click: () => { setSelectedEntity({...s}); setEntityType('sector'); setActivePanel('manage'); } }} />))}
                   {visibleLayers.routes && sectors.filter(s => s.type === 'route').map(s => (<Polyline key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 0) as any} pathOptions={{ color: s.color, weight: 6, dashArray: '8, 12' }} eventHandlers={{ click: () => { setSelectedEntity({...s}); setEntityType('sector'); setActivePanel('manage'); } }} />))}
                   {visibleLayers.pois && pois.map(p => (<Marker key={p.id} position={[p.lat, p.lng]} icon={getPoiIcon(p.type)} eventHandlers={{ click: () => { setSelectedEntity({...p}); setEntityType('poi'); setActivePanel('manage'); } }} />))}
