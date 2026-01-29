@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, Circle, useMap } from 'react-leaflet';
@@ -101,43 +100,38 @@ const MapDrawingBridge = ({ drawMode, setDrawMode }: { drawMode: string | null, 
     useEffect(() => {
         if (!map || !map.pm) return;
         
-        // Se houver um modo de desenho ativo, ativa a ferramenta
-        if (drawMode) { 
-            const options = { snappable: true, cursorMarker: true, hintlineStyle: { color: '#3388ff', dashArray: [5, 5] } };
-            
-            // CORREÇÃO: 'Polyline' não é suportado pelo Geoman em enableDraw diretamente, deve ser 'Line'
-            switch(drawMode) {
-                case 'sector': map.pm.enableDraw('Polygon', options); break;
-                case 'route': map.pm.enableDraw('Line', options); break; 
-                case 'poi': map.pm.enableDraw('Marker', options); break;
+        try {
+            if (drawMode) { 
+                const options = { snappable: true, cursorMarker: true, hintlineStyle: { color: '#3388ff', dashArray: [5, 5] } };
+                switch(drawMode) {
+                    case 'sector': map.pm.enableDraw('Polygon', options); break;
+                    case 'route': map.pm.enableDraw('Line', options); break; 
+                    case 'poi': map.pm.enableDraw('Marker', options); break;
+                }
+            } else {
+                map.pm.disableDraw(); 
             }
-        } else {
-            // Se não houver modo, desativa tudo
-            map.pm.disableDraw(); 
+        } catch (error) {
+            console.error("Geoman Draw Error:", error);
+            map.pm.disableDraw();
+            setDrawMode(null);
         }
 
-        const handleStart = () => {
-            // Mantém o estado visual ativo, mas o controle é via drawMode prop
-        };
-        
-        // Listener para quando o desenho termina (criação) é tratado no pai via onCreated
-        // Aqui só cuidamos de limpar o modo se o usuário cancelar via UI do Leaflet (Esc)
-        const handleGlobalDrag = () => {
-             // Opcional
-        };
-
+        const handleStart = () => {};
         map.on('pm:drawstart', handleStart);
-        
         return () => { 
             if (map.pm) map.pm.disableDraw(); 
             map.off('pm:drawstart', handleStart); 
         };
-    }, [drawMode, map]); // Removed setDrawMode dependency to avoid loop, managed by parent
+    }, [drawMode, map, setDrawMode]); 
     return null;
 };
 
-const MapController = ({ center, isCreating }: { center: [number, number], isCreating: boolean }) => {
+const MapController = ({ center, isCreating, onMapReady }: { center: [number, number], isCreating: boolean, onMapReady?: (map: L.Map) => void }) => {
     const map = useMap();
+    useEffect(() => {
+        if (onMapReady) onMapReady(map);
+    }, [map, onMapReady]);
     useEffect(() => {
         const timer = setTimeout(() => { if (map && map.getContainer()) map.invalidateSize(); }, 400);
         return () => clearTimeout(timer);
@@ -248,20 +242,21 @@ export default function TacticalOperationCenter() {
           
           if (leafletMapRef.current) { 
             leafletMapRef.current.invalidateSize(); 
-            await new Promise(r => setTimeout(r, 600)); 
+            // Aumentar o delay para garantir que os tiles (imagens) sejam carregados antes da captura
+            await new Promise(r => setTimeout(r, 1500)); 
           }
           
           const canvas = await html2canvas(mapEl, {
-              useCORS: true, // Importante para tiles de mapas externos
-              allowTaint: false, // Evita taint do canvas
-              logging: false, 
+              useCORS: true, // CRUCIAL para carregar tiles externos
+              allowTaint: true,
+              logging: true,
               scale: 2, 
-              backgroundColor: null, // CORREÇÃO: Transparente para não ficar azul se não carregar tile
+              backgroundColor: null, 
               ignoreElements: (element) => {
                  const cls = element.classList;
                  return (
-                     cls.contains('leaflet-control-container') || // Esconde controles de zoom
-                     (cls.contains('leaflet-pane') && !cls.contains('leaflet-map-pane') && !cls.contains('leaflet-overlay-pane') && !cls.contains('leaflet-marker-pane'))
+                     cls.contains('leaflet-control-container') || 
+                     (cls.contains('leaflet-pane') && !cls.contains('leaflet-map-pane') && !cls.contains('leaflet-overlay-pane') && !cls.contains('leaflet-marker-pane') && !cls.contains('leaflet-tile-pane'))
                  );
               }
           });
@@ -277,12 +272,9 @@ export default function TacticalOperationCenter() {
   };
 
   const handleDrawCreated = (e: any) => {
-    // Leaflet-Geoman (PM) events
     const geojson = e.layer.toGeoJSON(); 
     
-    // Mapeamento correto de tipos do Geoman
     let type: 'poi' | 'line' | 'sector' = 'sector';
-    
     if (e.layerType === 'marker' || e.shape === 'Marker') {
         type = 'poi';
     } else if (e.layerType === 'line' || e.shape === 'Line' || e.shape === 'Polyline') {
@@ -293,8 +285,6 @@ export default function TacticalOperationCenter() {
 
     setNewItemType(type); 
     setTempGeometry(geojson);
-    
-    // Reseta o modo de desenho
     setCurrentDrawMode(null);
 
     if (type !== 'poi') { 
@@ -451,13 +441,19 @@ export default function TacticalOperationCenter() {
               <MapContainer 
                 center={[operation.latitude, operation.longitude]} 
                 zoom={17} 
-                style={{ height: '100%', width: '100%', background: '#0f172a' }} 
+                style={{ height: '100%', width: '100%', background: 'transparent' }} 
                 preferCanvas={true} 
-                whenReady={(mapInstance: any) => { leafletMapRef.current = mapInstance.target; }}
               >
-                  <MapController center={[operation.latitude, operation.longitude]} isCreating={!!tempGeometry} />
+                  <MapController 
+                    center={[operation.latitude, operation.longitude]} 
+                    isCreating={!!tempGeometry} 
+                    onMapReady={(map) => { leafletMapRef.current = map; }} 
+                  />
                   <MapDrawingBridge drawMode={currentDrawMode} setDrawMode={setCurrentDrawMode} />
-                  <TileLayer url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} />
+                  <TileLayer 
+                    url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} 
+                    crossOrigin="anonymous" 
+                  />
                   <SectorsLayer onCreated={handleDrawCreated} />
                   {visibleLayers.base && pcPosition && (
                       <Marker 
