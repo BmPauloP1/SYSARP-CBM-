@@ -160,7 +160,7 @@ export default function Reports() {
       setLoading(true);
       try {
           // Processar exclusões em paralelo
-          const deletePromises = Array.from(selectedOpIds).map(id => base44.entities.Operation.delete(id));
+          const deletePromises = Array.from(selectedOpIds).map((id: string) => base44.entities.Operation.delete(id));
           await Promise.all(deletePromises);
           
           alert("Operações excluídas com sucesso.");
@@ -178,7 +178,6 @@ export default function Reports() {
     if (selectedOpIds.size === 0) return;
     setGeneratingPdf(true);
     try {
-        /* FIX: Corrected dynamic imports by properly casting (await import(...)) to any to resolve TS 'unknown' errors on lines 163-166. */
         const jsPDFModule = (await import('jspdf')) as any;
         const jsPDF = jsPDFModule.default || jsPDFModule;
         const autoTableModule = (await import('jspdf-autotable')) as any;
@@ -194,6 +193,7 @@ export default function Reports() {
             const op = selectedOps[index];
             if (index > 0) doc.addPage();
             
+            // --- HEADER ---
             if (logo.data) {
                 const logoWidth = 22;
                 const logoHeight = logoWidth / logo.ratio;
@@ -212,6 +212,7 @@ export default function Reports() {
             doc.setFontSize(9); doc.setFont("helvetica", "normal");
             doc.text(`Protocolo de Controle: ${op.occurrence_number}`, pageWidth / 2, 48, { align: "center" });
 
+            // --- 1. IDENTIFICAÇÃO ---
             doc.setFont("helvetica", "bold"); doc.text("1. IDENTIFICAÇÃO DA OCORRÊNCIA", 14, 62);
             autoTable(doc, {
                 startY: 65,
@@ -227,8 +228,9 @@ export default function Reports() {
 
             const pilot = pilots.find(p => p.id === op.pilot_id);
             const drone = drones.find(d => d.id === op.drone_id);
-            // FIX: Explicitly cast doc to any to access doc.lastAutoTable to resolve TypeScript errors where property 'lastAutoTable' might not exist or be unknown.
             let yAfter = Number((doc as any).lastAutoTable?.finalY || 120) + 10;
+            
+            // --- 2. EQUIPE ---
             doc.setFont("helvetica", "bold"); doc.text("2. EQUIPE E EQUIPAMENTO (VETOR)", 14, yAfter);
             autoTable(doc, {
                 startY: yAfter + 3,
@@ -242,18 +244,30 @@ export default function Reports() {
 
             yAfter = Number((doc as any).lastAutoTable?.finalY || yAfter + 40) + 10;
 
-            // --- ITEM 3: INTEGRADO SNAPSHOT DO TEATRO NO PDF ---
+            // --- 3. GEOPROCESSAMENTO ---
             const snapshot = tacticalService.getMapSnapshot(op.id);
+            const snapshotHeight = 90;
             
+            // Check space for Snapshot
             if (snapshot && typeof snapshot === 'string' && snapshot.length > 0) {
+                if (yAfter + snapshotHeight + 20 > pageHeight - 30) {
+                    doc.addPage();
+                    yAfter = 20;
+                }
                 doc.setFont("helvetica", "bold"); doc.text("3. GEOPROCESSAMENTO E TEATRO OPERACIONAL", 14, yAfter);
-                doc.addImage(snapshot as string, 'JPEG', 14, yAfter + 4, 182, 90); 
-                yAfter += 100;
+                doc.addImage(snapshot as string, 'JPEG', 14, yAfter + 4, 182, snapshotHeight); 
+                yAfter += (snapshotHeight + 10);
             } else {
                 doc.setFont("helvetica", "bold"); doc.text("3. GEOPROCESSAMENTO TÁTICO E RECURSOS", 14, yAfter);
+                yAfter += 5;
             }
 
             if (op.tactical_summary) {
+                // Check space for summary table
+                if (yAfter + 40 > pageHeight - 20) {
+                    doc.addPage();
+                    yAfter = 20;
+                }
                 const sum = op.tactical_summary;
                 autoTable(doc, {
                     startY: yAfter + 3,
@@ -272,11 +286,36 @@ export default function Reports() {
                 yAfter = Number((doc as any).lastAutoTable?.finalY || yAfter + 20) + 10;
             }
 
+            // --- 4. NARRATIVA ---
+            // Ensure title doesn't hang at bottom
+            if (yAfter > pageHeight - 30) { doc.addPage(); yAfter = 20; }
+            
             doc.setFont("helvetica", "bold"); doc.text("4. RELATO OPERACIONAL E AÇÕES", 14, yAfter);
+            yAfter += 7;
+            
             const relato = `NARRATIVA:\n${op.description || 'Sem descrição.'}\n\nAÇÕES TOMADAS:\n${op.actions_taken || 'Nenhuma ação detalhada.'}`;
             const splitNarrative = doc.splitTextToSize(relato, pageWidth - 28);
+            
             doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-            doc.text(splitNarrative, 14, yAfter + 7);
+            
+            const lineHeight = 5;
+            const bottomMargin = 20;
+            const footerReservedHeight = 45; // Space for signature footer
+
+            for (let i = 0; i < splitNarrative.length; i++) {
+                if (yAfter > pageHeight - bottomMargin - footerReservedHeight) { 
+                    doc.addPage();
+                    yAfter = 20; // Top margin
+                }
+                doc.text(splitNarrative[i], 14, yAfter);
+                yAfter += lineHeight;
+            }
+
+            // --- FOOTER / ASSINATURA ---
+            // If narrative finished too close to bottom, add page for signature
+            if (yAfter > pageHeight - 40) {
+                doc.addPage();
+            }
 
             const footerY = pageHeight - 45;
             doc.setDrawColor(220, 220, 220); doc.setLineWidth(0.2);
