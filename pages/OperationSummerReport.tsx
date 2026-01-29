@@ -98,7 +98,6 @@ export default function OperationSummerReport() {
       const mostFrequentMission = Object.entries(statsByMission).sort((a, b) => b[1].flights - a[1].flights)[0];
 
       // 3. Gerar o PDF com jspdf e jspdf-autotable
-      // @FIX: Corrected dynamic imports by casting result to any to avoid 'unknown' type errors during destructuring.
       const jsPDFModule = (await import('jspdf')) as any;
       const jsPDF = jsPDFModule.default || jsPDFModule;
       const autoTableModule = (await import('jspdf-autotable')) as any;
@@ -106,8 +105,19 @@ export default function OperationSummerReport() {
 
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.width;
+      const pageHeight = doc.internal.pageSize.height;
       const logoData = await getImageData(SYSARP_LOGO);
       let startY = 40;
+
+      // Função auxiliar para verificar espaço na página
+      const checkPageBreak = (neededHeight: number) => {
+          if (startY + neededHeight > pageHeight - 20) { // 20mm de margem inferior
+              doc.addPage();
+              startY = 20; // Reinicia no topo da nova página
+              return true;
+          }
+          return false;
+      };
 
       // Header
       try { doc.addImage(logoData, "PNG", 14, 10, 20, 20); } catch(e) {}
@@ -119,6 +129,7 @@ export default function OperationSummerReport() {
       doc.text(`Período: ${dateStart ? new Date(dateStart+'T12:00:00').toLocaleDateString() : 'Início'} a ${dateEnd ? new Date(dateEnd+'T12:00:00').toLocaleDateString() : 'Fim'}`, pageWidth / 2, 26, { align: "center" });
 
       // Resumo Executivo
+      checkPageBreak(60);
       doc.setFontSize(12); doc.setFont("helvetica", "bold");
       doc.text("1. RESUMO EXECUTIVO (KPIs)", 14, startY);
       startY += 8;
@@ -137,6 +148,7 @@ export default function OperationSummerReport() {
       startY = (doc as any).lastAutoTable.finalY + 12;
       
       // Análise por Missão
+      checkPageBreak(60);
       doc.setFontSize(12); doc.setFont("helvetica", "bold");
       doc.text("2. ANÁLISE POR TIPO DE MISSÃO", 14, startY);
       startY += 8;
@@ -154,6 +166,7 @@ export default function OperationSummerReport() {
       startY = (doc as any).lastAutoTable.finalY + 12;
 
       // Análise por Localidade
+      checkPageBreak(60);
       doc.setFontSize(12); doc.setFont("helvetica", "bold");
       doc.text("3. ANÁLISE POR LOCALIDADE", 14, startY);
       startY += 8;
@@ -165,10 +178,8 @@ export default function OperationSummerReport() {
       });
       startY = (doc as any).lastAutoTable.finalY + 12;
       
-      doc.addPage();
-      startY = 20;
-
       // Análise por Aeronave
+      checkPageBreak(60);
       doc.setFontSize(12); doc.setFont("helvetica", "bold");
       doc.text("4. ANÁLISE DE EMPREGO DA FROTA", 14, startY);
       startY += 8;
@@ -184,6 +195,7 @@ export default function OperationSummerReport() {
       startY = (doc as any).lastAutoTable.finalY + 12;
 
       // Análise por Piloto
+      checkPageBreak(60);
       doc.setFontSize(12); doc.setFont("helvetica", "bold");
       doc.text("5. ANÁLISE DE EFETIVO EMPREGADO", 14, startY);
       startY += 8;
@@ -200,8 +212,7 @@ export default function OperationSummerReport() {
 
       // Log completo de voos
       if(filteredFlights.length > 0) {
-        doc.addPage();
-        startY = 20;
+        checkPageBreak(60);
         doc.setFontSize(12); doc.setFont("helvetica", "bold");
         doc.text("6. LOG COMPLETO DE VOOS NO PERÍODO", 14, startY);
         startY += 8;
@@ -213,12 +224,14 @@ export default function OperationSummerReport() {
             const drone = drones.find(d => d.id === f.drone_id)?.prefix || 'N/A';
             return [ new Date(f.date+'T12:00:00').toLocaleDateString(), f.location, MISSION_HIERARCHY[f.mission_type as MissionType]?.label, pilot, drone, `${f.flight_duration}m` ];
           }),
-          theme: 'grid', headStyles: { fillColor: [100, 116, 139] }, styles: { fontSize: 8 }
+          theme: 'grid', 
+          headStyles: { fillColor: [100, 116, 139] }, 
+          styles: { fontSize: 8 },
+          showHead: 'firstPage' // Mostra cabeçalho apenas na primeira página da tabela se quebrar? ou 'everyPage'
         });
       }
       
       // Footer
-      // FIX: The getNumberOfPages method is on the doc instance itself.
       const pageCount = (doc as any).getNumberOfPages();
       for(let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
