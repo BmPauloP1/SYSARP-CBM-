@@ -70,7 +70,30 @@ const createTacticalDroneIcon = (td: TacticalDrone) => {
     const pilotName = td.pilot?.full_name?.split(' ')[0] || 'PIC';
     const alt = td.flight_altitude || 60; const rad = td.radius || 200;
     const color = td.status === 'active' ? '#22c55e' : '#f59e0b';
-    return L.divIcon({ className: 'drone-tactical-marker', html: `<div style="display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.4));"><div style="background: #0f172a; color: white; font-size: 9px; font-weight: 900; padding: 2px 8px; border-radius: 4px; margin-bottom: 4px; border: 1.5px solid rgba(255,255,255,0.4); white-space: nowrap; text-transform: uppercase; letter-spacing: -0.2px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">${pilotName}</div><div style="background-color: ${color}; width: 40px; height: 40px; border: 3px solid white; border-radius: 10px; transform: rotate(45deg); display: flex; align-items: center; justify-content: center;"><div style="transform: rotate(-45deg);"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 22px; height: 22px;"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /></svg></div></div><div style="background: white; color: #1e293b; font-size: 9px; font-weight: 900; padding: 3px 6px; border-radius: 4px; margin-top: 5px; border: 1px solid #cbd5e1; white-space: nowrap; display: flex; gap: 6px; box-shadow: 0 4px 6px rgba(0,0,0,0.15);"><span style="color: #2563eb;">${alt}M</span><span style="color: #dc2626;">R:${rad}M</span></div></div>`, iconSize: [110, 110], iconAnchor: [55, 55] });
+    const isMain = td.id === 'main-drone-virtual';
+    
+    return L.divIcon({ 
+        className: 'drone-tactical-marker', 
+        html: `<div style="display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.4));">
+            <div style="background: ${isMain ? '#b91c1c' : '#0f172a'}; color: white; font-size: 9px; font-weight: 900; padding: 2px 8px; border-radius: 4px; margin-bottom: 4px; border: 1.5px solid rgba(255,255,255,0.4); white-space: nowrap; text-transform: uppercase; letter-spacing: -0.2px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                ${pilotName}${isMain ? ' (PRINCIPAL)' : ''}
+            </div>
+            <div style="background-color: ${isMain ? '#ef4444' : color}; width: 40px; height: 40px; border: 3px solid white; border-radius: 10px; transform: rotate(45deg); display: flex; align-items: center; justify-content: center;">
+                <div style="transform: rotate(-45deg);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 22px; height: 22px;">
+                        <path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" />
+                        <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+                    </svg>
+                </div>
+            </div>
+            <div style="background: white; color: #1e293b; font-size: 9px; font-weight: 900; padding: 3px 6px; border-radius: 4px; margin-top: 5px; border: 1px solid #cbd5e1; white-space: nowrap; display: flex; gap: 6px; box-shadow: 0 4px 6px rgba(0,0,0,0.15);">
+                <span style="color: #2563eb;">${alt}M</span>
+                <span style="color: #dc2626;">R:${rad}M</span>
+            </div>
+        </div>`, 
+        iconSize: [110, 110], 
+        iconAnchor: [55, 55] 
+    });
 };
 
 const MapDrawingBridge = ({ drawMode, setDrawMode }: { drawMode: string | null, setDrawMode: (mode: string | null) => void }) => {
@@ -131,7 +154,7 @@ export default function TacticalOperationCenter() {
   const [newItemSubType, setNewItemSubType] = useState('victim'); 
   const [tempGeometry, setTempGeometry] = useState<any>(null); 
   
-  // State to hold the main resources (Principal Pilot/Drone) for the "PC" marker
+  // State to hold the main resources (Principal Pilot/Drone)
   const [mainResources, setMainResources] = useState<{ pilot?: Pilot, drone?: Drone }>({});
 
   useEffect(() => { if (id) loadTacticalData(id); }, [id]);
@@ -168,7 +191,6 @@ export default function TacticalOperationCenter() {
   };
 
   const operationalSummary = useMemo(() => {
-      // Calculate total drones including the main one (if exists) + additional ones
       const mainDroneCount = (operation?.drone_id) ? 1 : 0;
       const totalDrones = tacticalDrones.length + mainDroneCount;
 
@@ -198,45 +220,66 @@ export default function TacticalOperationCenter() {
 
   const handleCaptureSnapshot = async () => {
       if (!id || isCapturing) return;
-      setIsCapturing(true); addLog("SINCRONIZANDO RECURSOS E CAPTURANDO TEATRO...", Camera);
+      setIsCapturing(true); 
+      addLog("CAPTANDO TEATRO OPERACIONAL...", Camera);
       try {
           await syncTacticalSummary();
           const mapEl = mapRef.current?.querySelector('.leaflet-container') as HTMLElement;
           if (!mapEl) throw new Error("Mapa não encontrado");
-          if (leafletMapRef.current) { leafletMapRef.current.invalidateSize(); await new Promise(r => setTimeout(r, 600)); }
+          
+          if (leafletMapRef.current) { 
+            leafletMapRef.current.invalidateSize(); 
+            await new Promise(r => setTimeout(r, 600)); 
+          }
+          
           const canvas = await html2canvas(mapEl, {
-              useCORS: true, allowTaint: true, logging: false, scale: 2, backgroundColor: '#0f172a',
+              useCORS: true, 
+              allowTaint: true, 
+              logging: false, 
+              scale: 2, 
+              backgroundColor: '#0f172a',
               ignoreElements: (element) => {
                  const cls = element.classList;
-                 // Ignorar elementos problemáticos que causam erro '_leaflet_pos'
                  return (
                      cls.contains('leaflet-control-container') || 
                      cls.contains('leaflet-shadow-pane') ||
                      cls.contains('leaflet-marker-shadow') ||
-                     (cls.contains('leaflet-pane') && !cls.contains('leaflet-map-pane')) ||
-                     (element.tagName === 'svg' && cls.contains('leaflet-zoom-animated'))
+                     (cls.contains('leaflet-pane') && !cls.contains('leaflet-map-pane') && !cls.contains('leaflet-overlay-pane') && !cls.contains('leaflet-marker-pane'))
                  );
               }
           });
+          
           const base64 = canvas.toDataURL('image/jpeg', 0.8);
           tacticalService.saveMapSnapshot(id, base64);
-          addLog("SNAPSHOT E CONTADORES SALVOS PARA RELATÓRIO.", CheckCircle);
-          alert("Teatro operacional capturado! Dados atualizados no Boletim.");
-      } catch (e) { alert("Falha ao capturar mapa. Tente novamente."); } finally { setIsCapturing(false); }
+          addLog("SNAPSHOT SALVO PARA BOLETIM.", CheckCircle);
+          alert("Teatro operacional capturado!");
+      } catch (e) { 
+          console.error(e);
+          alert("Falha ao capturar mapa. Tente novamente."); 
+      } finally { setIsCapturing(false); }
   };
 
   const handleDrawCreated = (e: any) => {
-    const geojson = e.layer.toGeoJSON(); const type = e.layerType === 'marker' ? 'poi' : (e.layerType === 'polyline' ? 'line' : 'sector');
+    const geojson = e.layer.toGeoJSON(); 
+    const type = e.layerType === 'marker' ? 'poi' : (e.layerType === 'polyline' ? 'line' : 'sector');
     setNewItemType(type); setTempGeometry(geojson);
-    if (type !== 'poi') { setNewItemName(PHONETIC[sectors.length % PHONETIC.length]); setNewItemColor(TACTICAL_COLORS[sectors.length % TACTICAL_COLORS.length]); } else setNewItemName(""); 
+    if (type !== 'poi') { 
+        setNewItemName(PHONETIC[sectors.length % PHONETIC.length]); 
+        setNewItemColor(TACTICAL_COLORS[sectors.length % TACTICAL_COLORS.length]); 
+    } else setNewItemName(""); 
     setSidebarOpen(true); setActivePanel('create');
   };
 
   const saveNewItem = async () => {
       if (!tempGeometry || !id || !newItemName) { alert("Identificação obrigatória."); return; }
       try {
-          if (newItemType === 'poi') { const [lng, lat] = tempGeometry.geometry.coordinates; await tacticalService.createPOI({ operation_id: id, name: newItemName, type: newItemSubType as any, lat, lng }); }
-          else { await tacticalService.createSector({ operation_id: id, name: newItemName, type: newItemType === 'line' ? 'route' : 'sector', color: newItemColor, geojson: tempGeometry.geometry, responsible: "N/A" }); }
+          if (newItemType === 'poi') { 
+            const [lng, lat] = tempGeometry.geometry.coordinates; 
+            await tacticalService.createPOI({ operation_id: id, name: newItemName, type: newItemSubType as any, lat, lng }); 
+          }
+          else { 
+            await tacticalService.createSector({ operation_id: id, name: newItemName, type: newItemType === 'line' ? 'route' : 'sector', color: newItemColor, geojson: tempGeometry.geometry, responsible: "N/A" }); 
+          }
           setActivePanel(null); setTempGeometry(null); await loadTacticalData(id); syncTacticalSummary();
       } catch (e) { alert("Falha ao persistir."); }
   };
@@ -254,11 +297,9 @@ export default function TacticalOperationCenter() {
       await loadTacticalData(id); syncTacticalSummary();
   };
 
-  // Helper to update Main Operation Position (dragging the main drone)
   const handleMainDroneDragEnd = async (e: any) => {
       const pos = e.target.getLatLng();
       setPcPosition([pos.lat, pos.lng]);
-      // Optionally update the operation coordinates in DB if needed:
       if (operation) {
           try {
               await base44.entities.Operation.update(operation.id, { latitude: pos.lat, longitude: pos.lng });
@@ -270,7 +311,20 @@ export default function TacticalOperationCenter() {
 
   return (
     <div className="flex flex-col h-screen bg-slate-900 overflow-hidden text-slate-800 font-sans">
-      <div className="h-14 bg-[#7f1d1d] border-b border-red-900/40 flex items-center justify-between px-4 shadow-2xl z-[1000] shrink-0"><div className="flex items-center gap-3"><Button variant="outline" onClick={() => navigate('/operations')} className="h-9 w-9 p-0 border-white/20 bg-white/10 text-white rounded-full"><ArrowLeft className="w-4 h-4" /></Button><div className="min-w-0"><h1 className="text-sm font-black text-white flex items-center gap-2 uppercase tracking-tighter leading-none"><Crosshair className="w-4 h-4 text-red-400" /> CCO TÁTICO</h1><p className="text-[9px] text-red-100 font-bold uppercase opacity-60 mt-1 truncate max-w-[200px]">{operation.name}</p></div></div><div className="flex items-center gap-3"><Button onClick={handleCaptureSnapshot} disabled={isCapturing} className={`h-9 px-4 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2 border shadow-lg ${isCapturing ? 'bg-slate-700 text-slate-400' : 'bg-blue-600 text-white border-blue-400 hover:bg-blue-700'}`}>{isCapturing ? <Loader2 className="w-4 h-4 animate-spin"/> : <Camera className="w-4 h-4" />} {isCapturing ? 'CAPTURANDO...' : 'CAPTURAR SNAPSHOT'}</Button>{operation.stream_url && (<button onClick={() => setShowFloatingVideo(!showFloatingVideo)} className={`h-9 px-4 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2 border shadow-lg ${showFloatingVideo ? 'bg-orange-50 text-white border-orange-400' : 'bg-orange-600/20 text-orange-400 border-orange-500/40 animate-pulse'}`}><Video className="w-4 h-4" /> {showFloatingVideo ? 'OCULTAR VÍDEO' : 'VÍDEO DISPONÍVEL'}</button>)}<button onClick={() => setSidebarOpen(!sidebarOpen)} className={`h-9 px-5 rounded-lg text-[10px] font-black uppercase flex items-center gap-2 transition-all shadow-xl border border-white/10 ${sidebarOpen ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-white text-red-700'}`}>{sidebarOpen ? <><X className="w-4 h-4 text-white"/> FECHAR PAINEL</> : <><Maximize className="w-4 h-4"/> ABRIR PAINEL</>}</button></div></div>
+      <div className="h-14 bg-[#7f1d1d] border-b border-red-900/40 flex items-center justify-between px-4 shadow-2xl z-[1000] shrink-0">
+        <div className="flex items-center gap-3">
+          <Button variant="outline" onClick={() => navigate('/operations')} className="h-9 w-9 p-0 border-white/20 bg-white/10 text-white rounded-full"><ArrowLeft className="w-4 h-4" /></Button>
+          <div className="min-w-0">
+            <h1 className="text-sm font-black text-white flex items-center gap-2 uppercase tracking-tighter leading-none"><Crosshair className="w-4 h-4 text-red-400" /> CCO TÁTICO</h1>
+            <p className="text-[9px] text-red-100 font-bold uppercase opacity-60 mt-1 truncate max-w-[200px]">{operation.name}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button onClick={handleCaptureSnapshot} disabled={isCapturing} className={`h-9 px-4 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2 border shadow-lg ${isCapturing ? 'bg-slate-700 text-slate-400' : 'bg-blue-600 text-white border-blue-400 hover:bg-blue-700'}`}>{isCapturing ? <Loader2 className="w-4 h-4 animate-spin"/> : <Camera className="w-4 h-4" />} {isCapturing ? 'CAPTURANDO...' : 'CAPTURAR SNAPSHOT'}</Button>
+          {operation.stream_url && (<button onClick={() => setShowFloatingVideo(!showFloatingVideo)} className={`h-9 px-4 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2 border shadow-lg ${showFloatingVideo ? 'bg-orange-50 text-white border-orange-400' : 'bg-orange-600/20 text-orange-400 border-orange-500/40 animate-pulse'}`}><Video className="w-4 h-4" /> {showFloatingVideo ? 'OCULTAR VÍDEO' : 'VÍDEO DISPONÍVEL'}</button>)}
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className={`h-9 px-5 rounded-lg text-[10px] font-black uppercase flex items-center gap-2 transition-all shadow-xl border border-white/10 ${sidebarOpen ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-white text-red-700'}`}>{sidebarOpen ? <><X className="w-4 h-4 text-white"/> FECHAR PAINEL</> : <><Maximize className="w-4 h-4"/> ABRIR PAINEL</>}</button>
+        </div>
+      </div>
       <div className="flex-1 flex overflow-hidden relative">
           <div className={`${sidebarOpen ? 'w-80' : 'w-0'} bg-white border-r border-slate-200 flex flex-col shadow-2xl z-[500] transition-all duration-300 overflow-hidden shrink-0`}>
               <div className="flex bg-slate-100 p-1.5 m-3 rounded-xl shrink-0"><button onClick={() => { setActiveTab('plan'); setActivePanel(null); }} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${activeTab === 'plan' ? 'bg-white text-red-700 shadow-sm' : 'text-slate-500'}`}>Teatro</button><button onClick={() => { setActiveTab('timeline'); setActivePanel(null); }} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${activeTab === 'timeline' ? 'bg-white text-red-700 shadow-sm' : 'text-slate-500'}`}>Logs</button><button onClick={() => { setActiveTab('weather'); setActivePanel(null); }} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${activeTab === 'weather' ? 'bg-white text-red-700 shadow-sm' : 'text-slate-500'}`}>MET</button></div>
@@ -278,9 +332,8 @@ export default function TacticalOperationCenter() {
                   {activeTab === 'plan' && !activePanel && (<div className="space-y-5 animate-fade-in"><div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-4 shadow-sm"><h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b pb-2"><LayoutDashboard className="w-3.5 h-3.5"/> Resumo de Cena</h3><div className="grid grid-cols-2 gap-3"><div className="bg-white p-3 rounded-xl border border-slate-100 shadow-inner"><p className="text-[8px] font-black text-slate-400 uppercase">Área Total</p><p className="text-sm font-black text-blue-600">{formatArea(operationalSummary.totalAreaM2)}</p></div><div className="bg-white p-3 rounded-xl border border-slate-100 shadow-inner"><p className="text-[8px] font-black text-slate-400 uppercase">Drones no Ar</p><p className="text-sm font-black text-red-600">{operationalSummary.resources.drones} Unid.</p></div></div><div className="bg-white p-3 rounded-xl border border-slate-100 shadow-inner flex justify-between gap-2"><div className="flex flex-col items-center flex-1"><Users className="w-4 h-4 text-blue-600 mb-1" /><span className="text-xs font-black text-slate-700">{operationalSummary.resources.teams}</span></div><div className="w-px bg-slate-100"></div><div className="flex flex-col items-center flex-1"><Dog className="w-4 h-4 text-amber-600 mb-1" /><span className="text-xs font-black text-slate-700">{operationalSummary.resources.k9}</span></div><div className="w-px bg-slate-100"></div><div className="flex flex-col items-center flex-1"><Truck className="w-4 h-4 text-red-600 mb-1" /><span className="text-xs font-black text-slate-700">{operationalSummary.resources.vehicles}</span></div></div></div>
                           <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3 shadow-2xl"><h3 className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-2"><Plus className="w-3.5 h-3.5"/> Ativar Vetor RPA</h3><div className="space-y-2"><Select className="h-9 text-[11px] bg-slate-800 border-slate-700 text-white" id="drone-select"><option value="">Aeronave...</option>{availableDrones.filter(d => d.status === 'available').map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}</Select><Select className="h-9 text-[11px] bg-slate-800 border-slate-700 text-white" id="pilot-select"><option value="">Comandante...</option>{availablePilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}</Select><Button className="w-full h-10 bg-red-600 hover:bg-red-700 text-white font-black uppercase text-[10px] tracking-widest shadow-lg" onClick={() => handleAssignDrone((document.getElementById('drone-select') as HTMLSelectElement).value, (document.getElementById('pilot-select') as HTMLSelectElement).value)}>Lançar no Mapa</Button></div></div>
                           <div className="space-y-3"><h3 className="text-[10px] font-black text-slate-400 uppercase border-b pb-1">Unidades Ativas</h3>
-                            {/* Main Drone Listing */}
                             {mainResources.drone && (
-                                <div onClick={() => { mapRef.current?.querySelector('.leaflet-container')?.scrollIntoView(); }} className="flex items-center justify-between p-3 bg-red-50 border border-red-200 rounded-2xl cursor-pointer hover:border-red-400 transition-all shadow-sm">
+                                <div onClick={() => { leafletMapRef.current?.flyTo(pcPosition!, 18); }} className="flex items-center justify-between p-3 bg-red-50 border border-red-200 rounded-2xl cursor-pointer hover:border-red-400 transition-all shadow-sm">
                                     <div className="flex items-center gap-3">
                                         <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-red-600 text-white shadow-md"><Zap className="w-5 h-5" /></div>
                                         <div><div className="font-black text-xs text-red-900 uppercase leading-none">{mainResources.drone.prefix} (PRINCIPAL)</div><div className="text-[9px] text-red-700 font-bold uppercase mt-1.5">{mainResources.pilot?.full_name?.split(' ')[0]}</div></div>
@@ -288,7 +341,6 @@ export default function TacticalOperationCenter() {
                                     <div className="text-right"><div className="text-[11px] font-black text-red-800">{operation.flight_altitude || 60}m</div></div>
                                 </div>
                             )}
-                            {/* Additional Drones */}
                             {tacticalDrones.map(td => (<div key={td.id} onClick={() => { setSelectedEntity({...td}); setEntityType('drone'); setActivePanel('manage'); }} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-2xl hover:border-red-500 cursor-pointer transition-all shadow-sm group"><div className="flex items-center gap-3"><div className={`w-11 h-11 rounded-xl flex items-center justify-center border transition-colors ${td.status === 'active' ? 'bg-green-50 border-green-100 group-hover:bg-green-500 group-hover:text-white' : 'bg-orange-50 border-orange-100'}`}><Zap className="w-5 h-5" /></div><div><div className="font-black text-xs text-slate-800 uppercase leading-none">{td.drone?.prefix}</div><div className="text-[9px] text-slate-400 font-bold uppercase mt-1.5">{td.pilot?.full_name?.split(' ')[0]}</div></div></div><div className="text-right"><div className="text-[11px] font-black text-slate-700">{td.flight_altitude || 60}m</div>{td.stream_url && <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse ml-auto mt-1" title="Live Ativa"></div>}</div></div>))}</div></div>)}
                   {activeTab === 'timeline' && (<div className="p-2 space-y-4 animate-fade-in bg-white">{timeline.map(e => (<div key={e.id} className="flex gap-3 bg-white p-3 rounded-xl border border-slate-100 items-start shadow-sm"><div className="p-2 bg-slate-50 rounded-lg shadow-sm"><e.icon className="w-4 h-4 text-red-500" /></div><div className="min-w-0"><p className="font-bold text-[11px] text-slate-800 leading-tight">{e.text}</p><p className="text-[9px] text-slate-400 font-black mt-1.5 uppercase">{e.time}</p></div></div>))}</div>)}
                   {(activePanel === 'create' || activePanel === 'manage') && (<div className="absolute inset-0 bg-white z-[600] animate-fade-in flex flex-col p-5 space-y-5 border-l-4 border-red-600"><div className="flex justify-between items-center border-b pb-3"><h2 className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">{activePanel === 'create' ? <><Plus className="w-4 h-4 text-blue-600"/> Identificar Elemento</> : <><Settings className="w-4 h-4 text-slate-600"/> Gerenciar Ativo</>}</h2><button onClick={() => { setActivePanel(null); setTempGeometry(null); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X className="w-5 h-5 text-slate-400"/></button></div><div className="space-y-5 overflow-y-auto pr-1">
@@ -300,7 +352,6 @@ export default function TacticalOperationCenter() {
           <div className="flex-1 relative z-0 bg-slate-100" ref={mapRef}>
               <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[2000] flex pointer-events-none"><div className="bg-white/95 backdrop-blur-2xl border border-slate-200 rounded-2xl shadow-2xl flex items-center p-2 gap-1 pointer-events-auto ring-4 ring-black/5"><div className="px-5 border-r border-slate-200 flex items-center gap-3"><MousePointer2 className="w-5 h-5 text-sysarp-primary" /><span className="text-[11px] font-black text-slate-900 uppercase tracking-tighter">CCO Tático</span></div><div className="flex items-center gap-1"><button onClick={() => setCurrentDrawMode('sector')} className="p-3 hover:bg-blue-600 hover:text-white rounded-xl text-blue-600 transition-all group relative"><Hexagon className="w-6 h-6"/><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase">ÁREA</span></button><button onClick={() => setCurrentDrawMode('route')} className="p-3 hover:bg-orange-600 hover:text-white rounded-xl text-orange-600 transition-all group relative"><Navigation className="w-6 h-6"/><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase">ROTA</span></button><button onClick={() => setCurrentDrawMode('poi')} className="p-3 hover:bg-red-600 hover:text-white rounded-xl text-red-600 transition-all group relative"><Flag className="w-6 h-6"/><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase">PONTO</span></button></div></div></div>
               
-              {/* Map Type Toggle */}
               <div className="absolute top-5 right-5 z-[2000] pointer-events-auto">
                   <button 
                       onClick={() => setMapType(prev => prev === 'street' ? 'satellite' : 'street')}
@@ -311,8 +362,17 @@ export default function TacticalOperationCenter() {
                   </button>
               </div>
 
-              <MapContainer center={[operation.latitude, operation.longitude]} zoom={17} style={{ height: '100%', width: '100%', background: '#0f172a' }} preferCanvas={true} whenReady={(mapInstance: any) => { leafletMapRef.current = mapInstance.target; }}><MapController center={[operation.latitude, operation.longitude]} isCreating={!!tempGeometry} /><MapDrawingBridge drawMode={currentDrawMode} setDrawMode={setCurrentDrawMode} /><TileLayer url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} /><SectorsLayer onCreated={handleDrawCreated} />
-                  {/* MAIN DRONE MARKER (REPLACES OLD BASE MARKER) */}
+              <MapContainer 
+                center={[operation.latitude, operation.longitude]} 
+                zoom={17} 
+                style={{ height: '100%', width: '100%', background: '#0f172a' }} 
+                preferCanvas={true} 
+                whenReady={(mapInstance: any) => { leafletMapRef.current = mapInstance.target; }}
+              >
+                  <MapController center={[operation.latitude, operation.longitude]} isCreating={!!tempGeometry} />
+                  <MapDrawingBridge drawMode={currentDrawMode} setDrawMode={setCurrentDrawMode} />
+                  <TileLayer url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} />
+                  <SectorsLayer onCreated={handleDrawCreated} />
                   {visibleLayers.base && pcPosition && (
                       <Marker 
                           position={pcPosition} 
