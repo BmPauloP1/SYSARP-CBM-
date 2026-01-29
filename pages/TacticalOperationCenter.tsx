@@ -14,7 +14,7 @@ import {
   MapPin, Settings, X, Save, Eye, EyeOff, Move, Navigation,
   ShieldAlert, Target, Video, ListFilter, History, Zap, 
   Map as MapIcon, Globe, ChevronRight, ChevronLeft, Maximize, Minimize, MousePointer2,
-  Users, Truck, Dog, UserCheck, Ruler, LayoutDashboard, Camera, CheckCircle, Loader2, Layers
+  Users, Truck, Dog, UserCheck, Ruler, LayoutDashboard, Camera, CheckCircle, Loader2, Layers, Satellite
 } from 'lucide-react';
 import SectorsLayer from '../components/maps/tactical/SectorsLayer';
 
@@ -100,17 +100,39 @@ const MapDrawingBridge = ({ drawMode, setDrawMode }: { drawMode: string | null, 
     const map = useMap();
     useEffect(() => {
         if (!map || !map.pm) return;
-        if (!drawMode) { map.pm.disableDraw(); return; }
-        const options = { snappable: true, cursorMarker: true };
-        switch(drawMode) {
-            case 'sector': map.pm.enableDraw('Polygon', options); break;
-            case 'route': map.pm.enableDraw('Polyline', options); break;
-            case 'poi': map.pm.enableDraw('Marker', options); break;
+        
+        // Se houver um modo de desenho ativo, ativa a ferramenta
+        if (drawMode) { 
+            const options = { snappable: true, cursorMarker: true, hintlineStyle: { color: '#3388ff', dashArray: [5, 5] } };
+            
+            // CORREÇÃO: 'Polyline' não é suportado pelo Geoman em enableDraw diretamente, deve ser 'Line'
+            switch(drawMode) {
+                case 'sector': map.pm.enableDraw('Polygon', options); break;
+                case 'route': map.pm.enableDraw('Line', options); break; 
+                case 'poi': map.pm.enableDraw('Marker', options); break;
+            }
+        } else {
+            // Se não houver modo, desativa tudo
+            map.pm.disableDraw(); 
         }
-        const handleStart = () => setDrawMode(null);
+
+        const handleStart = () => {
+            // Mantém o estado visual ativo, mas o controle é via drawMode prop
+        };
+        
+        // Listener para quando o desenho termina (criação) é tratado no pai via onCreated
+        // Aqui só cuidamos de limpar o modo se o usuário cancelar via UI do Leaflet (Esc)
+        const handleGlobalDrag = () => {
+             // Opcional
+        };
+
         map.on('pm:drawstart', handleStart);
-        return () => { if (map.pm) map.pm.disableDraw(); map.off('pm:drawstart', handleStart); };
-    }, [drawMode, map, setDrawMode]);
+        
+        return () => { 
+            if (map.pm) map.pm.disableDraw(); 
+            map.off('pm:drawstart', handleStart); 
+        };
+    }, [drawMode, map]); // Removed setDrawMode dependency to avoid loop, managed by parent
     return null;
 };
 
@@ -154,7 +176,6 @@ export default function TacticalOperationCenter() {
   const [newItemSubType, setNewItemSubType] = useState('victim'); 
   const [tempGeometry, setTempGeometry] = useState<any>(null); 
   
-  // State to hold the main resources (Principal Pilot/Drone)
   const [mainResources, setMainResources] = useState<{ pilot?: Pilot, drone?: Drone }>({});
 
   useEffect(() => { if (id) loadTacticalData(id); }, [id]);
@@ -171,10 +192,8 @@ export default function TacticalOperationCenter() {
       ]);
       if (!op) { navigate('/operations'); return; }
       
-      // Enrich additional tactical drones
       const enriched = tDrones.map(td => ({ ...td, drone: allDrones.find(d => d.id === td.drone_id), pilot: allPilots.find(p => p.id === td.pilot_id) }));
       
-      // Load main resources for the operation (Pilot and Drone)
       const mainPilot = allPilots.find(p => p.id === op.pilot_id);
       const mainDrone = allDrones.find(d => d.id === op.drone_id);
       setMainResources({ pilot: mainPilot, drone: mainDrone });
@@ -233,17 +252,15 @@ export default function TacticalOperationCenter() {
           }
           
           const canvas = await html2canvas(mapEl, {
-              useCORS: true, 
-              allowTaint: true, 
+              useCORS: true, // Importante para tiles de mapas externos
+              allowTaint: false, // Evita taint do canvas
               logging: false, 
               scale: 2, 
-              backgroundColor: '#0f172a',
+              backgroundColor: null, // CORREÇÃO: Transparente para não ficar azul se não carregar tile
               ignoreElements: (element) => {
                  const cls = element.classList;
                  return (
-                     cls.contains('leaflet-control-container') || 
-                     cls.contains('leaflet-shadow-pane') ||
-                     cls.contains('leaflet-marker-shadow') ||
+                     cls.contains('leaflet-control-container') || // Esconde controles de zoom
                      (cls.contains('leaflet-pane') && !cls.contains('leaflet-map-pane') && !cls.contains('leaflet-overlay-pane') && !cls.contains('leaflet-marker-pane'))
                  );
               }
@@ -260,14 +277,33 @@ export default function TacticalOperationCenter() {
   };
 
   const handleDrawCreated = (e: any) => {
+    // Leaflet-Geoman (PM) events
     const geojson = e.layer.toGeoJSON(); 
-    const type = e.layerType === 'marker' ? 'poi' : (e.layerType === 'polyline' ? 'line' : 'sector');
-    setNewItemType(type); setTempGeometry(geojson);
+    
+    // Mapeamento correto de tipos do Geoman
+    let type: 'poi' | 'line' | 'sector' = 'sector';
+    
+    if (e.layerType === 'marker' || e.shape === 'Marker') {
+        type = 'poi';
+    } else if (e.layerType === 'line' || e.shape === 'Line' || e.shape === 'Polyline') {
+        type = 'line';
+    } else {
+        type = 'sector';
+    }
+
+    setNewItemType(type); 
+    setTempGeometry(geojson);
+    
+    // Reseta o modo de desenho
+    setCurrentDrawMode(null);
+
     if (type !== 'poi') { 
         setNewItemName(PHONETIC[sectors.length % PHONETIC.length]); 
         setNewItemColor(TACTICAL_COLORS[sectors.length % TACTICAL_COLORS.length]); 
     } else setNewItemName(""); 
-    setSidebarOpen(true); setActivePanel('create');
+    
+    setSidebarOpen(true); 
+    setActivePanel('create');
   };
 
   const saveNewItem = async () => {
@@ -350,15 +386,65 @@ export default function TacticalOperationCenter() {
               </div>
           </div>
           <div className="flex-1 relative z-0 bg-slate-100" ref={mapRef}>
-              <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[2000] flex pointer-events-none"><div className="bg-white/95 backdrop-blur-2xl border border-slate-200 rounded-2xl shadow-2xl flex items-center p-2 gap-1 pointer-events-auto ring-4 ring-black/5"><div className="px-5 border-r border-slate-200 flex items-center gap-3"><MousePointer2 className="w-5 h-5 text-sysarp-primary" /><span className="text-[11px] font-black text-slate-900 uppercase tracking-tighter">CCO Tático</span></div><div className="flex items-center gap-1"><button onClick={() => setCurrentDrawMode('sector')} className="p-3 hover:bg-blue-600 hover:text-white rounded-xl text-blue-600 transition-all group relative"><Hexagon className="w-6 h-6"/><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase">ÁREA</span></button><button onClick={() => setCurrentDrawMode('route')} className="p-3 hover:bg-orange-600 hover:text-white rounded-xl text-orange-600 transition-all group relative"><Navigation className="w-6 h-6"/><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase">ROTA</span></button><button onClick={() => setCurrentDrawMode('poi')} className="p-3 hover:bg-red-600 hover:text-white rounded-xl text-red-600 transition-all group relative"><Flag className="w-6 h-6"/><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase">PONTO</span></button></div></div></div>
               
-              <div className="absolute top-5 right-5 z-[2000] pointer-events-auto">
+              {/* HEADER TÁTICO FLUTUANTE */}
+              <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[2000] flex pointer-events-none">
+                  <div className="bg-white/95 backdrop-blur-2xl border border-slate-200 rounded-2xl shadow-2xl flex items-center p-2 gap-1 pointer-events-auto ring-4 ring-black/5">
+                      <div className="px-5 border-r border-slate-200 flex items-center gap-3">
+                          <MousePointer2 className="w-5 h-5 text-sysarp-primary" />
+                          <span className="text-[11px] font-black text-slate-900 uppercase tracking-tighter">CCO Tático</span>
+                      </div>
+                      
+                      {/* FERRAMENTAS DE DESENHO */}
+                      <div className="flex items-center gap-1">
+                          <button 
+                              onClick={() => setCurrentDrawMode(currentDrawMode === 'sector' ? null : 'sector')} 
+                              className={`p-3 rounded-xl transition-all group relative ${currentDrawMode === 'sector' ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-300' : 'hover:bg-blue-50 text-blue-600'}`}
+                          >
+                              <Hexagon className="w-6 h-6"/>
+                              <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase whitespace-nowrap">Área</span>
+                          </button>
+                          
+                          <button 
+                              onClick={() => setCurrentDrawMode(currentDrawMode === 'route' ? null : 'route')} 
+                              className={`p-3 rounded-xl transition-all group relative ${currentDrawMode === 'route' ? 'bg-orange-600 text-white shadow-lg ring-2 ring-orange-300' : 'hover:bg-orange-50 text-orange-600'}`}
+                          >
+                              <Navigation className="w-6 h-6"/>
+                              <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase whitespace-nowrap">Rota</span>
+                          </button>
+                          
+                          <button 
+                              onClick={() => setCurrentDrawMode(currentDrawMode === 'poi' ? null : 'poi')} 
+                              className={`p-3 rounded-xl transition-all group relative ${currentDrawMode === 'poi' ? 'bg-red-600 text-white shadow-lg ring-2 ring-red-300' : 'hover:bg-red-50 text-red-600'}`}
+                          >
+                              <Flag className="w-6 h-6"/>
+                              <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase whitespace-nowrap">Ponto</span>
+                          </button>
+
+                          {/* BOTÃO CANCELAR DESENHO */}
+                          {currentDrawMode && (
+                              <button 
+                                  onClick={() => setCurrentDrawMode(null)} 
+                                  className="p-3 bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-600 rounded-xl transition-all border border-slate-200 ml-2 animate-fade-in"
+                                  title="Cancelar Desenho"
+                              >
+                                  <X className="w-6 h-6"/>
+                              </button>
+                          )}
+                      </div>
+                  </div>
+              </div>
+              
+              {/* BOTÃO DE CAMADAS (MAP LAYERS) - POSICIONADO À DIREITA, CENTRALIZADO VERTICALMENTE */}
+              <div className="absolute top-1/2 right-4 transform -translate-y-1/2 z-[2000] pointer-events-auto flex flex-col gap-2">
                   <button 
                       onClick={() => setMapType(prev => prev === 'street' ? 'satellite' : 'street')}
-                      className="bg-white hover:bg-slate-50 text-slate-700 p-3 rounded-xl shadow-xl border border-slate-200 transition-all"
-                      title="Alternar Satélite/Rua"
+                      className="bg-white hover:bg-slate-50 text-slate-700 w-12 h-12 flex items-center justify-center rounded-2xl shadow-xl border border-slate-200 transition-all hover:scale-105 active:scale-95 group relative"
                   >
-                      <Layers className="w-6 h-6" />
+                      {mapType === 'street' ? <Layers className="w-6 h-6" /> : <Satellite className="w-6 h-6" />}
+                      <span className="absolute right-14 bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg">
+                          {mapType === 'street' ? 'Mudar para Satélite' : 'Mudar para Mapa'}
+                      </span>
                   </button>
               </div>
 
