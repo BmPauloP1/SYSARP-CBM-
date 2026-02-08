@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, CircleMarker, Polygon, Polyline, useMapEvents } from "react-leaflet";
 import L from "leaflet";
@@ -13,7 +14,7 @@ import {
   Shield, MapPin, LocateFixed, Users, 
   CheckSquare, Phone, Building2, Share2, 
   Pause, Play, Pencil, Ban, CheckCircle, 
-  Crosshair, Loader2, Save, FileText, Navigation, AlertTriangle, Map as MapIcon, Info, Youtube, Link as LinkIcon, Sun, Calendar, Zap, Hexagon, MousePointer2, Anchor, Target, Trash2, RotateCcw, Flag
+  Crosshair, Loader2, Save, FileText, Navigation, AlertTriangle, Map as MapIcon, Info, Youtube, Link as LinkIcon, Sun, Calendar, Zap, Hexagon, MousePointer2, Anchor, Target, Trash2, RotateCcw, Flag, Copy, CheckCheck
 } from "lucide-react";
 import { useNavigate } from "react-router-dom"; 
 
@@ -54,7 +55,7 @@ const LocationSelectorMap = ({ mode, center, radius, onPositionChange, onElement
             hintlineStyle: { color: '#3b82f6', dashArray: [5, 5] },
             tooltips: true,
             cursorMarker: true,
-            finishOn: 'dblclick',
+            finishOn: 'dblclick' as 'dblclick',
         };
         if (mode === 'polygon') {
             map.pm.enableDraw('Polygon', { ...drawOptions, pathOptions: { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.2 } });
@@ -79,6 +80,10 @@ const LocationSelectorMap = ({ mode, center, radius, onPositionChange, onElement
     useMapEvents({
         click(e) { if (mode === 'pc') onPositionChange(e.latlng.lat, e.latlng.lng); }
     });
+
+    useEffect(() => {
+        map.flyTo(center, map.getZoom());
+    }, [center, map]);
 
     return (
         <>
@@ -144,15 +149,7 @@ export default function OperationManagement() {
   const [plannedElements, setPlannedElements] = useState<{sectors: Partial<TacticalSector>[], pois: Partial<TacticalPOI>[]}>({ sectors: [], pois: [] });
   const [summerCity, setSummerCity] = useState("");
   const [summerPgv, setSummerPgv] = useState("");
-
-  const [formData, setFormData] = useState({ 
-    id: '', name: '', occurrence_number: '', mission_type: 'diverse' as any, sub_mission_type: '', pilot_id: '', observer_name: '', drone_id: '', 
-    latitude: -25.42, longitude: -49.27, radius: 200, flight_altitude: 60, description: '', stream_url: '', sarpas_protocol: '',
-    is_summer_op: false, is_multi_day: false, op_crbm: '', op_unit: '',
-    start_date: new Date().toISOString().split('T')[0],
-    start_time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
-    estimated_end_time: '', takeoff_points: [] as {lat: number, lng: number, alt: number}[], shapes: null as any
-  });
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => { loadData(); }, []);
 
@@ -179,6 +176,13 @@ export default function OperationManagement() {
     } catch(e) {}
   };
 
+  const handleCopyId = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   const handleShareOp = (op: Operation) => {
       const pilot = pilots.find(p => p.id === op.pilot_id);
       const drone = drones.find(d => d.id === op.drone_id);
@@ -188,9 +192,22 @@ export default function OperationManagement() {
       window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
+  const handleLocatePC = () => {
+      if (!navigator.geolocation) { alert("Geolocalização não suportada."); return; }
+      navigator.geolocation.getCurrentPosition((pos) => {
+          setFormData(prev => ({ ...prev, latitude: pos.coords.latitude, longitude: pos.coords.longitude }));
+      }, (err) => { alert("Falha ao obter localização."); });
+  };
+
   const handleOpenNewMission = () => {
       setFormData({ id: '', name: '', occurrence_number: '', mission_type: 'diverse', sub_mission_type: '', pilot_id: '', observer_name: '', drone_id: '', latitude: -25.4284, longitude: -49.2733, radius: 200, flight_altitude: 60, description: '', stream_url: '', sarpas_protocol: '', is_summer_op: false, is_multi_day: false, op_crbm: '', op_unit: '', start_date: new Date().toISOString().split('T')[0], start_time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}), estimated_end_time: '', takeoff_points: [], shapes: null });
       setModalMapMode('pc'); setPlannedElements({ sectors: [], pois: [] }); setSummerCity(""); setSummerPgv(""); setIsMissionModalOpen(true);
+      // Auto-locate on open
+      if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition((pos) => {
+              setFormData(prev => ({ ...prev, latitude: pos.coords.latitude, longitude: pos.coords.longitude }));
+          });
+      }
   };
 
   const handleEditMission = async (op: Operation) => {
@@ -355,6 +372,15 @@ export default function OperationManagement() {
       finally { setLoading(false); }
   };
 
+  const [formData, setFormData] = useState({ 
+    id: '', name: '', occurrence_number: '', mission_type: 'diverse' as any, sub_mission_type: '', pilot_id: '', observer_name: '', drone_id: '', 
+    latitude: -25.42, longitude: -49.27, radius: 200, flight_altitude: 60, description: '', stream_url: '', sarpas_protocol: '',
+    is_summer_op: false, is_multi_day: false, op_crbm: '', op_unit: '',
+    start_date: new Date().toISOString().split('T')[0],
+    start_time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
+    estimated_end_time: '', takeoff_points: [] as {lat: number, lng: number, alt: number}[], shapes: null as any
+  });
+
   const groupedPilots = useMemo(() => {
     const groups: Record<string, { coords: [number, number], pilots: Pilot[], label: string }> = {};
     pilots.filter(p => p.status === 'active').forEach(p => {
@@ -401,10 +427,17 @@ export default function OperationManagement() {
                       <Marker key={op.id} position={[op.latitude, op.longitude]} icon={L.divIcon({ className: 'op-marker', html: `<div style="background-color: ${MISSION_COLORS[op.mission_type]}; width: 18px; height: 18px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 15px rgba(0,0,0,0.5);"></div>`, iconSize: [18, 18] })}>
                         <Popup className="tactical-popup">
                             <div className="min-w-[340px] font-sans">
-                                <div className="p-4 bg-white border-b border-slate-100"><h4 className="font-black text-slate-900 text-lg uppercase leading-none">{op.name}</h4><p className="text-[10px] font-mono text-slate-400 mt-2 uppercase tracking-tighter">#{op.occurrence_number}</p></div>
+                                <div className="p-4 bg-white border-b border-slate-100"><h4 className="font-black text-slate-900 text-lg uppercase leading-none">{op.name}</h4><p className="text-[10px] font-mono text-slate-400 mt-2 uppercase tracking-tighter font-bold">#{op.occurrence_number}</p></div>
                                 <div className="p-4 space-y-4"><div className="inline-block bg-red-50 text-red-700 px-3 py-1.5 rounded-full text-[10px] font-black uppercase border border-red-100">{MISSION_HIERARCHY[op.mission_type]?.label}</div>
                                     <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3"><div className="flex items-center gap-3 text-sm font-bold text-slate-700 truncate"><User className="w-4 h-4 text-slate-400" /> Piloto: <span className="font-medium text-slate-600">{pilot?.full_name}</span></div><div className="flex items-center gap-3 text-sm font-bold text-slate-700 truncate"><Plane className="w-4 h-4 text-slate-400" /> RPA: <span className="font-medium text-slate-600">{drone?.prefix} - {drone?.model}</span></div><div className="flex items-start gap-3 text-sm font-bold text-slate-700"><Building2 className="w-4 h-4 text-slate-400 mt-0.5" /><div className="flex flex-col"><div className="text-sm font-bold text-slate-700 uppercase">Área / Unidade</div><div className="text-xs text-slate-500">{op.op_unit || pilot?.unit || 'N/A'}</div><div className="text-[10px] text-slate-400 font-bold uppercase">{op.op_crbm || pilot?.crbm}</div></div></div></div>
                                     <div className="flex items-center justify-between text-[11px] text-slate-400 font-black uppercase pt-3 border-t border-slate-100"><span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> {new Date(op.start_time).toLocaleTimeString()}</span><span className="flex items-center gap-1.5 text-blue-600"><Navigation className="w-3.5 h-3.5" /> RAIO: {op.radius}M</span></div>
+                                    <div className="pt-3 border-t border-slate-100 flex gap-2">
+                                        <Button size="sm" variant="outline" className="flex-1 h-9 border-blue-200 text-blue-600 font-black text-[10px] uppercase" onClick={(e) => handleCopyId(e, op.id)}>
+                                            {copiedId === op.id ? <CheckCheck className="w-3.5 h-3.5 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                                            {copiedId === op.id ? 'COPIADO' : 'ID IA'}
+                                        </Button>
+                                        <Button size="sm" className="flex-[2] h-9 text-[10px] font-black uppercase bg-slate-900" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>ACESSAR CCO TÁTICO</Button>
+                                    </div>
                                 </div>
                             </div>
                         </Popup>
@@ -428,7 +461,9 @@ export default function OperationManagement() {
                       <Card key={op.id} className="bg-white border-l-[6px] border-l-red-600 shadow-xl p-6 flex flex-col gap-5 relative transition-all">
                           <div className="flex justify-between items-start"><div className="min-w-0 flex-1"><h4 className="font-black text-slate-900 text-lg uppercase leading-none truncate">{op.name}</h4><p className="text-[10px] font-mono text-slate-400 mt-2 uppercase tracking-tighter font-bold">#{op.occurrence_number}</p></div><div className="flex flex-col items-end gap-1.5">{isPaused ? (<Badge className="bg-amber-100 text-amber-700 border-none text-[9px] font-black uppercase px-3 py-1.5 rounded-lg shadow-sm">PAUSADA</Badge>) : (<Badge className="bg-green-100 text-green-700 border-none text-[9px] font-black uppercase px-3 py-1.5 rounded-lg shadow-sm">EM ANDAMENTO</Badge>)}</div></div>
                           <div className="space-y-3"><div className="flex items-center gap-3 text-slate-500 font-black text-[11px] uppercase tracking-tighter"><Clock className="w-4 h-4 text-slate-300" /><span>{new Date(op.start_time).toLocaleString()}</span></div><div className="flex items-center gap-3 text-slate-500 font-black text-[11px] uppercase tracking-tighter"><User className="w-4 h-4 text-slate-300" /><span className="truncate">PIC: {pilot?.full_name}</span></div></div>
-                          <div className="w-full h-px bg-slate-100 my-1" /><div className="flex gap-2.5"><button onClick={() => handleShareOp(op)} className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 hover:bg-blue-100 transition-colors shadow-sm"><Share2 className="w-5 h-5" /></button>
+                          <div className="w-full h-px bg-slate-100 my-1" /><div className="flex gap-2.5">
+                            <button onClick={(e) => handleCopyId(e, op.id)} className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 hover:bg-blue-100 transition-colors shadow-sm" title="Copiar ID para IA">{copiedId === op.id ? <CheckCheck className="w-5 h-5"/> : <Copy className="w-5 h-5" />}</button>
+                            <button onClick={() => handleShareOp(op)} className="w-12 h-12 rounded-xl bg-green-50 text-green-600 flex items-center justify-center border border-green-100 hover:bg-green-100 transition-colors shadow-sm"><Share2 className="w-5 h-5" /></button>
                           <button onClick={(e) => { e.stopPropagation(); isPaused ? handleResume(op) : setControlModal({type: 'pause', op}); }} className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-colors shadow-sm ${isPaused ? 'bg-green-50 text-green-600 border-green-100 hover:bg-green-100' : 'bg-orange-50 text-orange-600 border-orange-100 hover:bg-orange-100'}`}>{isPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}</button>
                           <button onClick={() => handleEditMission(op)} className="w-12 h-12 rounded-xl bg-slate-50 text-slate-600 flex items-center justify-center border border-slate-200 hover:bg-slate-100 transition-colors shadow-sm"><Pencil className="w-5 h-5" /></button><button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="h-12 flex-1 rounded-xl bg-slate-900 text-white flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest"><Crosshair className="w-5 h-5 text-red-500 animate-pulse" /> CCO TÁTICO</button></div>
                           <div className="grid grid-cols-2 gap-3 mt-1 pt-2 border-t border-slate-50"><button onClick={() => { setControlModal({type: 'cancel', op}); setReason(''); setCancelConfirmed(false); }} className="flex-1 h-12 rounded-xl border border-slate-200 text-slate-500 font-black text-[11px] uppercase flex items-center justify-center gap-2 hover:bg-slate-50 transition-all"><X className="w-4 h-4" /> Cancelar</button><button onClick={() => { setControlModal({type: 'end', op}); setFlightDurationStr("00:00"); setActionsTaken(''); }} className="flex-1 h-12 rounded-xl bg-red-600 text-white font-black text-[11px] uppercase flex items-center justify-center gap-2 shadow-xl shadow-red-200 hover:bg-red-700 transition-all"><CheckCircle className="w-4 h-4" /> Encerrar</button></div>
@@ -457,7 +492,14 @@ export default function OperationManagement() {
                       
                       {/* 4. SEÇÃO LOCALIZAÇÃO */}
                       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><MapPin className="w-3.5 h-3.5"/> 4. Localização e Mapa Tático</h4><div className="grid grid-cols-2 gap-4"><Input label="Latitude PC" type="number" step="any" value={formData.latitude} onChange={e => setFormData({...formData, latitude: Number(e.target.value)})} labelClassName="text-[11px] font-bold text-slate-600" /><Input label="Longitude PC" type="number" step="any" value={formData.longitude} onChange={e => setFormData({...formData, longitude: Number(e.target.value)})} labelClassName="text-[11px] font-bold text-slate-600" /><Input label="Raio de Voo (m)" type="number" value={formData.radius} onChange={e => setFormData({...formData, radius: Number(e.target.value)})} labelClassName="text-[11px] font-bold text-slate-600" /><Input label="Altitude Máx (m)" type="number" value={formData.flight_altitude} onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})} labelClassName="text-[11px] font-bold text-slate-600" /></div>
-                          <div className="h-[350px] w-full rounded-2xl border border-slate-200 overflow-hidden relative"><div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex bg-white rounded-lg shadow-lg p-1 gap-1 border border-slate-200"><button type="button" onClick={() => setModalMapMode('pc')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'pc' ? 'bg-red-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><MousePointer2 className="w-3 h-3" /> PC</button><button type="button" onClick={() => setModalMapMode('polygon')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'polygon' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><Hexagon className="w-3 h-3" /> Área</button><button type="button" onClick={() => setModalMapMode('line')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'line' ? 'bg-orange-50 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><Navigation className="w-3 h-3" /> Rota</button><button type="button" onClick={() => setModalMapMode('poi')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'poi' ? 'bg-green-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><Flag className="w-3 h-3" /> Ponto</button></div>
+                          <div className="h-[350px] w-full rounded-2xl border border-slate-200 overflow-hidden relative">
+                              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex bg-white rounded-lg shadow-lg p-1 gap-1 border border-slate-200">
+                                <button type="button" onClick={() => setModalMapMode('pc')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'pc' ? 'bg-red-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><MousePointer2 className="w-3 h-3" /> PC</button>
+                                <button type="button" onClick={handleLocatePC} className="px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 text-blue-600 hover:bg-blue-50 border-r" title="Localizar via GPS"><LocateFixed className="w-3 h-3" /></button>
+                                <button type="button" onClick={() => setModalMapMode('polygon')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'polygon' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><Hexagon className="w-3 h-3" /> Área</button>
+                                <button type="button" onClick={() => setModalMapMode('line')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'line' ? 'bg-orange-50 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><Navigation className="w-3 h-3" /> Rota</button>
+                                <button type="button" onClick={() => setModalMapMode('poi')} className={`px-3 py-1.5 rounded text-[10px] font-black uppercase flex items-center gap-2 ${modalMapMode === 'poi' ? 'bg-green-600 text-white' : 'text-slate-500 hover:bg-slate-100'}`}><Flag className="w-3 h-3" /> Ponto</button>
+                              </div>
                               <MapContainer center={[formData.latitude, formData.longitude]} zoom={14} style={{ height: '100%', width: '100%' }}><LocationSelectorMap mode={modalMapMode} center={[formData.latitude, formData.longitude]} radius={formData.radius} onPositionChange={(lat: number, lng: number) => setFormData({...formData, latitude: lat, longitude: lng})} onElementCreated={handleMapElementCreated}/>
                                   {plannedElements.sectors.map((s, i) => (s.type === 'route' ? <Polyline key={i} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 0) as any} pathOptions={{ color: s.color, weight: 4, dashArray: '5, 10' }} /> : <Polygon key={i} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 1) as any} pathOptions={{ color: s.color, fillOpacity: 0.2 }} />))}
                                   {plannedElements.pois.map((p, i) => (<Marker key={i} position={[p.lat!, p.lng!]} icon={L.divIcon({className: 'custom-poi-marker', html: `<div style="background-color: blue; width: 10px; height: 10px; border-radius: 50%;"></div>`})} />))}
