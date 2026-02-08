@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -118,18 +117,26 @@ export default function Reports() {
     filteredOps.forEach(op => {
       if (op.op_crbm) {
         const shortLabel = op.op_crbm.split(' - ')[0];
-        regionalMap[shortLabel] = (regionalMap[shortLabel] || 0) + 1;
+        regionalMap[shortLabel] = (regionalMap[shortLabel] || 0) + (op.flight_hours || 0);
       }
     });
     const pilotMap: Record<string, number> = {};
     filteredOps.forEach(op => {
       const p = pilots.find(x => x.id === op.pilot_id);
-      if (p) pilotMap[p.full_name] = (pilotMap[p.full_name] || 0) + (op.flight_hours || 0);
+      /* Fix: Convert name to uppercase here at the data level because textTransform is not a valid property for SVG ticks in Recharts */
+      if (p) {
+        const name = p.full_name.toUpperCase();
+        pilotMap[name] = (pilotMap[name] || 0) + (op.flight_hours || 0);
+      }
     });
     const fleetMap: Record<string, number> = {};
     filteredOps.forEach(op => {
       const d = drones.find(x => x.id === op.drone_id);
-      if (d) fleetMap[d.prefix] = (fleetMap[d.prefix] || 0) + (op.flight_hours || 0);
+      /* Fix: Convert prefix to uppercase here for consistent labeling in charts */
+      if (d) {
+        const prefix = d.prefix.toUpperCase();
+        fleetMap[prefix] = (fleetMap[prefix] || 0) + (op.flight_hours || 0);
+      }
     });
     return { 
         totalHours, 
@@ -250,7 +257,7 @@ export default function Reports() {
 
             if (yAfter > pageHeight - 40) doc.addPage();
             doc.setFont("helvetica", "bold"); doc.text("4. RELATO OPERACIONAL", 14, yAfter || 20);
-            const relato = `NARRATIVA:\n${op.description || 'Sem descrição.'}\n\nAÇÕES TOMADAS:\n${op.actions_taken || 'Nenhuma ação detalhada.'}`;
+            const relato = `NARRATIVA:\n${op.description || 'Sem descrição.'}\n\AÇÕES TOMADAS:\n${op.actions_taken || 'Nenhuma ação detalhada.'}`;
             const splitNarrative = doc.splitTextToSize(relato, pageWidth - 28);
             doc.setFont("helvetica", "normal"); doc.setFontSize(9);
             doc.text(splitNarrative, 14, (yAfter || 20) + 7);
@@ -438,7 +445,8 @@ export default function Reports() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <Card className="p-8 shadow-md bg-white border border-slate-100">
                         <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-10 flex items-center gap-3"><Users className="w-5 h-5 text-red-700"/> PRODUTIVIDADE: HORAS POR PILOTO (TOP 10)</h4>
-                        <div className="h-[500px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={statsData.pilotData} layout="vertical" margin={{ left: 60, right: 20 }}><CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" /><XAxis type="number" tick={{fontSize: 11, fontWeight: 600}} axisLine={false} tickLine={false} /><YAxis dataKey="name" type="category" width={140} tick={{fontSize: 9, fontWeight: 700, fill: '#475569', textTransform: 'uppercase'}} axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="value" fill="#1e293b" radius={[0, 8, 8, 0]} barSize={24} /></BarChart></ResponsiveContainer></div>
+                        {/* Fix: Removed textTransform from YAxis tick property as it is not a valid SVG attribute and moved transformation to data mapping */}
+                        <div className="h-[500px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={statsData.pilotData} layout="vertical" margin={{ left: 60, right: 20 }}><CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" /><XAxis type="number" tick={{fontSize: 11, fontWeight: 600}} axisLine={false} tickLine={false} /><YAxis dataKey="name" type="category" width={140} tick={{fontSize: 9, fontWeight: 700, fill: '#475569'}} axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="value" fill="#1e293b" radius={[0, 8, 8, 0]} barSize={24} /></BarChart></ResponsiveContainer></div>
                     </Card>
                     <Card className="p-8 shadow-md bg-white border border-slate-100">
                         <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-10 flex items-center gap-3"><Plane className="w-5 h-5 text-red-700"/> EMPREGO DA FROTA: HORAS POR RPA</h4>
