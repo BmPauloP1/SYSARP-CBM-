@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, Circle, useMap } from 'react-leaflet';
@@ -19,6 +20,10 @@ import SectorsLayer from '../components/maps/tactical/SectorsLayer';
 
 const PHONETIC = ['ALFA', 'BRAVO', 'CHARLIE', 'DELTA', 'ECHO', 'FOXTROT', 'GOLF', 'HOTEL', 'INDIA', 'JULIETT', 'KILO', 'LIMA', 'MIKE', 'NOVEMBER', 'OSCAR', 'PAPA', 'QUEBEC', 'ROMEO', 'SIERRA', 'TANGO', 'UNIFORM', 'VICTOR', 'WHISKEY', 'X-RAY', 'YANKEE', 'ZULU'];
 const TACTICAL_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#f97316', '#14b8a6', '#6366f1'];
+
+// CACHE FOR TACTICAL ICONS to prevent DOM jitter and Leaflet position errors
+const poiIconCache: Record<string, L.DivIcon> = {};
+const droneIconCache: Record<string, L.DivIcon> = {};
 
 const calculatePolygonArea = (coordinates: any) => {
     if (!coordinates || !Array.isArray(coordinates) || coordinates.length === 0) return 0;
@@ -52,6 +57,8 @@ const isPointInPolygon = (lat: number, lng: number, polygonCoords: any) => {
 };
 
 const getPoiIcon = (type: string) => {
+    if (poiIconCache[type]) return poiIconCache[type];
+    
     let iconHtml = ''; let color = '';
     switch(type) {
         case 'base': iconHtml = `<svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4 text-white"><path d="M12.75 3.066a2.25 2.25 0 00-1.5 0l-9.75 3.9A2.25 2.25 0 000 9.066v9.457c0 1.05.738 1.956 1.767 2.169l9.75 2.025a2.25 2.25 0 00.966 0l9.75-2.025A2.25 2.25 0 0024 18.523V9.066a2.25 2.25 0 00-1.5-2.1l-9.75-3.9z" /></svg>`; color = '#b91c1c'; break;
@@ -62,7 +69,9 @@ const getPoiIcon = (type: string) => {
         case 'k9': iconHtml = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-4 h-4 text-white"><path d="M10 5.172l.596.596a2 2 0 0 0 2.828 0L14 5.172M20 21l-2-6M6 21l2-6M12 21v-6M4 4l3 3M20 4l-3 3M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z"/></svg>`; color = '#78350f'; break;
         default: iconHtml = `<svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4 text-white"><circle cx="12" cy="12" r="10"/></svg>`; color = '#64748b';
     }
-    return L.divIcon({ className: 'custom-poi-marker', html: `<div style="background-color: ${color}; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border: 2.5px solid white;">${iconHtml}</div>`, iconSize: [34, 34], iconAnchor: [17, 17] });
+    const icon = L.divIcon({ className: 'custom-poi-marker', html: `<div style="background-color: ${color}; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border: 2.5px solid white;">${iconHtml}</div>`, iconSize: [34, 34], iconAnchor: [17, 17] });
+    poiIconCache[type] = icon;
+    return icon;
 };
 
 const createTacticalDroneIcon = (td: TacticalDrone) => {
@@ -71,7 +80,11 @@ const createTacticalDroneIcon = (td: TacticalDrone) => {
     const color = td.status === 'active' ? '#22c55e' : '#f59e0b';
     const isMain = td.id === 'main-drone-virtual';
     
-    return L.divIcon({ 
+    // Key for caching including main state, pilot name, altitude and radius
+    const cacheKey = `${isMain}-${pilotName}-${alt}-${rad}-${td.status}`;
+    if (droneIconCache[cacheKey]) return droneIconCache[cacheKey];
+
+    const icon = L.divIcon({ 
         className: 'drone-tactical-marker', 
         html: `<div style="display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.4));">
             <div style="background: ${isMain ? '#b91c1c' : '#0f172a'}; color: white; font-size: 9px; font-weight: 900; padding: 2px 8px; border-radius: 4px; margin-bottom: 4px; border: 1.5px solid rgba(255,255,255,0.4); white-space: nowrap; text-transform: uppercase; letter-spacing: -0.2px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
@@ -93,6 +106,9 @@ const createTacticalDroneIcon = (td: TacticalDrone) => {
         iconSize: [110, 110], 
         iconAnchor: [55, 55] 
     });
+    
+    droneIconCache[cacheKey] = icon;
+    return icon;
 };
 
 const MapDrawingBridge = ({ drawMode, setDrawMode }: { drawMode: string | null, setDrawMode: (mode: string | null) => void }) => {
@@ -117,11 +133,8 @@ const MapDrawingBridge = ({ drawMode, setDrawMode }: { drawMode: string | null, 
             setDrawMode(null);
         }
 
-        const handleStart = () => {};
-        map.on('pm:drawstart', handleStart);
         return () => { 
-            if (map.pm) map.pm.disableDraw(); 
-            map.off('pm:drawstart', handleStart); 
+            if (map && map.pm) map.pm.disableDraw(); 
         };
     }, [drawMode, map, setDrawMode]); 
     return null;
@@ -132,11 +145,23 @@ const MapController = ({ center, isCreating, onMapReady }: { center: [number, nu
     useEffect(() => {
         if (onMapReady) onMapReady(map);
     }, [map, onMapReady]);
+    
     useEffect(() => {
-        const timer = setTimeout(() => { if (map && map.getContainer()) map.invalidateSize(); }, 400);
+        const timer = setTimeout(() => { 
+            if (map && map.getContainer()) {
+                map.invalidateSize(); 
+            }
+        }, 400);
         return () => clearTimeout(timer);
     }, [map]);
-    useEffect(() => { if (!map || isCreating) return; map.flyTo(center, map.getZoom(), { duration: 1 }); }, [center, map, isCreating]);
+
+    useEffect(() => { 
+        if (!map || isCreating) return; 
+        if (map.getContainer()) {
+            map.flyTo(center, map.getZoom(), { duration: 1 }); 
+        }
+    }, [center, map, isCreating]);
+    
     return null;
 };
 
@@ -232,42 +257,65 @@ export default function TacticalOperationCenter() {
   };
 
   const handleCaptureSnapshot = async () => {
-      if (!id || isCapturing) return;
+      if (!id || isCapturing || !leafletMapRef.current) return;
       setIsCapturing(true); 
-      addLog("CAPTANDO TEATRO OPERACIONAL...", Camera);
+      addLog("ENQUADRANDO TEATRO OPERACIONAL...", Target);
+      
+      const map = leafletMapRef.current;
+      const originalCenter = map.getCenter();
+      const originalZoom = map.getZoom();
+
       try {
+          // 1. Calcular enquadramento de todos os elementos para não haver cortes
+          const bounds = L.latLngBounds([]);
+          
+          sectors.forEach(s => {
+              if (s.geojson?.coordinates) {
+                  const layer = L.geoJSON(s.geojson);
+                  bounds.extend(layer.getBounds());
+              }
+          });
+          
+          pois.forEach(p => bounds.extend([p.lat, p.lng]));
+          tacticalDrones.forEach(td => {
+              if (td.current_lat && td.current_lng) bounds.extend([td.current_lat, td.current_lng]);
+          });
+          if (pcPosition) bounds.extend(pcPosition);
+
+          // 2. Ajustar visão para englobar tudo se houver dados válidos
+          if (bounds.isValid()) {
+              map.fitBounds(bounds, { padding: [60, 60], animate: false });
+              map.invalidateSize();
+              // Aguardar estabilização dos tiles
+              await new Promise(r => setTimeout(r, 2000));
+          }
+
           await syncTacticalSummary();
           const mapEl = mapRef.current?.querySelector('.leaflet-container') as HTMLElement;
           if (!mapEl) throw new Error("Mapa não encontrado");
           
-          if (leafletMapRef.current) { 
-            leafletMapRef.current.invalidateSize(); 
-            // Aumentar o delay para garantir que os tiles (imagens) sejam carregados antes da captura
-            await new Promise(r => setTimeout(r, 1500)); 
-          }
-          
           const canvas = await html2canvas(mapEl, {
-              useCORS: true, // CRUCIAL para carregar tiles externos
+              useCORS: true, 
               allowTaint: true,
-              logging: true,
               scale: 2, 
               backgroundColor: null, 
               ignoreElements: (element) => {
                  const cls = element.classList;
-                 return (
-                     cls.contains('leaflet-control-container') || 
-                     (cls.contains('leaflet-pane') && !cls.contains('leaflet-map-pane') && !cls.contains('leaflet-overlay-pane') && !cls.contains('leaflet-marker-pane') && !cls.contains('leaflet-tile-pane'))
-                 );
+                 return cls.contains('leaflet-control-container');
               }
           });
           
           const base64 = canvas.toDataURL('image/jpeg', 0.8);
           tacticalService.saveMapSnapshot(id, base64);
-          addLog("SNAPSHOT SALVO PARA BOLETIM.", CheckCircle);
-          alert("Teatro operacional capturado!");
+
+          // Restaurar visão original do piloto
+          map.setView(originalCenter, originalZoom, { animate: false });
+          
+          addLog("SNAPSHOT INTEGRAL SALVO.", CheckCircle);
+          alert("Teatro operacional capturado com sucesso!");
       } catch (e) { 
           console.error(e);
-          alert("Falha ao capturar mapa. Tente novamente."); 
+          alert("Falha ao capturar mapa."); 
       } finally { setIsCapturing(false); }
   };
 
@@ -311,10 +359,19 @@ export default function TacticalOperationCenter() {
   };
 
   const handleDroneDragEnd = async (e: any, drone: TacticalDrone) => {
-      const pos = e.target.getLatLng(); let detectedSectorId = "";
-      for (const sector of sectors) { if (sector.type === 'sector' && isPointInPolygon(pos.lat, pos.lng, sector.geojson.coordinates)) { detectedSectorId = sector.id; break; } }
-      await tacticalService.updateDroneStatus(drone.id, { current_lat: pos.lat, current_lng: pos.lng, sector_id: detectedSectorId || undefined });
-      loadTacticalData(id!);
+      const pos = e.target.getLatLng();
+      
+      // Decouple React state update from Leaflet event loop to prevent _leaflet_pos error
+      setTimeout(async () => {
+          let detectedSectorId = "";
+          for (const sector of sectors) { 
+            if (sector.type === 'sector' && isPointInPolygon(pos.lat, pos.lng, sector.geojson.coordinates)) { 
+                detectedSectorId = sector.id; break; 
+            } 
+          }
+          await tacticalService.updateDroneStatus(drone.id, { current_lat: pos.lat, current_lng: pos.lng, sector_id: detectedSectorId || undefined });
+          loadTacticalData(id!);
+      }, 0);
   };
 
   const handleAssignDrone = async (droneId: string, pilotId: string) => {
@@ -325,12 +382,16 @@ export default function TacticalOperationCenter() {
 
   const handleMainDroneDragEnd = async (e: any) => {
       const pos = e.target.getLatLng();
-      setPcPosition([pos.lat, pos.lng]);
-      if (operation) {
-          try {
-              await base44.entities.Operation.update(operation.id, { latitude: pos.lat, longitude: pos.lng });
-          } catch(e) { console.error("Failed to update op coords", e); }
-      }
+      
+      // Decouple React state update from Leaflet event loop
+      setTimeout(async () => {
+          setPcPosition([pos.lat, pos.lng]);
+          if (operation) {
+              try {
+                  await base44.entities.Operation.update(operation.id, { latitude: pos.lat, longitude: pos.lng });
+              } catch(e) { console.error("Failed to update op coords", e); }
+          }
+      }, 0);
   };
 
   if (loading || !operation) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white font-black"><Crosshair className="w-8 h-8 animate-spin mr-3 text-red-600"/> SINCRONIZANDO TEATRO OPERACIONAL...</div>;
