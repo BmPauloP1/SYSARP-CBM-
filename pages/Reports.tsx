@@ -1,527 +1,425 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
-import L from "leaflet";
+
+import React, { useState, useEffect } from "react";
 import { base44 } from "../services/base44Client";
 import { tacticalService } from "../services/tacticalService";
-import { Operation, MISSION_HIERARCHY, Pilot, Drone, MISSION_COLORS, MISSION_LABELS, ORGANIZATION_CHART, SYSARP_LOGO, MissionType } from "../types";
+import { Operation, OperationDay, Pilot, Drone, FlightLog, OperationDayAsset, OperationDayPilot } from "../types";
 import { Card, Button, Input, Select, Badge } from "../components/ui_components";
-import { 
-  FileText, Search, Calendar, Clock, Printer, RefreshCcw, 
-  BarChart3, PieChart as PieIcon, Map as MapIcon, 
-  Filter, ChevronDown, ChevronUp, Users, Plane, LayoutDashboard, 
-  CheckSquare, Square, TrendingUp, Activity, MousePointer2, Crosshair,
-  MapPin, Download, Table, LayoutGrid, CheckCircle2, Camera, Trash2
-} from "lucide-react";
-import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
-  ResponsiveContainer, PieChart, Pie, Cell, Legend 
-} from 'recharts';
+import { Calendar, Plus, CloudRain, Users, Plane, Clock, Trash2, ChevronDown, ChevronUp, FileText, CheckSquare, Save, Edit3, X, Activity, Database, Copy, AlertTriangle } from "lucide-react";
 
-const CHART_COLORS = ['#1e293b', '#b91c1c', '#334155', '#ef4444', '#475569', '#991b1b', '#64748b', '#cbd5e1'];
+interface OperationDailyLogProps {
+  operationId: string;
+  pilots: Pilot[];
+  drones: Drone[];
+  currentUser: Pilot | null;
+}
 
-type ReportTab = 'stats' | 'heatmap' | 'specific' | 'mgmt';
+export default function OperationDailyLog({ operationId, pilots, drones, currentUser }: OperationDailyLogProps) {
+  const [days, setDays] = useState<OperationDay[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [expandedDayId, setExpandedDayId] = useState<string | null>(null);
+  
+  // State for new items
+  const [newDayDate, setNewDayDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newDayResp, setNewDayResp] = useState("");
+  const [newDayWeather, setNewDayWeather] = useState("");
+  
+  // Edit State
+  const [editingDayId, setEditingDayId] = useState<string | null>(null);
+  const [editDayData, setEditDayData] = useState<{ date: string, responsible_pilot_id: string, weather_summary: string }>({ date: '', responsible_pilot_id: '', weather_summary: '' });
 
-const MapResizer = () => {
-  const map = useMap();
-  useEffect(() => {
-    const timer = setTimeout(() => { map.invalidateSize(); }, 400);
-    return () => clearTimeout(timer);
-  }, [map]);
-  return null;
-};
+  // State for day details
+  const [currentAssets, setCurrentAssets] = useState<OperationDayAsset[]>([]);
+  const [currentPilots, setCurrentPilots] = useState<OperationDayPilot[]>([]);
+  
+  // State for Day Actions Text
+  const [dayNotes, setDayNotes] = useState("");
+  
+  // Forms
+  const [selectedAsset, setSelectedAsset] = useState("");
+  const [selectedPilot, setSelectedPilot] = useState("");
+  const [selectedRole, setSelectedRole] = useState("pic");
 
-const formatArea = (m2: number) => {
-    if (m2 >= 10000) return `${(m2 / 10000).toFixed(2)} ha`;
-    if (m2 > 0) return `${Math.round(m2).toLocaleString('pt-BR')} m²`;
-    return "0 m²";
-};
-
-// Helper para formatar horas decimais em HH:MM
-const formatFlightHours = (decimalHours: number = 0) => {
-    const hours = Math.floor(decimalHours);
-    const minutes = Math.round((decimalHours - hours) * 60);
-    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}H VOADAS`;
-};
-
-const getImageData = (url: string): Promise<{data: string, ratio: number}> => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "Anonymous";
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width; canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      if (ctx) { 
-        ctx.drawImage(img, 0, 0); 
-        resolve({
-          data: canvas.toDataURL('image/png'),
-          ratio: img.width / img.height
-        }); 
-      }
-      else resolve({data: "", ratio: 1});
-    };
-    img.onerror = () => resolve({data: "", ratio: 1});
-    img.src = url;
-  });
-};
-
-export default function Reports() {
-  const [activeTab, setActiveTab] = useState<ReportTab>('stats');
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [operations, setOperations] = useState<Operation[]>([]);
-  const [pilots, setPilots] = useState<Pilot[]>([]);
-  const [drones, setDrones] = useState<Drone[]>([]);
-  const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedOpIds, setSelectedOpIds] = useState<Set<string>>(new Set());
-  const [generatingPdf, setGeneratingPdf] = useState(false);
-
-  // Filtros
-  const [filterCrbm, setFilterCrbm] = useState("all");
-  const [filterNature, setFilterNature] = useState("all");
-  const [dateStart, setDateStart] = useState("");
-  const [dateEnd, setDateEnd] = useState("");
+  // SQL Error for RLS issues
+  const [sqlError, setSqlError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadDays();
+  }, [operationId]);
 
-  const loadData = async () => {
+  const loadDays = async () => {
     setLoading(true);
     try {
-      const [ops, pils, drns, me] = await Promise.all([
-          base44.entities.Operation.list('-start_time'), 
-          base44.entities.Pilot.list(), 
-          base44.entities.Drone.list(),
-          base44.auth.me()
+      const data = await base44.entities.OperationDay.filter({ operation_id: operationId });
+      // Sort by date desc
+      data.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setDays(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadDayDetails = async (day: OperationDay) => {
+    try {
+      const [assets, dayPilots] = await Promise.all([
+        base44.entities.OperationDayAsset.filter({ operation_day_id: day.id }),
+        base44.entities.OperationDayPilot.filter({ operation_day_id: day.id })
       ]);
-      setOperations(ops); 
-      setPilots(pils); 
-      setDrones(drns);
-      setCurrentUser(me);
-    } catch (e) { console.error(e); } finally { setLoading(false); }
+      setCurrentAssets(assets);
+      setCurrentPilots(dayPilots);
+      setDayNotes(day.progress_notes || "");
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  const filteredOps = useMemo(() => {
-    return operations.filter(op => {
-      const matchCrbm = filterCrbm === "all" || op.op_crbm === filterCrbm;
-      const matchNature = filterNature === "all" || op.mission_type === filterNature;
-      let matchDate = true;
-      if (dateStart) matchDate = matchDate && new Date(op.start_time) >= new Date(dateStart);
-      if (dateEnd) matchDate = matchDate && new Date(op.start_time) <= new Date(dateEnd);
-      return matchCrbm && matchNature && matchDate;
-    });
-  }, [operations, filterCrbm, filterNature, dateStart, dateEnd]);
+  const toggleDay = (day: OperationDay) => {
+    if (expandedDayId === day.id) {
+      setExpandedDayId(null);
+    } else {
+      setExpandedDayId(day.id);
+      loadDayDetails(day);
+    }
+  };
 
-  const statsData = useMemo(() => {
-    const totalHours = filteredOps.reduce((acc, op) => acc + (op.flight_hours || 0), 0);
-    const natureMap: Record<string, number> = {};
-    filteredOps.forEach(op => {
-      const label = MISSION_LABELS[op.mission_type] || op.mission_type;
-      natureMap[label] = (natureMap[label] || 0) + 1;
-    });
-    const regionalMap: Record<string, number> = {};
-    filteredOps.forEach(op => {
-      if (op.op_crbm) {
-        const shortLabel = op.op_crbm.split(' - ')[0];
-        regionalMap[shortLabel] = (regionalMap[shortLabel] || 0) + 1;
+  const handleAddDay = async () => {
+    if (!newDayResp) { alert("Selecione o piloto responsável pelo dia."); return; }
+    
+    try {
+      await base44.entities.OperationDay.create({
+        operation_id: operationId,
+        date: newDayDate,
+        responsible_pilot_id: newDayResp,
+        weather_summary: newDayWeather,
+        progress_notes: "",
+        status: 'open'
+      } as any);
+      loadDays();
+      alert("Novo dia adicionado ao diário!");
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao criar dia.");
+    }
+  };
+
+  const handleStartEditDay = (e: React.MouseEvent, day: OperationDay) => {
+      e.stopPropagation();
+      setEditingDayId(day.id);
+      setEditDayData({
+          date: day.date,
+          responsible_pilot_id: day.responsible_pilot_id,
+          weather_summary: day.weather_summary
+      });
+  };
+
+  const handleSaveEditDay = async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if(!editingDayId) return;
+      try {
+          await base44.entities.OperationDay.update(editingDayId, editDayData);
+          setEditingDayId(null);
+          loadDays();
+          alert("Dados do dia atualizados.");
+      } catch(e) {
+          console.error(e);
       }
-    });
-    const pilotMap: Record<string, number> = {};
-    filteredOps.forEach(op => {
-      const p = pilots.find(x => x.id === op.pilot_id);
-      if (p) pilotMap[p.full_name] = (pilotMap[p.full_name] || 0) + (op.flight_hours || 0);
-    });
-    const fleetMap: Record<string, number> = {};
-    filteredOps.forEach(op => {
-      const d = drones.find(x => x.id === op.drone_id);
-      if (d) fleetMap[d.prefix] = (fleetMap[d.prefix] || 0) + (op.flight_hours || 0);
-    });
-    return { 
-        totalHours, 
-        natureData: Object.entries(natureMap).map(([name, value]) => ({ name, value })),
-        regionalData: Object.entries(regionalMap).map(([name, value]) => ({ name, value })),
-        pilotData: Object.entries(pilotMap).map(([name, value]) => ({ name, value: Number(value.toFixed(1)) })).sort((a,b) => b.value - a.value).slice(0, 10),
-        fleetData: Object.entries(fleetMap).map(([name, value]) => ({ name, value: Number(value.toFixed(1)) })).sort((a,b) => b.value - a.value)
-    };
-  }, [filteredOps, pilots, drones]);
-
-  const handleToggleSelect = (id: string) => {
-      const newSet = new Set(selectedOpIds);
-      if (newSet.has(id)) newSet.delete(id);
-      else newSet.add(id);
-      setSelectedOpIds(newSet);
   };
 
-  const handleDeleteOperations = async () => {
-      if (!currentUser || currentUser.role !== 'admin') return;
-      if (!confirm(`ATENÇÃO: Tem certeza que deseja excluir ${selectedOpIds.size} operações permanentemente do banco de dados?\n\nEsta ação é irreversível e removerá todos os registros associados.`)) return;
+  const handleDeleteDay = async (e: React.MouseEvent, dayId: string) => {
+      e.stopPropagation();
+      if(confirm("Tem certeza que deseja excluir este dia e todos os registros associados?")) {
+          try {
+              await base44.entities.OperationDay.delete(dayId);
+              loadDays();
+          } catch(e) {
+              console.error(e);
+              alert("Erro ao excluir dia.");
+          }
+      }
+  };
 
+  const handleAddAsset = async (dayId: string) => {
+    if (!selectedAsset) return;
+    try {
+      // 1. Criar vinculo no dia
+      await base44.entities.OperationDayAsset.create({
+        operation_day_id: dayId,
+        drone_id: selectedAsset,
+        status: 'active'
+      } as any);
+
+      // 2. Sincronização com CCO Tático
+      const op = (await base44.entities.Operation.filter({ id: operationId }))[0];
+      if (op) {
+          await tacticalService.assignDrone({
+              operation_id: operationId,
+              drone_id: selectedAsset,
+              pilot_id: newDayResp || currentUser?.id,
+              status: 'active',
+              current_lat: op.latitude,
+              current_lng: op.longitude,
+              flight_altitude: 60,
+              radius: 200
+          });
+      }
+
+      // 3. Automação: Colocar drone em status 'in_operation' globalmente
+      try {
+        await base44.entities.Drone.update(selectedAsset, { status: 'in_operation' });
+      } catch (updateErr: any) {
+        console.error("Falha ao atualizar status da aeronave:", updateErr);
+        if (updateErr.message && (updateErr.message.includes("policy") || updateErr.message.includes("permission"))) {
+           if (currentUser?.role === 'admin') {
+               setSqlError(`
+DROP POLICY IF EXISTS "Pilotos podem atualizar status de drones" ON public.drones;
+CREATE POLICY "Pilotos podem atualizar status de drones" ON public.drones FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+               `);
+           }
+        }
+      }
+
+      // Refresh local assets
+      const assets = await base44.entities.OperationDayAsset.filter({ operation_day_id: dayId });
+      setCurrentAssets(assets);
+      setSelectedAsset("");
+      
+      alert("Aeronave vinculada com sucesso! Agora visível no CCO Tático.");
+    } catch (e) { 
+        console.error("Erro ao adicionar aeronave:", e); 
+        alert("Erro ao adicionar aeronave.");
+    }
+  };
+
+  const handleAddPilot = async (dayId: string) => {
+    if (!selectedPilot) return;
+    try {
+      await base44.entities.OperationDayPilot.create({
+        operation_day_id: dayId,
+        pilot_id: selectedPilot,
+        role: selectedRole
+      } as any);
+      // Refresh local pilots
+      const dayPilots = await base44.entities.OperationDayPilot.filter({ operation_day_id: dayId });
+      setCurrentPilots(dayPilots);
+      setSelectedPilot("");
+    } catch (e) { console.error(e); }
+  };
+
+  const handleUpdateDayNotes = async (dayId: string) => {
+      try {
+          await base44.entities.OperationDay.update(dayId, { progress_notes: dayNotes });
+          alert("Informações atualizadas com sucesso.");
+      } catch(e) {
+          console.error(e);
+          alert("Erro ao atualizar descrição.");
+      }
+  };
+
+  const handleCloseDay = async (dayId: string) => {
+      if(!confirm("CONFIRMAÇÃO DE ENCERRAMENTO:\n\nAo encerrar o dia, o sistema tentará liberar todas as aeronaves para 'DISPONÍVEL' e removê-las do CCO Tático.\n\nDeseja continuar?")) return;
+      
       setLoading(true);
       try {
-          // Processar exclusões em paralelo
-          const deletePromises = Array.from(selectedOpIds).map((id: string) => base44.entities.Operation.delete(id));
-          await Promise.all(deletePromises);
+          const assetsToRelease = await base44.entities.OperationDayAsset.filter({ operation_day_id: dayId });
           
-          alert("Operações excluídas com sucesso.");
-          setSelectedOpIds(new Set<string>());
-          loadData();
-      } catch (e: any) {
+          let releasedCount = 0;
+          for (const asset of assetsToRelease) {
+              try {
+                  await base44.entities.Drone.update(asset.drone_id, { status: 'available' });
+                  // Remover do tático (opcional, dependendo da regra de negócio, mas ajuda a limpar o mapa)
+                  const tDrones = await tacticalService.getTacticalDrones(operationId);
+                  const tId = tDrones.find(td => td.drone_id === asset.drone_id)?.id;
+                  if (tId) await tacticalService.removeDroneFromOp(tId);
+                  releasedCount++;
+              } catch (droneErr: any) {
+                  console.error(`Falha ao liberar drone ${asset.drone_id}`, droneErr);
+              }
+          }
+
+          await base44.entities.OperationDay.update(dayId, { status: 'closed' });
+          alert(`Dia encerrado com sucesso!\n${releasedCount} aeronave(s) liberada(s).`);
+          setExpandedDayId(null); 
+          await loadDays(); 
+      } catch(e) {
           console.error(e);
-          alert("Erro ao excluir operações.");
+          alert("Erro ao encerrar dia.");
       } finally {
           setLoading(false);
       }
   };
 
-  const handleExportBoletim = async () => {
-    if (selectedOpIds.size === 0) return;
-    setGeneratingPdf(true);
-    try {
-        const jsPDFModule = (await import('jspdf')) as any;
-        const jsPDF = jsPDFModule.default || jsPDFModule;
-        const autoTableModule = (await import('jspdf-autotable')) as any;
-        const autoTable = autoTableModule.default || autoTableModule;
-
-        const doc = new jsPDF();
-        const pageWidth = doc.internal.pageSize.width;
-        const pageHeight = doc.internal.pageSize.height;
-        const selectedOps = operations.filter(o => selectedOpIds.has(o.id));
-        const logo = await getImageData(SYSARP_LOGO);
-
-        for (let index = 0; index < selectedOps.length; index++) {
-            const op = selectedOps[index];
-            if (index > 0) doc.addPage();
-            
-            // --- HEADER ---
-            if (logo.data) {
-                const logoWidth = 22;
-                const logoHeight = logoWidth / logo.ratio;
-                doc.addImage(logo.data as string, 'PNG', 14, 8, logoWidth, logoHeight);
-            }
-
-            doc.setFontSize(10); doc.setFont("helvetica", "bold"); doc.setTextColor(0, 0, 0);
-            doc.text("ESTADO DO PARANÁ", pageWidth / 2 + 10, 13, { align: "center" });
-            doc.text("CORPO DE BOMBEIROS MILITAR", pageWidth / 2 + 10, 18, { align: "center" });
-            doc.text("SOARP - SYSARP", pageWidth / 2 + 10, 23, { align: "center" });
-            
-            doc.setDrawColor(185, 28, 28); doc.setLineWidth(0.6);
-            doc.line(14, 30, pageWidth - 14, 30);
-            
-            doc.setFontSize(14); doc.text("BOLETIM DE OCORRÊNCIA OPERACIONAL - RPA", pageWidth / 2, 42, { align: "center" });
-            doc.setFontSize(9); doc.setFont("helvetica", "normal");
-            doc.text(`Protocolo de Controle: ${op.occurrence_number}`, pageWidth / 2, 48, { align: "center" });
-
-            // --- 1. IDENTIFICAÇÃO ---
-            doc.setFont("helvetica", "bold"); doc.text("1. IDENTIFICAÇÃO DA OCORRÊNCIA", 14, 62);
-            autoTable(doc, {
-                startY: 65,
-                body: [
-                    ["Título:", op.name.toUpperCase()],
-                    ["Natureza:", MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type],
-                    ["Data/Hora Início:", new Date(op.start_time).toLocaleString('pt-BR')],
-                    ["Coordenadas (PC):", `${op.latitude.toFixed(6)}, ${op.longitude.toFixed(6)}`],
-                    ["Unidade/Regional:", `${op.op_unit || 'N/A'} / ${op.op_crbm || 'N/A'}`]
-                ],
-                theme: 'plain', styles: { fontSize: 9, cellPadding: 1 }, columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45 } }
-            });
-
-            const pilot = pilots.find(p => p.id === op.pilot_id);
-            const drone = drones.find(d => d.id === op.drone_id);
-            let yAfter = Number((doc as any).lastAutoTable?.finalY || 120) + 10;
-            
-            // --- 2. EQUIPE ---
-            doc.setFont("helvetica", "bold"); doc.text("2. EQUIPE E EQUIPAMENTO (VETOR)", 14, yAfter);
-            autoTable(doc, {
-                startY: yAfter + 3,
-                body: [
-                    ["Piloto em Comando (PIC):", pilot?.full_name || 'N/A'],
-                    ["Aeronave (Prefixo):", `${drone?.prefix || 'N/A'} (${drone?.model || 'N/A'})`],
-                    ["Tempo de Voo Realizado:", formatFlightHours(op.flight_hours || 0).replace('H VOADAS', ' horas')]
-                ],
-                theme: 'plain', styles: { fontSize: 9, cellPadding: 1 }, columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45 } }
-            });
-
-            yAfter = Number((doc as any).lastAutoTable?.finalY || yAfter + 40) + 10;
-
-            // --- 3. GEOPROCESSAMENTO ---
-            const snapshot = tacticalService.getMapSnapshot(op.id);
-            const snapshotHeight = 90;
-            
-            // Check space for Snapshot
-            if (snapshot && typeof snapshot === 'string' && snapshot.length > 0) {
-                if (yAfter + snapshotHeight + 20 > pageHeight - 30) {
-                    doc.addPage();
-                    yAfter = 20;
-                }
-                doc.setFont("helvetica", "bold"); doc.text("3. GEOPROCESSAMENTO E TEATRO OPERACIONAL", 14, yAfter);
-                doc.addImage(snapshot as string, 'JPEG', 14, yAfter + 4, 182, snapshotHeight); 
-                yAfter += (snapshotHeight + 10);
-            } else {
-                doc.setFont("helvetica", "bold"); doc.text("3. GEOPROCESSAMENTO TÁTICO E RECURSOS", 14, yAfter);
-                yAfter += 5;
-            }
-
-            if (op.tactical_summary) {
-                // Check space for summary table
-                if (yAfter + 40 > pageHeight - 20) {
-                    doc.addPage();
-                    yAfter = 20;
-                }
-                const sum = op.tactical_summary;
-                autoTable(doc, {
-                    startY: yAfter + 3,
-                    head: [['Vetores', 'Setores', 'POIs', 'Equipe Solo', 'Viaturas', 'Cães (K9)', 'Área Varredura']],
-                    body: [[
-                        sum.drones_count || 0,
-                        sum.sectors_count || 0,
-                        sum.pois_count || 0,
-                        sum.teams_count || 0,
-                        sum.vehicles_count || 0,
-                        sum.k9_count || 0,
-                        formatArea(sum.total_area_m2 || 0)
-                    ]],
-                    theme: 'grid', styles: { fontSize: 8, halign: 'center' }, headStyles: { fillColor: [30, 41, 59] }
-                });
-                yAfter = Number((doc as any).lastAutoTable?.finalY || yAfter + 20) + 10;
-            }
-
-            // --- 4. NARRATIVA ---
-            // Ensure title doesn't hang at bottom
-            if (yAfter > pageHeight - 30) { doc.addPage(); yAfter = 20; }
-            
-            doc.setFont("helvetica", "bold"); doc.text("4. RELATO OPERACIONAL E AÇÕES", 14, yAfter);
-            yAfter += 7;
-            
-            const relato = `NARRATIVA:\n${op.description || 'Sem descrição.'}\n\nAÇÕES TOMADAS:\n${op.actions_taken || 'Nenhuma ação detalhada.'}`;
-            const splitNarrative = doc.splitTextToSize(relato, pageWidth - 28);
-            
-            doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-            
-            const lineHeight = 5;
-            const bottomMargin = 20;
-            const footerReservedHeight = 45; // Space for signature footer
-
-            for (let i = 0; i < splitNarrative.length; i++) {
-                if (yAfter > pageHeight - bottomMargin - footerReservedHeight) { 
-                    doc.addPage();
-                    yAfter = 20; // Top margin
-                }
-                doc.text(splitNarrative[i], 14, yAfter);
-                yAfter += lineHeight;
-            }
-
-            // --- FOOTER / ASSINATURA ---
-            // If narrative finished too close to bottom, add page for signature
-            if (yAfter > pageHeight - 40) {
-                doc.addPage();
-            }
-
-            const footerY = pageHeight - 45;
-            doc.setDrawColor(220, 220, 220); doc.setLineWidth(0.2);
-            doc.line(14, footerY, pageWidth - 14, footerY);
-            
-            doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(20, 80, 20);
-            doc.text("DOCUMENTO ASSINADO ELETRONICAMENTE", pageWidth / 2, footerY + 8, { align: "center" });
-            
-            doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(100, 100, 100);
-            doc.text(`Emissor Responsável: ${currentUser?.full_name || 'SISTEMA AUTOMÁTICO'}`, pageWidth / 2, footerY + 13, { align: "center" });
-            doc.text(`Data/Hora: ${new Date().toLocaleString('pt-BR')}`, pageWidth / 2, footerY + 17, { align: "center" });
-            
-            if (logo.data) {
-                const logoW = 18;
-                const logoH = logoW / logo.ratio;
-                doc.addImage(logo.data as string, 'PNG', pageWidth - 14 - logoW, pageHeight - 25, logoW, logoH);
-            }
-            doc.setFontSize(6); doc.text(`ID Digital: ${op.id}`, 14, pageHeight - 8);
-        }
-        doc.save(`BO_SYSARP_${new Date().getTime()}.pdf`);
-    } catch (e: any) { console.error(e); alert("Erro ao exportar boletim."); } finally { setGeneratingPdf(false); }
+  const copySqlToClipboard = () => {
+    if (sqlError) {
+      navigator.clipboard.writeText(sqlError);
+      alert("Código SQL copiado!");
+    }
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-100 overflow-hidden font-sans">
-      <div className="bg-[#1e293b] px-4 pt-4 flex items-center justify-between shrink-0 shadow-lg border-b border-slate-700">
-        <div className="flex gap-0.5">
-            {[
-                { id: 'stats', label: 'Estatístico', icon: BarChart3 },
-                { id: 'heatmap', label: 'Mapa de Calor', icon: Activity },
-                { id: 'specific', label: 'Específicos', icon: FileText },
-                { id: 'mgmt', label: 'Gerenciais', icon: TrendingUp }
-            ].map(tab => (
-                <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id as ReportTab)}
-                    className={`flex items-center gap-2 px-6 py-2.5 rounded-t-md text-xs font-bold uppercase tracking-wide transition-all ${
-                        activeTab === tab.id 
-                        ? 'bg-red-700 text-white shadow-lg' 
-                        : 'text-slate-400 hover:text-white hover:bg-white/5'
-                    }`}
-                >
-                    <tab.icon className="w-4 h-4" />
-                    {tab.label}
-                </button>
-            ))}
-        </div>
-      </div>
-
-      <div className="bg-white border-b border-slate-200 shadow-sm z-10 shrink-0">
-          <button 
-            onClick={() => setIsFilterOpen(!isFilterOpen)}
-            className="w-full px-6 py-2.5 flex items-center justify-between text-[10px] font-black text-slate-500 uppercase tracking-widest hover:bg-slate-50 transition-colors"
-          >
-             <div className="flex items-center gap-3">
-                <Filter className="w-3.5 h-3.5 text-red-700" />
-                FILTROS ATIVOS
-             </div>
-             {isFilterOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
-          
-          {isFilterOpen && (
-              <div className="px-6 pb-6 pt-2 grid grid-cols-1 md:grid-cols-4 gap-4 animate-fade-in bg-slate-50 border-t border-slate-100">
-                  <Select label="Regional" value={filterCrbm} onChange={e => setFilterCrbm(e.target.value)}>
-                      <option value="all">Todas as Regionais</option>
-                      {Object.keys(ORGANIZATION_CHART).map(c => <option key={c} value={c}>{c}</option>)}
-                  </Select>
-                  <Select label="Natureza" value={filterNature} onChange={e => setFilterNature(e.target.value)}>
-                      <option value="all">Todas as Naturezas</option>
-                      {Object.entries(MISSION_HIERARCHY).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
-                  </Select>
-                  <Input label="Data Inicial" type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} />
-                  <Input label="Data Final" type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} />
+    <div className="space-y-6 relative">
+      
+      {sqlError && currentUser?.role === 'admin' && (
+        <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in">
+           <Card className="w-full max-w-3xl flex flex-col bg-white border-4 border-red-600 shadow-2xl">
+              <div className="p-4 bg-red-600 text-white flex justify-between items-center">
+                 <h3 className="font-bold text-lg flex items-center gap-2"><Database className="w-6 h-6" /> Correção de Permissões Necessária</h3>
+                 <button onClick={() => setSqlError(null)} className="hover:bg-red-700 p-1 rounded"><X className="w-5 h-5" /></button>
               </div>
-          )}
+              <div className="p-6 space-y-4">
+                 <p className="text-slate-700 font-medium">O sistema não conseguiu atualizar o status da aeronave. Execute o código abaixo no SQL Editor do Supabase.</p>
+                 <div className="relative"><pre className="bg-slate-900 text-green-400 p-4 rounded-lg text-xs overflow-x-auto font-mono border border-slate-700 max-h-64">{sqlError}</pre>
+                 <button onClick={copySqlToClipboard} className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded"><Copy className="w-4 h-4" /></button></div>
+              </div>
+              <div className="p-4 bg-slate-50 border-t flex justify-end gap-3">
+                 <Button variant="outline" onClick={() => setSqlError(null)}>Fechar</Button>
+                 <Button onClick={copySqlToClipboard} className="bg-blue-600 text-white hover:bg-blue-700"><Copy className="w-4 h-4 mr-2" /> Copiar SQL</Button>
+              </div>
+           </Card>
+        </div>
+      )}
+
+      <div className="flex justify-between items-center">
+         <h3 className="font-bold text-slate-800 flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-blue-600" />
+            Diário de Bordo (Multidias)
+         </h3>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-slate-50 custom-scrollbar">
-        {activeTab === 'stats' && (
-            <div className="p-6 space-y-6 max-w-[1600px] mx-auto animate-fade-in">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <Card className="p-6 border-l-[6px] border-l-slate-800 shadow-sm bg-white">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">OPERAÇÕES</p>
-                        <h3 className="text-3xl font-black text-slate-800 mt-1">{filteredOps.length}</h3>
-                    </Card>
-                    <Card className="p-6 border-l-[6px] border-l-blue-600 shadow-sm bg-white">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">HORAS VOADAS</p>
-                        <h3 className="text-3xl font-black text-slate-800 mt-1">{statsData.totalHours.toFixed(1)}h</h3>
-                    </Card>
-                    <Card className="p-6 border-l-[6px] border-l-slate-800 shadow-sm bg-white">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">AERONAVES</p>
-                        <h3 className="text-3xl font-black text-slate-800 mt-1">{drones.length}</h3>
-                    </Card>
-                    <Card className="p-6 border-l-[6px] border-l-green-600 shadow-sm bg-white">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">EFETIVO</p>
-                        <h3 className="text-3xl font-black text-slate-800 mt-1">{pilots.filter(p => p.status === 'active').length}</h3>
-                    </Card>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <Card className="p-6 shadow-md bg-white border border-slate-200">
-                        <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-6 flex items-center gap-2">
-                           <LayoutGrid className="w-4 h-4 text-red-600"/> NATUREZA DAS MISSÕES
-                        </h4>
-                        <div className="h-[400px]">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie data={statsData.natureData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={80} outerRadius={130} paddingAngle={5} stroke="none">
-                                        {statsData.natureData.map((_, index) => <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
-                                    </Pie>
-                                    <Tooltip />
-                                    <Legend verticalAlign="bottom" align="center" wrapperStyle={{fontSize: '9px', fontWeight: 700, textTransform: 'uppercase'}} />
-                                </PieChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </Card>
-                    <Card className="p-6 shadow-md bg-white border border-slate-200">
-                        <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-6 flex items-center gap-2">
-                           <MapIcon className="w-4 h-4 text-red-600"/> EMPENHO POR REGIONAL
-                        </h4>
-                        <div className="h-[400px]">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={statsData.regionalData}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                    <XAxis dataKey="name" hide />
-                                    <YAxis tick={{fontSize: 11, fontWeight: 600}} axisLine={false} tickLine={false} />
-                                    <Tooltip />
-                                    <Bar dataKey="value" fill="#b91c1c" radius={[4, 4, 0, 0]} barSize={45} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </Card>
-                </div>
+      <Card className="p-4 bg-blue-50 border-blue-200">
+         <h4 className="text-sm font-bold text-blue-900 mb-3 uppercase">Registrar Novo Dia</h4>
+         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+            <div>
+               <label className="text-xs font-bold text-slate-500">Data</label>
+               <input type="date" className="w-full p-2 rounded border border-slate-300 text-sm" value={newDayDate} onChange={e => setNewDayDate(e.target.value)} />
             </div>
-        )}
-
-        {activeTab === 'heatmap' && (
-            <div className="h-full relative animate-fade-in">
-                <MapContainer center={[-24.8, -51.5]} zoom={7} style={{ height: '100%', width: '100%' }}>
-                    <MapResizer />
-                    <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
-                    {filteredOps.map(op => (
-                        <CircleMarker key={op.id} center={[op.latitude, op.longitude]} radius={8} pathOptions={{ color: MISSION_COLORS[op.mission_type] || '#ef4444', fillColor: MISSION_COLORS[op.mission_type] || '#ef4444', fillOpacity: 0.6 }}>
-                            <Popup><div className="p-1 min-w-[200px] text-center"><p className="font-black text-slate-800 text-xs uppercase leading-tight">{op.name}</p><p className="text-[9px] text-slate-400 font-mono mt-1">#{op.occurrence_number}</p><p className="text-[9px] text-slate-500 font-bold mt-1 uppercase">{new Date(op.start_time).toLocaleDateString()}</p></div></Popup>
-                        </CircleMarker>
-                    ))}
-                </MapContainer>
-                <div className="absolute bottom-10 left-6 bg-white/95 backdrop-blur-md p-5 rounded-xl shadow-2xl z-[1000] border border-slate-200">
-                    <h5 className="text-[10px] font-black text-slate-500 uppercase mb-4 border-b pb-2 flex items-center gap-2"><Activity className="w-3.5 h-3.5 text-red-600"/> LEGENDA DO CALOR</h5>
-                    <div className="space-y-2.5">
-                        {Object.entries(MISSION_LABELS).slice(0, 8).map(([key, label]) => (
-                            <div key={key} className="flex items-center gap-3"><div className="w-3.5 h-3.5 rounded-full shadow-sm" style={{ backgroundColor: MISSION_COLORS[key] }}></div><span className="text-[10px] font-bold text-slate-700 uppercase">{label.split('. ')[1] || label}</span></div>
-                        ))}
-                    </div>
-                </div>
+            <div className="md:col-span-2">
+               <Select label="Responsável do Dia" value={newDayResp} onChange={e => setNewDayResp(e.target.value)} labelClassName="text-xs font-bold text-slate-500">
+                  <option value="">Selecione...</option>
+                  {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+               </Select>
             </div>
-        )}
+            <div>
+               <Input label="Clima Geral" placeholder="Ex: Sol, Vento 10kt" value={newDayWeather} onChange={e => setNewDayWeather(e.target.value)} labelClassName="text-xs font-bold text-slate-500" />
+            </div>
+            <div className="md:col-span-4 mt-2">
+               <Button onClick={handleAddDay} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+                  <Plus className="w-4 h-4 mr-2" /> Iniciar Dia Operacional
+               </Button>
+            </div>
+         </div>
+      </Card>
 
-        {activeTab === 'specific' && (
-            <div className="p-6 space-y-6 max-w-[1600px] mx-auto animate-fade-in">
-                <div className="bg-slate-900 px-6 py-4 rounded-xl flex justify-between items-center text-white shadow-xl">
-                   <div className="flex items-center gap-4"><button onClick={() => selectedOpIds.size === filteredOps.length ? setSelectedOpIds(new Set()) : setSelectedOpIds(new Set(filteredOps.map(o => o.id)))} className="flex items-center gap-2 hover:opacity-80 transition-opacity">{selectedOpIds.size === filteredOps.length && filteredOps.length > 0 ? <CheckSquare className="w-5 h-5 text-red-500"/> : <Square className="w-5 h-5 text-slate-400"/>}<span className="text-xs font-black uppercase tracking-widest">RESULTADOS FILTRADOS ({filteredOps.length})</span></button></div>
-                   
-                   <div className="flex items-center gap-4">
-                       <Badge className="bg-red-900/50 text-red-200 border-red-800 font-black text-[9px] h-6 px-3">{selectedOpIds.size} SELECIONADOS</Badge>
-                       {selectedOpIds.size > 0 && (
-                           <div className="flex items-center gap-2">
-                               {currentUser?.role === 'admin' && (
-                                   <Button onClick={handleDeleteOperations} disabled={loading} className="bg-red-900 hover:bg-black text-white h-9 px-4 text-[10px] font-black uppercase tracking-widest shadow-lg">
-                                       <Trash2 className="w-3.5 h-3.5 mr-2"/> EXCLUIR
-                                   </Button>
-                               )}
-                               <Button onClick={handleExportBoletim} disabled={generatingPdf} className="bg-red-700 hover:bg-red-800 text-white h-9 px-6 text-[10px] font-black uppercase tracking-widest shadow-lg">
-                                   <Printer className="w-3.5 h-3.5 mr-2"/> {generatingPdf ? 'PROCESSANDO...' : 'GERAR BOLETINS'}
-                               </Button>
+      <div className="space-y-4">
+         {days.length === 0 && <p className="text-center text-slate-400 italic py-4">Nenhum dia registrado nesta operação.</p>}
+         
+         {days.map(day => {
+            const displayDate = new Date(day.date + 'T12:00:00').toLocaleDateString();
+            return (
+            <div key={day.id} className={`border rounded-lg bg-white overflow-hidden shadow-sm ${day.status === 'closed' ? 'border-green-200 bg-green-50/30' : 'border-slate-200'}`}>
+               <div className="p-4 bg-slate-50 flex flex-col md:flex-row justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors gap-3" onClick={() => toggleDay(day)}>
+                  {editingDayId === day.id ? (
+                      <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2 w-full" onClick={e => e.stopPropagation()}>
+                          <input type="date" className="p-1 border rounded text-sm" value={editDayData.date} onChange={e => setEditDayData({...editDayData, date: e.target.value})} />
+                          <select className="p-1 border rounded text-sm" value={editDayData.responsible_pilot_id} onChange={e => setEditDayData({...editDayData, responsible_pilot_id: e.target.value})}>
+                              {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                          </select>
+                          <div className="flex gap-2">
+                              <input className="p-1 border rounded text-sm flex-1" placeholder="Clima" value={editDayData.weather_summary} onChange={e => setEditDayData({...editDayData, weather_summary: e.target.value})} />
+                              <Button size="sm" onClick={handleSaveEditDay} className="bg-green-600 text-white"><Save className="w-4 h-4"/></Button>
+                              <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setEditingDayId(null); }}><X className="w-4 h-4"/></Button>
+                          </div>
+                      </div>
+                  ) : (
+                      <>
+                        <div className="flex items-center gap-4 flex-1">
+                            <div className={`text-white p-2 rounded-lg shrink-0 ${day.status === 'closed' ? 'bg-green-600' : 'bg-blue-600'}`}>
+                                <Calendar className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                                    {displayDate}
+                                    {day.status === 'closed' && <Badge variant="success">Fechado</Badge>}
+                                </h4>
+                                <p className="text-xs text-slate-500">Resp: {pilots.find(p => p.id === day.responsible_pilot_id)?.full_name}</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <span className="text-xs bg-white border px-2 py-1 rounded text-slate-600 flex items-center gap-1">
+                                <CloudRain className="w-3 h-3" /> {day.weather_summary}
+                            </span>
+                            <div className="flex gap-2 mr-2" onClick={e => e.stopPropagation()}>
+                                <Button size="sm" variant="outline" className="h-8 w-8 p-0 border-blue-200 text-blue-600 hover:bg-blue-50 transition-all shadow-sm" onClick={(e) => handleStartEditDay(e, day)} title="Editar"><Edit3 className="w-4 h-4" /></Button>
+                                <Button size="sm" variant="outline" className="h-8 w-8 p-0 border-red-200 text-red-600 hover:bg-red-50 transition-all shadow-sm" onClick={(e) => handleDeleteDay(e, day.id)} title="Excluir"><Trash2 className="w-4 h-4" /></Button>
+                            </div>
+                            {expandedDayId === day.id ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
+                        </div>
+                      </>
+                  )}
+               </div>
+               {expandedDayId === day.id && (
+                  <div className="p-4 border-t border-slate-200 bg-white animate-fade-in space-y-6">
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-3">
+                           <h5 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2 border-b pb-1"><Plane className="w-3 h-3" /> Aeronaves do Dia</h5>
+                           <div className="flex gap-2">
+                              <Select value={selectedAsset} onChange={e => setSelectedAsset(e.target.value)} className="text-xs">
+                                 <option value="">Adicionar Drone...</option>
+                                 {drones.map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
+                              </Select>
+                              <Button size="sm" onClick={() => handleAddAsset(day.id)} className="bg-slate-100 text-slate-700 border border-slate-200">
+                                 <Plus className="w-3 h-3" />
+                              </Button>
                            </div>
-                       )}
-                   </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredOps.map(op => (
-                        <Card key={op.id} onClick={() => handleToggleSelect(op.id)} className={`p-4 border-2 transition-all cursor-pointer relative hover:shadow-lg ${selectedOpIds.has(op.id) ? 'border-blue-500 bg-blue-50/20' : 'border-white bg-white shadow-sm'}`}>
-                            <div className="absolute top-4 right-4">{selectedOpIds.has(op.id) ? <CheckSquare className="w-5 h-5 text-blue-600"/> : <Square className="w-5 h-5 text-slate-200"/>}</div>
-                            <div className="pr-8 mb-4"><h4 className="font-black text-slate-800 text-sm uppercase leading-tight truncate">{op.name}</h4><p className="text-[10px] text-slate-400 font-mono mt-1 uppercase">#{op.occurrence_number}</p></div>
-                            <div className="flex gap-2 mb-6"><Badge className="bg-slate-100 text-slate-600 text-[9px] font-black border-none uppercase">{MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}</Badge><Badge variant={op.status === 'completed' ? 'success' : 'warning'} className="text-[9px] font-black uppercase">{op.status === 'active' ? 'ACTIVE' : op.status.toUpperCase()}</Badge></div>
-                            <div className="flex justify-between items-center pt-3 border-t border-slate-100 text-slate-400"><div className="flex items-center gap-1.5 font-bold text-[10px]"><Calendar className="w-3.5 h-3.5"/> {new Date(op.start_time).toLocaleDateString('pt-BR')}</div><div className="flex items-center gap-1.5 font-mono text-[10px] font-black text-slate-500"><Clock className="w-3.5 h-3.5"/> {formatFlightHours(op.flight_hours || 0)}</div></div>
-                        </Card>
-                    ))}
-                </div>
+                           <div className="space-y-1">
+                              {currentAssets.map(a => (
+                                 <div key={a.id} className="flex justify-between items-center text-sm bg-slate-50 p-2 rounded">
+                                    <span>{drones.find(d => d.id === a.drone_id)?.prefix}</span>
+                                    <Badge variant="success">Em Operação</Badge>
+                                 </div>
+                              ))}
+                           </div>
+                        </div>
+                        <div className="space-y-3">
+                           <h5 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2 border-b pb-1"><Users className="w-3 h-3" /> Equipe do Dia</h5>
+                           <div className="flex gap-2">
+                              <Select value={selectedPilot} onChange={e => setSelectedPilot(e.target.value)} className="text-xs">
+                                 <option value="">Adicionar Piloto...</option>
+                                 {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                              </Select>
+                              <Select value={selectedRole} onChange={e => setSelectedRole(e.target.value)} className="text-xs w-24">
+                                 <option value="pic">PIC</option><option value="obs">OBS</option>
+                              </Select>
+                              <Button size="sm" onClick={() => handleAddPilot(day.id)} className="bg-slate-100 text-slate-700 border border-slate-200">
+                                 <Plus className="w-3 h-3" />
+                              </Button>
+                           </div>
+                           <div className="space-y-1">
+                              {currentPilots.map(p => (
+                                 <div key={p.id} className="flex justify-between items-center text-sm bg-slate-50 p-2 rounded">
+                                    <span>{pilots.find(x => x.id === p.pilot_id)?.full_name}</span>
+                                    <span className="text-xs font-mono bg-white px-1 rounded border">{p.role.toUpperCase()}</span>
+                                 </div>
+                              ))}
+                           </div>
+                        </div>
+                     </div>
+                     <div className="space-y-3 pt-2">
+                        <h5 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2 border-b pb-1"><Activity className="w-3 h-3" /> Ações Realizadas</h5>
+                        <textarea className="w-full h-32 p-3 border border-slate-300 rounded-lg text-sm" placeholder="Descreva as atividades deste dia..." value={dayNotes} onChange={e => setDayNotes(e.target.value)} />
+                        <div className="flex justify-end gap-3 pt-2">
+                            <Button onClick={() => handleUpdateDayNotes(day.id)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-9"><Save className="w-3 h-3 mr-2" /> Atualizar Informações</Button>
+                            {day.status !== 'closed' && (
+                                <Button onClick={() => handleCloseDay(day.id)} disabled={loading} className="bg-slate-800 hover:bg-black text-white text-xs h-9">
+                                    <CheckSquare className={`w-3 h-3 mr-2 ${loading ? 'animate-spin' : ''}`} /> {loading ? 'Processando...' : 'Encerrar Dia'}
+                                </Button>
+                            )}
+                        </div>
+                     </div>
+                  </div>
+               )}
             </div>
-        )}
-
-        {activeTab === 'mgmt' && (
-            <div className="p-6 space-y-6 max-w-[1600px] mx-auto animate-fade-in">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <Card className="p-8 shadow-md bg-white border border-slate-100">
-                        <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-10 flex items-center gap-3"><Users className="w-5 h-5 text-red-700"/> PRODUTIVIDADE: HORAS POR PILOTO (TOP 10)</h4>
-                        <div className="h-[500px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={statsData.pilotData} layout="vertical" margin={{ left: 60, right: 20 }}><CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" /><XAxis type="number" tick={{fontSize: 11, fontWeight: 600}} axisLine={false} tickLine={false} /><YAxis dataKey="name" type="category" width={140} tick={{fontSize: 9, fontWeight: 700, fill: '#475569', textTransform: 'uppercase'}} axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="value" fill="#1e293b" radius={[0, 8, 8, 0]} barSize={24} /></BarChart></ResponsiveContainer></div>
-                    </Card>
-                    <Card className="p-8 shadow-md bg-white border border-slate-100">
-                        <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-10 flex items-center gap-3"><Plane className="w-5 h-5 text-red-700"/> EMPREGO DA FROTA: HORAS POR RPA</h4>
-                        <div className="h-[500px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={statsData.fleetData} margin={{ bottom: 30 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" /><XAxis dataKey="name" tick={{fontSize: 9, fontWeight: 800, fill: '#64748b'}} axisLine={false} tickLine={false} /><YAxis tick={{fontSize: 11, fontWeight: 600}} axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="value" fill="#b91c1c" radius={[6, 6, 0, 0]} barSize={40} /></BarChart></ResponsiveContainer></div>
-                    </Card>
-                </div>
-            </div>
-        )}
+         )})}
       </div>
     </div>
   );
