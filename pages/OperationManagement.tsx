@@ -47,8 +47,8 @@ const LocationSelectorMap = ({ mode, center, radius, onPositionChange, onElement
     useEffect(() => { setTimeout(() => map.invalidateSize(), 400) }, [map]);
 
     useEffect(() => {
-        if (!map || !map.pm) return;
-        map.pm.disableDraw();
+        if (!map || !(map as any).pm) return;
+        (map as any).pm.disableDraw();
         const drawOptions = {
             snappable: true,
             snapDistance: 20,
@@ -58,11 +58,11 @@ const LocationSelectorMap = ({ mode, center, radius, onPositionChange, onElement
             finishOn: 'dblclick' as 'dblclick',
         };
         if (mode === 'polygon') {
-            map.pm.enableDraw('Polygon', { ...drawOptions, pathOptions: { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.2 } });
+            (map as any).pm.enableDraw('Polygon', { ...drawOptions, pathOptions: { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.2 } });
         } else if (mode === 'line') {
-            map.pm.enableDraw('Line', { ...drawOptions, pathOptions: { color: '#f59e0b', weight: 4, dashArray: '5, 10' } });
+            (map as any).pm.enableDraw('Line', { ...drawOptions, pathOptions: { color: '#f59e0b', weight: 4, dashArray: '5, 10' } });
         } else if (mode === 'poi') {
-            map.pm.enableDraw('Marker', drawOptions);
+            (map as any).pm.enableDraw('Marker', drawOptions);
         }
         const handleCreate = (e: any) => {
             const layer = e.layer;
@@ -73,7 +73,7 @@ const LocationSelectorMap = ({ mode, center, radius, onPositionChange, onElement
         map.on('pm:create', handleCreate);
         return () => {
             map.off('pm:create', handleCreate);
-            if (map.pm) map.pm.disableDraw();
+            if ((map as any).pm) (map as any).pm.disableDraw();
         };
     }, [map, mode, onElementCreated]);
 
@@ -196,7 +196,7 @@ export default function OperationManagement() {
       if (!navigator.geolocation) { alert("Geolocalização não suportada."); return; }
       navigator.geolocation.getCurrentPosition((pos) => {
           setFormData(prev => ({ ...prev, latitude: pos.coords.latitude, longitude: pos.coords.longitude }));
-      }, (err) => { alert("Falha ao obter localização."); });
+      }, (err) => { alert("Falha ao obter localização. Verifique as permissões de GPS."); });
   };
 
   const handleOpenNewMission = () => {
@@ -546,7 +546,7 @@ export default function OperationManagement() {
                   ) : (
                       <div className="p-8">
                           <div className="flex justify-between items-center mb-8"><h3 className={`text-2xl font-black uppercase tracking-tight flex items-center gap-3 ${controlModal.type === 'pause' ? 'text-orange-700' : 'text-slate-900'}`}>{controlModal.type === 'pause' ? <Pause className="w-7 h-7 text-orange-500" /> : <CheckCircle className="w-7 h-7 text-red-600" />}{controlModal.type === 'pause' ? 'Pausar Missão' : 'Encerrar Missão'}</h3><button onClick={() => setControlModal({type: null, op: null})} className="p-2 hover:bg-slate-100 rounded-full"><X className="w-6 h-6 text-slate-400"/></button></div>
-                          <form onSubmit={handleAction} className="space-y-6">{controlModal.type === 'pause' && (<div className="bg-orange-50 border border-orange-200 p-5 rounded-3xl text-orange-800 text-sm font-medium leading-relaxed">Você está prestes a pausar a missão: <strong className="font-black">{controlModal.op.name}</strong>.<p className="mt-2 text-xs font-bold text-orange-600">O tempo decorrido durante a pausa não será contabilizado como hora de voo.</p></div>)}{controlModal.type === 'end' ? (<><Input label="Tempo Total de Voo (HH:MM)" type="text" pattern="[0-9]{2}:[0-9]{2}" placeholder="00:00" required value={flightDurationStr} onChange={e => { let val = e.target.value.replace(/\D/g, ''); if (val.length > 4) val = val.slice(0, 4); if (val.length > 2) val = val.slice(0, 2) + ':' + val.slice(2); setFlightDurationStr(val); }} className="h-12 font-black text-lg bg-slate-50 text-center" /><p className="text-[10px] text-slate-400 text-center -mt-4">Ex: 01:30 para 1h 30m voadas</p><div className="space-y-1.5"><label className="text-[10px] font-black text-slate-500 ml-1">Relato de Ações Realizadas</label><textarea className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm min-h-[140px] outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-600 transition-all resize-none" placeholder="Descreva brevemente o emprego do vetor..." required value={actionsTaken} onChange={e => setActionsTaken(e.target.value)} /></div></>) : (<div className="space-y-1.5"><label className="text-[10px] font-black text-slate-500 ml-1">Motivo desta Ação</label><textarea className="w-full p-5 bg-slate-50 border border-slate-200 rounded-[2rem] text-sm min-h-[160px] outline-none focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 transition-all resize-none font-medium" placeholder="Ex: Troca de Bateria, Condições Climáticas..." required value={reason} onChange={e => setReason(e.target.value)} /></div>)}<div className="flex gap-4 pt-4"><button type="button" onClick={() => setControlModal({type: null, op: null})} className="flex-1 h-14 rounded-xl border-2 border-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest hover:bg-slate-50 transition-all">Cancelar</button><button type="submit" disabled={loading} className={`flex-1 h-14 rounded-xl text-white font-black text-xs uppercase tracking-widest shadow-2xl transition-all ${controlModal.type === 'pause' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-red-700 hover:bg-red-800'}`}>{loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5 mr-2 inline" />} Confirmar</button></div></form>
+                          <form onSubmit={handleAction} className="space-y-6">{controlModal.type === 'pause' && (<div className="bg-orange-50 border border-orange-200 p-5 rounded-3xl text-orange-800 text-sm font-medium leading-relaxed">Você está prestes a pausar a missão: <strong className="font-black">{controlModal.op.name}</strong>.<p className="mt-2 text-xs font-bold text-orange-600">O tempo decorrido durante a pausa não será contabilizado como hora de voo.</p></div>)}{controlModal.type === 'end' ? (<><Input label="Tempo Total de Voo (HH:MM)" type="text" pattern="[0-9]{2}:[0-9]{2}" placeholder="00:00" required value={flightDurationStr} onChange={e => { let val = e.target.value.replace(/\D/g, ''); if (val.length > 4) val = val.slice(0, 4); if (val.length > 2) val = val.slice(0, 2) + ':' + val.slice(2); setFlightDurationStr(val); }} className="h-12 font-black text-lg bg-slate-50 text-center" /><p className="text-[10px] text-slate-400 text-center -mt-4">Ex: 01:30 para 1h 30m voadas</p><div className="space-y-1.5"><label className="text-[10px] font-black text-slate-500 ml-1">Relato de Ações Realizadas</label><textarea className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm min-h-[140px] outline-none focus:ring-4 focus:ring-red-500/10 focus:border-red-600 transition-all resize-none" placeholder="Descreva brevemente o emprego do vetor..." required value={actionsTaken} onChange={e => setActionsTaken(e.target.value)} /></div></>) : (<div className="space-y-1.5"><label className="text-[10px] font-black text-slate-500 ml-1">Motivo desta Ação</label><textarea className="w-full p-5 bg-slate-50 border border-slate-200 rounded-[2rem] text-sm min-h-[160px] outline-none focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 transition-all resize-none font-medium" placeholder="Ex: Troca de Bateria, Condições Climáticas..." required value={reason} onChange={e => setReason(e.target.value)} /></div>)}<div className="flex gap-4 pt-4"><button type="button" onClick={() => setControlModal({type: null, op: null})} className="flex-1 h-14 rounded-xl border-2 border-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest hover:bg-slate-50 transition-all">Cancelar</button><button type="submit" disabled={loading} className={`flex-1 h-14 rounded-xl text-white font-black text-xs uppercase tracking-widest shadow-2xl transition-all ${controlModal.type === 'pause' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-red-700 hover:bg-red-800'}`}>{loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}{formData.id ? 'Atualizar Missão RPA' : 'Iniciar Missão RPA'}</button></div></form>
                       </div>
                   )}
               </Card>
