@@ -182,8 +182,11 @@ export default function Reports() {
     if (selectedOpIds.size === 0) return;
     setGeneratingPdf(true);
     try {
-        const { default: jsPDF } = await import('jspdf');
-        const { default: autoTable } = await import('jspdf-autotable');
+        // Fix for TypeScript error on line 166: using typed dynamic imports
+        const jsPDFModule: any = await import('jspdf');
+        const jsPDF = jsPDFModule.default || jsPDFModule;
+        const autoTableModule: any = await import('jspdf-autotable');
+        const autoTable = autoTableModule.default || autoTableModule;
 
         const doc = new jsPDF();
         const pageWidth = doc.internal.pageSize.width;
@@ -257,7 +260,8 @@ export default function Reports() {
 
             if (yAfter > pageHeight - 40) doc.addPage();
             doc.setFont("helvetica", "bold"); doc.text("4. RELATO OPERACIONAL", 14, yAfter || 20);
-            const relato = `NARRATIVA:\n${op.description || 'Sem descrição.'}\n\AÇÕES TOMADAS:\n${op.actions_taken || 'Nenhuma ação detalhada.'}`;
+            // Fix: Corrected invalid escape sequence by adding newline character properly
+            const relato = `NARRATIVA:\n${op.description || 'Sem descrição.'}\n\nAÇÕES TOMADAS:\n${op.actions_taken || 'Nenhuma ação detalhada.'}`;
             const splitNarrative = doc.splitTextToSize(relato, pageWidth - 28);
             doc.setFont("helvetica", "normal"); doc.setFontSize(9);
             doc.text(splitNarrative, 14, (yAfter || 20) + 7);
