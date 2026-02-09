@@ -6,7 +6,7 @@ import L from 'leaflet';
 import "@geoman-io/leaflet-geoman-free";
 import html2canvas from 'html2canvas'; 
 import { base44 } from '../services/base44Client';
-import { tacticalService, TacticalSector, TacticalDrone, TacticalPOI } from '../services/tacticalService';
+import { tacticalService, TacticalSector, TacticalDrone, TacticalPOI, TacticalKmlLayer } from '../services/tacticalService';
 import { Operation, Drone, Pilot, MISSION_COLORS, MISSION_HIERARCHY } from '../types';
 import { Card, Button, Input, Select, Badge } from '../components/ui_components';
 import { 
@@ -14,14 +14,13 @@ import {
   MapPin, Settings, X, Save, Eye, EyeOff, Move, Navigation,
   ShieldAlert, Target, Video, ListFilter, History, Zap, 
   Map as MapIcon, Globe, ChevronRight, ChevronLeft, Maximize, Minimize, MousePointer2,
-  Users, Truck, Dog, UserCheck, Ruler, LayoutDashboard, Camera, CheckCircle, Loader2, Layers, Satellite
+  Users, Truck, Dog, UserCheck, Ruler, LayoutDashboard, Camera, CheckCircle, Loader2, Layers, Satellite, FileUp, Files
 } from 'lucide-react';
 import SectorsLayer from '../components/maps/tactical/SectorsLayer';
 
 const PHONETIC = ['ALFA', 'BRAVO', 'CHARLIE', 'DELTA', 'ECHO', 'FOXTROT', 'GOLF', 'HOTEL', 'INDIA', 'JULIETT', 'KILO', 'LIMA', 'MIKE', 'NOVEMBER', 'OSCAR', 'PAPA', 'QUEBEC', 'ROMEO', 'SIERRA', 'TANGO', 'UNIFORM', 'VICTOR', 'WHISKEY', 'X-RAY', 'YANKEE', 'ZULU'];
 const TACTICAL_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#f97316', '#14b8a6', '#6366f1'];
 
-// CACHE FOR TACTICAL ICONS to prevent DOM jitter and Leaflet position errors
 const poiIconCache: Record<string, L.DivIcon> = {};
 const droneIconCache: Record<string, L.DivIcon> = {};
 
@@ -58,7 +57,6 @@ const isPointInPolygon = (lat: number, lng: number, polygonCoords: any) => {
 
 const getPoiIcon = (type: string) => {
     if (poiIconCache[type]) return poiIconCache[type];
-    
     let iconHtml = ''; let color = '';
     switch(type) {
         case 'base': iconHtml = `<svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4 text-white"><path d="M12.75 3.066a2.25 2.25 0 00-1.5 0l-9.75 3.9A2.25 2.25 0 000 9.066v9.457c0 1.05.738 1.956 1.767 2.169l9.75 2.025a2.25 2.25 0 00.966 0l9.75-2.025A2.25 2.25 0 0024 18.523V9.066a2.25 2.25 0 00-1.5-2.1l-9.75-3.9z" /></svg>`; color = '#b91c1c'; break;
@@ -79,11 +77,8 @@ const createTacticalDroneIcon = (td: TacticalDrone) => {
     const alt = td.flight_altitude || 60; const rad = td.radius || 200;
     const color = td.status === 'active' ? '#22c55e' : '#f59e0b';
     const isMain = td.id === 'main-drone-virtual';
-    
-    // Key for caching including main state, pilot name, altitude and radius
     const cacheKey = `${isMain}-${pilotName}-${alt}-${rad}-${td.status}`;
     if (droneIconCache[cacheKey]) return droneIconCache[cacheKey];
-
     const icon = L.divIcon({ 
         className: 'drone-tactical-marker', 
         html: `<div style="display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.4));">
@@ -106,7 +101,6 @@ const createTacticalDroneIcon = (td: TacticalDrone) => {
         iconSize: [110, 110], 
         iconAnchor: [55, 55] 
     });
-    
     droneIconCache[cacheKey] = icon;
     return icon;
 };
@@ -115,7 +109,6 @@ const MapDrawingBridge = ({ drawMode, setDrawMode }: { drawMode: string | null, 
     const map = useMap();
     useEffect(() => {
         if (!map || !map.pm) return;
-        
         try {
             if (drawMode) { 
                 const options = { snappable: true, cursorMarker: true, hintlineStyle: { color: '#3388ff', dashArray: [5, 5] } };
@@ -124,44 +117,28 @@ const MapDrawingBridge = ({ drawMode, setDrawMode }: { drawMode: string | null, 
                     case 'route': map.pm.enableDraw('Line', options); break; 
                     case 'poi': map.pm.enableDraw('Marker', options); break;
                 }
-            } else {
-                map.pm.disableDraw(); 
-            }
+            } else map.pm.disableDraw();
         } catch (error) {
             console.error("Geoman Draw Error:", error);
             map.pm.disableDraw();
             setDrawMode(null);
         }
-
-        return () => { 
-            if (map && map.pm) map.pm.disableDraw(); 
-        };
+        return () => { if (map && map.pm) map.pm.disableDraw(); };
     }, [drawMode, map, setDrawMode]); 
     return null;
 };
 
 const MapController = ({ center, isCreating, onMapReady }: { center: [number, number], isCreating: boolean, onMapReady?: (map: L.Map) => void }) => {
     const map = useMap();
+    useEffect(() => { if (onMapReady) onMapReady(map); }, [map, onMapReady]);
     useEffect(() => {
-        if (onMapReady) onMapReady(map);
-    }, [map, onMapReady]);
-    
-    useEffect(() => {
-        const timer = setTimeout(() => { 
-            if (map && map.getContainer()) {
-                map.invalidateSize(); 
-            }
-        }, 400);
+        const timer = setTimeout(() => { if (map && map.getContainer()) map.invalidateSize(); }, 400);
         return () => clearTimeout(timer);
     }, [map]);
-
     useEffect(() => { 
         if (!map || isCreating) return; 
-        if (map.getContainer()) {
-            map.flyTo(center, map.getZoom(), { duration: 1 }); 
-        }
+        if (map.getContainer()) map.flyTo(center, map.getZoom(), { duration: 1 }); 
     }, [center, map, isCreating]);
-    
     return null;
 };
 
@@ -170,10 +147,12 @@ export default function TacticalOperationCenter() {
   const navigate = useNavigate();
   const mapRef = useRef<HTMLDivElement>(null); 
   const leafletMapRef = useRef<L.Map | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [operation, setOperation] = useState<Operation | null>(null);
   const [sectors, setSectors] = useState<TacticalSector[]>([]);
   const [pois, setPois] = useState<TacticalPOI[]>([]);
   const [tacticalDrones, setTacticalDrones] = useState<TacticalDrone[]>([]);
+  const [kmlLayers, setKmlLayers] = useState<TacticalKmlLayer[]>([]);
   const [availableDrones, setAvailableDrones] = useState<Drone[]>([]);
   const [availablePilots, setAvailablePilots] = useState<Pilot[]>([]);
   const [timeline, setTimeline] = useState<{id: string, text: string, time: string, icon: any}[]>([]);
@@ -182,9 +161,9 @@ export default function TacticalOperationCenter() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<'plan' | 'timeline' | 'weather'>('plan');
-  const [activePanel, setActivePanel] = useState<'create' | 'manage' | null>(null);
+  const [activePanel, setActivePanel] = useState<'create' | 'manage' | 'import' | null>(null);
   const [selectedEntity, setSelectedEntity] = useState<any>(null); 
-  const [entityType, setEntityType] = useState<'sector' | 'poi' | 'drone' | null>(null);
+  const [entityType, setEntityType] = useState<'sector' | 'poi' | 'drone' | 'kml' | null>(null);
   const [showFloatingVideo, setShowFloatingVideo] = useState(false);
   const [mapType, setMapType] = useState<'street' | 'satellite'>('street');
   const [currentDrawMode, setCurrentDrawMode] = useState<string | null>(null);
@@ -194,44 +173,43 @@ export default function TacticalOperationCenter() {
   const [newItemColor, setNewItemColor] = useState('#ef4444');
   const [newItemSubType, setNewItemSubType] = useState('victim'); 
   const [tempGeometry, setTempGeometry] = useState<any>(null); 
-  
   const [mainResources, setMainResources] = useState<{ pilot?: Pilot, drone?: Drone }>({});
+  
+  // Import State
+  const [importType, setImportType] = useState<'sector' | 'path'>('sector');
 
   useEffect(() => { if (id) loadTacticalData(id); }, [id]);
 
   const loadTacticalData = async (opId: string) => {
     try {
-      const [op, sects, points, tDrones, allDrones, allPilots] = await Promise.all([
+      const [op, sects, points, tDrones, allDrones, allPilots, layers] = await Promise.all([
           base44.entities.Operation.filter({ id: opId }).then(res => res[0]), 
           tacticalService.getSectors(opId), 
           tacticalService.getPOIs(opId), 
           tacticalService.getTacticalDrones(opId), 
           base44.entities.Drone.list(), 
-          base44.entities.Pilot.list()
+          base44.entities.Pilot.list(),
+          tacticalService.getKmlLayers(opId)
       ]);
       if (!op) { navigate('/operations'); return; }
-      
       const enriched = tDrones.map(td => ({ ...td, drone: allDrones.find(d => d.id === td.drone_id), pilot: allPilots.find(p => p.id === td.pilot_id) }));
-      
       const mainPilot = allPilots.find(p => p.id === op.pilot_id);
       const mainDrone = allDrones.find(d => d.id === op.drone_id);
       setMainResources({ pilot: mainPilot, drone: mainDrone });
-
       setOperation(op); 
       if (!pcPosition) setPcPosition([op.latitude, op.longitude]);
-      
       setSectors(sects); 
       setPois(points); 
       setTacticalDrones(enriched); 
       setAvailableDrones(allDrones); 
       setAvailablePilots(allPilots);
+      setKmlLayers(layers);
     } catch (e) {} finally { setLoading(false); }
   };
 
   const operationalSummary = useMemo(() => {
       const mainDroneCount = (operation?.drone_id) ? 1 : 0;
       const totalDrones = tacticalDrones.length + mainDroneCount;
-
       const totalAreaM2 = sectors.filter(s => s.type === 'sector' && s.geojson?.coordinates).reduce((acc, s) => acc + calculatePolygonArea(s.geojson.coordinates), 0);
       return { 
           totalAreaM2, 
@@ -260,88 +238,43 @@ export default function TacticalOperationCenter() {
       if (!id || isCapturing || !leafletMapRef.current) return;
       setIsCapturing(true); 
       addLog("ENQUADRANDO TEATRO OPERACIONAL...", Target);
-      
       const map = leafletMapRef.current;
       const originalCenter = map.getCenter();
       const originalZoom = map.getZoom();
-
       try {
-          // 1. Calcular enquadramento de todos os elementos para não haver cortes
           const bounds = L.latLngBounds([]);
-          
-          sectors.forEach(s => {
-              if (s.geojson?.coordinates) {
-                  const layer = L.geoJSON(s.geojson);
-                  bounds.extend(layer.getBounds());
-              }
-          });
-          
+          sectors.forEach(s => { if (s.geojson?.coordinates) bounds.extend(L.geoJSON(s.geojson).getBounds()); });
+          kmlLayers.forEach(l => { if (l.visible && l.geojson) bounds.extend(L.geoJSON(l.geojson).getBounds()); });
           pois.forEach(p => bounds.extend([p.lat, p.lng]));
-          tacticalDrones.forEach(td => {
-              if (td.current_lat && td.current_lng) bounds.extend([td.current_lat, td.current_lng]);
-          });
+          tacticalDrones.forEach(td => { if (td.current_lat && td.current_lng) bounds.extend([td.current_lat, td.current_lng]); });
           if (pcPosition) bounds.extend(pcPosition);
-
-          // 2. Ajustar visão para englobar tudo se houver dados válidos
           if (bounds.isValid()) {
               map.fitBounds(bounds, { padding: [60, 60], animate: false });
               map.invalidateSize();
-              // Aguardar estabilização dos tiles
               await new Promise(r => setTimeout(r, 2000));
           }
-
           await syncTacticalSummary();
           const mapEl = mapRef.current?.querySelector('.leaflet-container') as HTMLElement;
           if (!mapEl) throw new Error("Mapa não encontrado");
-          
-          const canvas = await html2canvas(mapEl, {
-              useCORS: true, 
-              allowTaint: true,
-              scale: 2, 
-              backgroundColor: null, 
-              ignoreElements: (element) => {
-                 const cls = element.classList;
-                 return cls.contains('leaflet-control-container');
-              }
-          });
-          
+          const canvas = await html2canvas(mapEl, { useCORS: true, allowTaint: true, scale: 2, backgroundColor: null, ignoreElements: (element) => element.classList.contains('leaflet-control-container') });
           const base64 = canvas.toDataURL('image/jpeg', 0.8);
           tacticalService.saveMapSnapshot(id, base64);
-
-          // Restaurar visão original do piloto
           map.setView(originalCenter, originalZoom, { animate: false });
-          
           addLog("SNAPSHOT INTEGRAL SALVO.", CheckCircle);
           alert("Teatro operacional capturado com sucesso!");
-      } catch (e) { 
-          console.error(e);
-          alert("Falha ao capturar mapa."); 
-      } finally { setIsCapturing(false); }
+      } catch (e) { console.error(e); alert("Falha ao capturar mapa."); } finally { setIsCapturing(false); }
   };
 
   const handleDrawCreated = (e: any) => {
     const geojson = e.layer.toGeoJSON(); 
-    
     let type: 'poi' | 'line' | 'sector' = 'sector';
-    if (e.layerType === 'marker' || e.shape === 'Marker') {
-        type = 'poi';
-    } else if (e.layerType === 'line' || e.shape === 'Line' || e.shape === 'Polyline') {
-        type = 'line';
-    } else {
-        type = 'sector';
-    }
-
-    setNewItemType(type); 
-    setTempGeometry(geojson);
-    setCurrentDrawMode(null);
-
-    if (type !== 'poi') { 
-        setNewItemName(PHONETIC[sectors.length % PHONETIC.length]); 
-        setNewItemColor(TACTICAL_COLORS[sectors.length % TACTICAL_COLORS.length]); 
-    } else setNewItemName(""); 
-    
-    setSidebarOpen(true); 
-    setActivePanel('create');
+    if (e.layerType === 'marker' || e.shape === 'Marker') type = 'poi';
+    else if (e.layerType === 'line' || e.shape === 'Line' || e.shape === 'Polyline') type = 'line';
+    else type = 'sector';
+    setNewItemType(type); setTempGeometry(geojson); setCurrentDrawMode(null);
+    if (type !== 'poi') { setNewItemName(PHONETIC[sectors.length % PHONETIC.length]); setNewItemColor(TACTICAL_COLORS[sectors.length % TACTICAL_COLORS.length]); }
+    else setNewItemName(""); 
+    setSidebarOpen(true); setActivePanel('create');
   };
 
   const saveNewItem = async () => {
@@ -350,24 +283,78 @@ export default function TacticalOperationCenter() {
           if (newItemType === 'poi') { 
             const [lng, lat] = tempGeometry.geometry.coordinates; 
             await tacticalService.createPOI({ operation_id: id, name: newItemName, type: newItemSubType as any, lat, lng }); 
-          }
-          else { 
+          } else { 
             await tacticalService.createSector({ operation_id: id, name: newItemName, type: newItemType === 'line' ? 'route' : 'sector', color: newItemColor, geojson: tempGeometry.geometry, responsible: "N/A" }); 
           }
           setActivePanel(null); setTempGeometry(null); await loadTacticalData(id); syncTacticalSummary();
+          addLog(`NOVO ELEMENTO: ${newItemName}`, newItemType === 'poi' ? Flag : Hexagon);
       } catch (e) { alert("Falha ao persistir."); }
+  };
+
+  const parseKml = (text: string) => {
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(text, "text/xml");
+    const placemarks = Array.from(xml.getElementsByTagName("Placemark"));
+    const features: any[] = [];
+    placemarks.forEach(pm => {
+      const coordsTags = pm.getElementsByTagName("coordinates");
+      if (coordsTags.length > 0) {
+        const rawCoords = coordsTags[0].textContent?.trim() || "";
+        const points = rawCoords.split(/\s+/).map(p => {
+          const [lng, lat] = p.split(",").map(Number);
+          return [lng, lat];
+        });
+        if (pm.getElementsByTagName("Polygon").length > 0) {
+          features.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [points] }, properties: { name: pm.getElementsByTagName("name")[0]?.textContent || "Área Importada" } });
+        } else if (pm.getElementsByTagName("LineString").length > 0) {
+          features.push({ type: "Feature", geometry: { type: "LineString", coordinates: points }, properties: { name: pm.getElementsByTagName("name")[0]?.textContent || "Percurso Importado" } });
+        }
+      }
+    });
+    return features.length > 0 ? { type: "FeatureCollection", features } : null;
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !id) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const content = ev.target?.result as string;
+      const geojson = parseKml(content);
+      if (geojson) {
+        await tacticalService.saveKmlLayer({
+          operation_id: id,
+          name: file.name.replace(".kml", "").replace(".kmz", ""),
+          type: importType,
+          geojson,
+          visible: true,
+          color: importType === 'sector' ? '#3b82f6' : '#f59e0b'
+        });
+        loadTacticalData(id);
+        addLog(`CAMADA IMPORTADA: ${file.name}`, Files);
+      } else alert("Não foi possível extrair geometrias deste arquivo.");
+    };
+    reader.readAsText(file);
+  };
+
+  const toggleKmlVisibility = async (layer: TacticalKmlLayer) => {
+    await tacticalService.updateKmlLayer(layer.id, { visible: !layer.visible });
+    loadTacticalData(id!);
+  };
+
+  const deleteKmlLayer = async (layerId: string) => {
+    if (confirm("Remover esta camada do teatro operacional?")) {
+      await tacticalService.deleteKmlLayer(layerId);
+      loadTacticalData(id!);
+    }
   };
 
   const handleDroneDragEnd = async (e: any, drone: TacticalDrone) => {
       const pos = e.target.getLatLng();
-      
-      // Decouple React state update from Leaflet event loop to prevent _leaflet_pos error
       setTimeout(async () => {
           let detectedSectorId = "";
           for (const sector of sectors) { 
-            if (sector.type === 'sector' && isPointInPolygon(pos.lat, pos.lng, sector.geojson.coordinates)) { 
-                detectedSectorId = sector.id; break; 
-            } 
+            if (sector.type === 'sector' && isPointInPolygon(pos.lat, pos.lng, sector.geojson.coordinates)) { detectedSectorId = sector.id; break; } 
           }
           await tacticalService.updateDroneStatus(drone.id, { current_lat: pos.lat, current_lng: pos.lng, sector_id: detectedSectorId || undefined });
           loadTacticalData(id!);
@@ -382,15 +369,9 @@ export default function TacticalOperationCenter() {
 
   const handleMainDroneDragEnd = async (e: any) => {
       const pos = e.target.getLatLng();
-      
-      // Decouple React state update from Leaflet event loop
       setTimeout(async () => {
           setPcPosition([pos.lat, pos.lng]);
-          if (operation) {
-              try {
-                  await base44.entities.Operation.update(operation.id, { latitude: pos.lat, longitude: pos.lng });
-              } catch(e) { console.error("Failed to update op coords", e); }
-          }
+          if (operation) { try { await base44.entities.Operation.update(operation.id, { latitude: pos.lat, longitude: pos.lng }); } catch(e) {} }
       }, 0);
   };
 
@@ -408,136 +389,154 @@ export default function TacticalOperationCenter() {
         </div>
         <div className="flex items-center gap-3">
           <Button onClick={handleCaptureSnapshot} disabled={isCapturing} className={`h-9 px-4 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2 border shadow-lg ${isCapturing ? 'bg-slate-700 text-slate-400' : 'bg-blue-600 text-white border-blue-400 hover:bg-blue-700'}`}>{isCapturing ? <Loader2 className="w-4 h-4 animate-spin"/> : <Camera className="w-4 h-4" />} {isCapturing ? 'CAPTURANDO...' : 'CAPTURAR SNAPSHOT'}</Button>
-          {operation.stream_url && (<button onClick={() => setShowFloatingVideo(!showFloatingVideo)} className={`h-9 px-4 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-2 border shadow-lg ${showFloatingVideo ? 'bg-orange-50 text-white border-orange-400' : 'bg-orange-600/20 text-orange-400 border-orange-500/40 animate-pulse'}`}><Video className="w-4 h-4" /> {showFloatingVideo ? 'OCULTAR VÍDEO' : 'VÍDEO DISPONÍVEL'}</button>)}
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className={`h-9 px-5 rounded-lg text-[10px] font-black uppercase flex items-center gap-2 transition-all shadow-xl border border-white/10 ${sidebarOpen ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-white text-red-700'}`}>{sidebarOpen ? <><X className="w-4 h-4 text-white"/> FECHAR PAINEL</> : <><Maximize className="w-4 h-4"/> ABRIR PAINEL</>}</button>
         </div>
       </div>
       <div className="flex-1 flex overflow-hidden relative">
           <div className={`${sidebarOpen ? 'w-80' : 'w-0'} bg-white border-r border-slate-200 flex flex-col shadow-2xl z-[500] transition-all duration-300 overflow-hidden shrink-0`}>
               <div className="flex bg-slate-100 p-1.5 m-3 rounded-xl shrink-0"><button onClick={() => { setActiveTab('plan'); setActivePanel(null); }} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${activeTab === 'plan' ? 'bg-white text-red-700 shadow-sm' : 'text-slate-500'}`}>Teatro</button><button onClick={() => { setActiveTab('timeline'); setActivePanel(null); }} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${activeTab === 'timeline' ? 'bg-white text-red-700 shadow-sm' : 'text-slate-500'}`}>Logs</button><button onClick={() => { setActiveTab('weather'); setActivePanel(null); }} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${activeTab === 'weather' ? 'bg-white text-red-700 shadow-sm' : 'text-slate-500'}`}>MET</button></div>
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-3 relative bg-white">
-                  {activeTab === 'plan' && !activePanel && (<div className="space-y-5 animate-fade-in"><div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-4 shadow-sm"><h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b pb-2"><LayoutDashboard className="w-3.5 h-3.5"/> Resumo de Cena</h3><div className="grid grid-cols-2 gap-3"><div className="bg-white p-3 rounded-xl border border-slate-100 shadow-inner"><p className="text-[8px] font-black text-slate-400 uppercase">Área Total</p><p className="text-sm font-black text-blue-600">{formatArea(operationalSummary.totalAreaM2)}</p></div><div className="bg-white p-3 rounded-xl border border-slate-100 shadow-inner"><p className="text-[8px] font-black text-slate-400 uppercase">Drones no Ar</p><p className="text-sm font-black text-red-600">{operationalSummary.resources.drones} Unid.</p></div></div><div className="bg-white p-3 rounded-xl border border-slate-100 shadow-inner flex justify-between gap-2"><div className="flex flex-col items-center flex-1"><Users className="w-4 h-4 text-blue-600 mb-1" /><span className="text-xs font-black text-slate-700">{operationalSummary.resources.teams}</span></div><div className="w-px bg-slate-100"></div><div className="flex flex-col items-center flex-1"><Dog className="w-4 h-4 text-amber-600 mb-1" /><span className="text-xs font-black text-slate-700">{operationalSummary.resources.k9}</span></div><div className="w-px bg-slate-100"></div><div className="flex flex-col items-center flex-1"><Truck className="w-4 h-4 text-red-600 mb-1" /><span className="text-xs font-black text-slate-700">{operationalSummary.resources.vehicles}</span></div></div></div>
-                          <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3 shadow-2xl"><h3 className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-2"><Plus className="w-3.5 h-3.5"/> Ativar Vetor RPA</h3><div className="space-y-2"><Select className="h-9 text-[11px] bg-slate-800 border-slate-700 text-white" id="drone-select"><option value="">Aeronave...</option>{availableDrones.filter(d => d.status === 'available').map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}</Select><Select className="h-9 text-[11px] bg-slate-800 border-slate-700 text-white" id="pilot-select"><option value="">Comandante...</option>{availablePilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}</Select><Button className="w-full h-10 bg-red-600 hover:bg-red-700 text-white font-black uppercase text-[10px] tracking-widest shadow-lg" onClick={() => handleAssignDrone((document.getElementById('drone-select') as HTMLSelectElement).value, (document.getElementById('pilot-select') as HTMLSelectElement).value)}>Lançar no Mapa</Button></div></div>
-                          <div className="space-y-3"><h3 className="text-[10px] font-black text-slate-400 uppercase border-b pb-1">Unidades Ativas</h3>
-                            {mainResources.drone && (
-                                <div onClick={() => { leafletMapRef.current?.flyTo(pcPosition!, 18); }} className="flex items-center justify-between p-3 bg-red-50 border border-red-200 rounded-2xl cursor-pointer hover:border-red-400 transition-all shadow-sm">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-red-600 text-white shadow-md"><Zap className="w-5 h-5" /></div>
-                                        <div><div className="font-black text-xs text-red-900 uppercase leading-none">{mainResources.drone.prefix} (PRINCIPAL)</div><div className="text-[9px] text-red-700 font-bold uppercase mt-1.5">{mainResources.pilot?.full_name?.split(' ')[0]}</div></div>
-                                    </div>
-                                    <div className="text-right"><div className="text-[11px] font-black text-red-800">{operation.flight_altitude || 60}m</div></div>
-                                </div>
-                            )}
-                            {tacticalDrones.map(td => (<div key={td.id} onClick={() => { setSelectedEntity({...td}); setEntityType('drone'); setActivePanel('manage'); }} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-2xl hover:border-red-500 cursor-pointer transition-all shadow-sm group"><div className="flex items-center gap-3"><div className={`w-11 h-11 rounded-xl flex items-center justify-center border transition-colors ${td.status === 'active' ? 'bg-green-50 border-green-100 group-hover:bg-green-500 group-hover:text-white' : 'bg-orange-50 border-orange-100'}`}><Zap className="w-5 h-5" /></div><div><div className="font-black text-xs text-slate-800 uppercase leading-none">{td.drone?.prefix}</div><div className="text-[9px] text-slate-400 font-bold uppercase mt-1.5">{td.pilot?.full_name?.split(' ')[0]}</div></div></div><div className="text-right"><div className="text-[11px] font-black text-slate-700">{td.flight_altitude || 60}m</div>{td.stream_url && <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse ml-auto mt-1" title="Live Ativa"></div>}</div></div>))}</div></div>)}
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-3 relative bg-white space-y-5">
+                  {activeTab === 'plan' && !activePanel && (
+                      <div className="space-y-5 animate-fade-in">
+                          {/* Resumo de Cena */}
+                          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-4 shadow-sm">
+                              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b pb-2"><LayoutDashboard className="w-3.5 h-3.5"/> Resumo de Cena</h3>
+                              <div className="grid grid-cols-2 gap-3">
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-inner"><p className="text-[8px] font-black text-slate-400 uppercase">Área Total</p><p className="text-sm font-black text-blue-600">{formatArea(operationalSummary.totalAreaM2)}</p></div>
+                                  <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-inner"><p className="text-[8px] font-black text-slate-400 uppercase">Drones no Ar</p><p className="text-sm font-black text-red-600">{operationalSummary.resources.drones} Unid.</p></div>
+                              </div>
+                          </div>
+
+                          {/* Seção de Camadas KML/KMZ */}
+                          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-4 shadow-sm">
+                              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center justify-between border-b pb-2">
+                                <span className="flex items-center gap-2"><Globe className="w-3.5 h-3.5 text-blue-600"/> Camadas Externas</span>
+                                <button onClick={() => setActivePanel('import')} className="p-1 hover:bg-slate-100 rounded text-blue-600"><Plus className="w-3.5 h-3.5"/></button>
+                              </h3>
+                              <div className="space-y-2">
+                                  {kmlLayers.length === 0 && <p className="text-[10px] text-slate-400 italic text-center py-2">Nenhuma camada importada.</p>}
+                                  {kmlLayers.map(layer => (
+                                      <div key={layer.id} className="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-100 rounded-xl">
+                                          <div className="flex items-center gap-3 min-w-0">
+                                              <button onClick={() => toggleKmlVisibility(layer)} className={`${layer.visible ? 'text-blue-600' : 'text-slate-300'}`}>
+                                                  {layer.visible ? <Eye className="w-4 h-4"/> : <EyeOff className="w-4 h-4"/>}
+                                              </button>
+                                              <div className="min-w-0">
+                                                  <p className="text-[10px] font-bold text-slate-700 truncate uppercase">{layer.name}</p>
+                                                  <p className="text-[8px] text-slate-400 uppercase font-black">{layer.type === 'sector' ? 'Setorização' : 'Percurso'}</p>
+                                              </div>
+                                          </div>
+                                          <button onClick={() => deleteKmlLayer(layer.id)} className="text-slate-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5"/></button>
+                                      </div>
+                                  ))}
+                              </div>
+                          </div>
+
+                          {/* Ativar Vetor RPA */}
+                          <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3 shadow-2xl">
+                              <h3 className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-2"><Plus className="w-3.5 h-3.5"/> Ativar Vetor RPA</h3>
+                              <div className="space-y-2">
+                                  <Select className="h-9 text-[11px] bg-slate-800 border-slate-700 text-white" id="drone-select"><option value="">Aeronave...</option>{availableDrones.filter(d => d.status === 'available').map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}</Select>
+                                  <Select className="h-9 text-[11px] bg-slate-800 border-slate-700 text-white" id="pilot-select"><option value="">Comandante...</option>{availablePilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}</Select>
+                                  <Button className="w-full h-10 bg-red-600 hover:bg-red-700 text-white font-black uppercase text-[10px] tracking-widest shadow-lg" onClick={() => handleAssignDrone((document.getElementById('drone-select') as HTMLSelectElement).value, (document.getElementById('pilot-select') as HTMLSelectElement).value)}>Lançar no Mapa</Button>
+                              </div>
+                          </div>
+                      </div>
+                  )}
+
                   {activeTab === 'timeline' && (<div className="p-2 space-y-4 animate-fade-in bg-white">{timeline.map(e => (<div key={e.id} className="flex gap-3 bg-white p-3 rounded-xl border border-slate-100 items-start shadow-sm"><div className="p-2 bg-slate-50 rounded-lg shadow-sm"><e.icon className="w-4 h-4 text-red-500" /></div><div className="min-w-0"><p className="font-bold text-[11px] text-slate-800 leading-tight">{e.text}</p><p className="text-[9px] text-slate-400 font-black mt-1.5 uppercase">{e.time}</p></div></div>))}</div>)}
-                  {(activePanel === 'create' || activePanel === 'manage') && (<div className="absolute inset-0 bg-white z-[600] animate-fade-in flex flex-col p-5 space-y-5 border-l-4 border-red-600"><div className="flex justify-between items-center border-b pb-3"><h2 className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">{activePanel === 'create' ? <><Plus className="w-4 h-4 text-blue-600"/> Identificar Elemento</> : <><Settings className="w-4 h-4 text-slate-600"/> Gerenciar Ativo</>}</h2><button onClick={() => { setActivePanel(null); setTempGeometry(null); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X className="w-5 h-5 text-slate-400"/></button></div><div className="space-y-5 overflow-y-auto pr-1">
+                  
+                  {(activePanel === 'create' || activePanel === 'manage' || activePanel === 'import') && (
+                      <div className="absolute inset-0 bg-white z-[600] animate-fade-in flex flex-col p-5 space-y-5 border-l-4 border-red-600 shadow-2xl">
+                          <div className="flex justify-between items-center border-b pb-3">
+                              <h2 className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
+                                  {activePanel === 'create' ? <><Plus className="w-4 h-4 text-blue-600"/> Identificar Elemento</> : 
+                                   activePanel === 'import' ? <><FileUp className="w-4 h-4 text-orange-600"/> Importar KML/KMZ</> :
+                                   <><Settings className="w-4 h-4 text-slate-600"/> Gerenciar Ativo</>}
+                              </h2>
+                              <button onClick={() => { setActivePanel(null); setTempGeometry(null); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X className="w-5 h-5 text-slate-400"/></button>
+                          </div>
+                          <div className="space-y-5 overflow-y-auto pr-1">
+                              {activePanel === 'import' && (
+                                  <div className="space-y-6">
+                                      <div className="space-y-3">
+                                          <label className="text-[10px] font-black uppercase text-slate-500">Tipo de Camada</label>
+                                          <div className="grid grid-cols-2 gap-2">
+                                              <button onClick={() => setImportType('sector')} className={`p-4 rounded-xl border flex flex-col items-center gap-2 transition-all ${importType === 'sector' ? 'bg-blue-600 text-white border-blue-700 shadow-lg' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                                                  <Hexagon className="w-6 h-6"/><span className="text-[9px] font-black uppercase">Setorização</span>
+                                              </button>
+                                              <button onClick={() => setImportType('path')} className={`p-4 rounded-xl border flex flex-col items-center gap-2 transition-all ${importType === 'path' ? 'bg-orange-600 text-white border-orange-700 shadow-lg' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                                                  <Navigation className="w-6 h-6"/><span className="text-[9px] font-black uppercase">Percurso Drone</span>
+                                              </button>
+                                          </div>
+                                      </div>
+                                      <div className="p-8 border-2 border-dashed border-slate-200 rounded-2xl text-center bg-slate-50 space-y-4">
+                                          <FileUp className="w-10 h-10 text-slate-300 mx-auto" />
+                                          <div>
+                                              <p className="text-xs font-bold text-slate-700">Selecione o Arquivo</p>
+                                              <p className="text-[10px] text-slate-400 mt-1">Formatos suportados: .KML / .KMZ</p>
+                                          </div>
+                                          <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".kml,.kmz" className="hidden" />
+                                          <Button onClick={() => fileInputRef.current?.click()} className="w-full bg-slate-900">Procurar Arquivo</Button>
+                                      </div>
+                                      <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                                          <p className="text-[10px] text-blue-700 leading-relaxed font-medium">As camadas importadas serão renderizadas uma sobre a outra, permitindo a visualização de múltiplos percursos ou áreas simultaneamente.</p>
+                                      </div>
+                                  </div>
+                              )}
                               {activePanel === 'create' && (<><Input label="Identificação Tática" autoFocus value={newItemName} onChange={e => setNewItemName(e.target.value)} className="font-black text-xs uppercase h-10 bg-slate-50 border-slate-200" labelClassName="text-[10px] font-black uppercase text-slate-500" />{newItemType === 'poi' && (<div className="grid grid-cols-2 gap-2">{[{ id: 'base', label: 'Base / PC', icon: MapPin }, { id: 'victim', label: 'Vítima', icon: UserCheck }, { id: 'hazard', label: 'Zona Perigo', icon: ShieldAlert }, { id: 'ground_team', label: 'Equipe Solo', icon: Users }, { id: 'vehicle', label: 'Viatura BM', icon: Truck }, { id: 'k9', label: 'Cão Busca', icon: Dog }].map(t => (<button key={t.id} onClick={() => setNewItemSubType(t.id)} className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${newItemSubType === t.id ? 'bg-red-600 text-white shadow-xl' : 'bg-slate-50 text-slate-500'}`}><t.icon className="w-5 h-5" /><span className="text-[9px] font-black uppercase">{t.label}</span></button>))}</div>)}<Button onClick={saveNewItem} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-black uppercase text-[11px] tracking-widest shadow-xl">Salvar Elemento</Button></>)}
-                              {activePanel === 'manage' && entityType === 'drone' && selectedEntity && (<div className="space-y-5"><div className="p-4 bg-slate-900 rounded-3xl flex items-center justify-between text-white border border-slate-800 shadow-2xl"><div><p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Aeronave Ativa</p><h4 className="text-lg font-black">{selectedEntity.drone?.prefix}</h4></div></div><div className="space-y-1.5 p-4 bg-orange-50 border border-orange-200 rounded-2xl"><label className="text-[10px] font-black uppercase text-orange-700 flex items-center gap-1.5"><Video className="w-3 h-3"/> URL de Live do Vetor</label><Input placeholder="Link YouTube/RTSP..." value={selectedEntity.stream_url || ''} onChange={e => { const val = e.target.value; tacticalService.updateDroneStatus(selectedEntity.id, { stream_url: val }); setSelectedEntity({...selectedEntity, stream_url: val}); }} className="text-[10px] h-9 bg-white border-orange-200" /></div><div className="grid grid-cols-2 gap-3"><Input label="Altitude (m)" type="number" value={selectedEntity.flight_altitude} onChange={e => { const val = Number(e.target.value); tacticalService.updateDroneStatus(selectedEntity.id, { flight_altitude: val }); setSelectedEntity({...selectedEntity, flight_altitude: val}); loadTacticalData(id!); }} className="text-xs h-10 font-black" /><Input label="Raio (m)" type="number" value={selectedEntity.radius} onChange={e => { const val = Number(e.target.value); tacticalService.updateDroneStatus(selectedEntity.id, { radius: val }); setSelectedEntity({...selectedEntity, radius: val}); loadTacticalData(id!); }} className="text-xs h-10 font-black" /></div><Button variant="danger" onClick={async () => { if(confirm("Desmobilizar?")) { await tacticalService.removeDroneFromOp(selectedEntity.id); setActivePanel(null); loadTacticalData(id!); syncTacticalSummary(); } }} className="w-full h-11 text-[10px] font-black uppercase">Desmobilizar Unidade</Button></div>)}
-                          </div></div>)}
+                              {activePanel === 'manage' && entityType === 'drone' && selectedEntity && (<div className="space-y-5"><div className="p-4 bg-slate-900 rounded-3xl flex items-center justify-between text-white border border-slate-800 shadow-2xl"><div><p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Aeronave Ativa</p><h4 className="text-lg font-black">{selectedEntity.drone?.prefix}</h4></div></div><div className="grid grid-cols-2 gap-3"><Input label="Altitude (m)" type="number" value={selectedEntity.flight_altitude} onChange={e => { const val = Number(e.target.value); tacticalService.updateDroneStatus(selectedEntity.id, { flight_altitude: val }); setSelectedEntity({...selectedEntity, flight_altitude: val}); loadTacticalData(id!); }} className="text-xs h-10 font-black" /><Input label="Raio (m)" type="number" value={selectedEntity.radius} onChange={e => { const val = Number(e.target.value); tacticalService.updateDroneStatus(selectedEntity.id, { radius: val }); setSelectedEntity({...selectedEntity, radius: val}); loadTacticalData(id!); }} className="text-xs h-10 font-black" /></div><Button variant="danger" onClick={async () => { if(confirm("Desmobilizar?")) { await tacticalService.removeDroneFromOp(selectedEntity.id); setActivePanel(null); loadTacticalData(id!); syncTacticalSummary(); } }} className="w-full h-11 text-[10px] font-black uppercase">Desmobilizar Unidade</Button></div>)}
+                          </div>
+                      </div>
+                  )}
               </div>
           </div>
           <div className="flex-1 relative z-0 bg-slate-100" ref={mapRef}>
-              
-              {/* HEADER TÁTICO FLUTUANTE */}
               <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[2000] flex pointer-events-none">
                   <div className="bg-white/95 backdrop-blur-2xl border border-slate-200 rounded-2xl shadow-2xl flex items-center p-2 gap-1 pointer-events-auto ring-4 ring-black/5">
                       <div className="px-5 border-r border-slate-200 flex items-center gap-3">
                           <MousePointer2 className="w-5 h-5 text-sysarp-primary" />
                           <span className="text-[11px] font-black text-slate-900 uppercase tracking-tighter">CCO Tático</span>
                       </div>
-                      
-                      {/* FERRAMENTAS DE DESENHO */}
                       <div className="flex items-center gap-1">
-                          <button 
-                              onClick={() => setCurrentDrawMode(currentDrawMode === 'sector' ? null : 'sector')} 
-                              className={`p-3 rounded-xl transition-all group relative ${currentDrawMode === 'sector' ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-300' : 'hover:bg-blue-50 text-blue-600'}`}
-                          >
-                              <Hexagon className="w-6 h-6"/>
-                              <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase whitespace-nowrap">Área</span>
+                          <button onClick={() => setCurrentDrawMode(currentDrawMode === 'sector' ? null : 'sector')} className={`p-3 rounded-xl transition-all group relative ${currentDrawMode === 'sector' ? 'bg-blue-600 text-white shadow-lg ring-2 ring-blue-300' : 'hover:bg-blue-50 text-blue-600'}`}>
+                              <Hexagon className="w-6 h-6"/><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase whitespace-nowrap">Área</span>
                           </button>
-                          
-                          <button 
-                              onClick={() => setCurrentDrawMode(currentDrawMode === 'route' ? null : 'route')} 
-                              className={`p-3 rounded-xl transition-all group relative ${currentDrawMode === 'route' ? 'bg-orange-600 text-white shadow-lg ring-2 ring-orange-300' : 'hover:bg-orange-50 text-orange-600'}`}
-                          >
-                              <Navigation className="w-6 h-6"/>
-                              <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase whitespace-nowrap">Rota</span>
+                          <button onClick={() => setCurrentDrawMode(currentDrawMode === 'route' ? null : 'route')} className={`p-3 rounded-xl transition-all group relative ${currentDrawMode === 'route' ? 'bg-orange-600 text-white shadow-lg ring-2 ring-orange-300' : 'hover:bg-orange-50 text-orange-600'}`}>
+                              <Navigation className="w-6 h-6"/><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase whitespace-nowrap">Rota</span>
                           </button>
-                          
-                          <button 
-                              onClick={() => setCurrentDrawMode(currentDrawMode === 'poi' ? null : 'poi')} 
-                              className={`p-3 rounded-xl transition-all group relative ${currentDrawMode === 'poi' ? 'bg-red-600 text-white shadow-lg ring-2 ring-red-300' : 'hover:bg-red-50 text-red-600'}`}
-                          >
-                              <Flag className="w-6 h-6"/>
-                              <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase whitespace-nowrap">Ponto</span>
+                          <button onClick={() => setCurrentDrawMode(currentDrawMode === 'poi' ? null : 'poi')} className={`p-3 rounded-xl transition-all group relative ${currentDrawMode === 'poi' ? 'bg-red-600 text-white shadow-lg ring-2 ring-red-300' : 'hover:bg-red-50 text-red-600'}`}>
+                              <Flag className="w-6 h-6"/><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase whitespace-nowrap">Ponto</span>
                           </button>
-
-                          {/* BOTÃO CANCELAR DESENHO */}
-                          {currentDrawMode && (
-                              <button 
-                                  onClick={() => setCurrentDrawMode(null)} 
-                                  className="p-3 bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-600 rounded-xl transition-all border border-slate-200 ml-2 animate-fade-in"
-                                  title="Cancelar Desenho"
-                              >
-                                  <X className="w-6 h-6"/>
-                              </button>
-                          )}
+                          {currentDrawMode && (<button onClick={() => setCurrentDrawMode(null)} className="p-3 bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-600 rounded-xl border border-slate-200 ml-2 animate-fade-in"><X className="w-6 h-6"/></button>)}
                       </div>
                   </div>
               </div>
-              
-              {/* BOTÃO DE CAMADAS (MAP LAYERS) - POSICIONADO À DIREITA, CENTRALIZADO VERTICALMENTE */}
               <div className="absolute top-1/2 right-4 transform -translate-y-1/2 z-[2000] pointer-events-auto flex flex-col gap-2">
-                  <button 
-                      onClick={() => setMapType(prev => prev === 'street' ? 'satellite' : 'street')}
-                      className="bg-white hover:bg-slate-50 text-slate-700 w-12 h-12 flex items-center justify-center rounded-2xl shadow-xl border border-slate-200 transition-all hover:scale-105 active:scale-95 group relative"
-                  >
+                  <button onClick={() => setMapType(prev => prev === 'street' ? 'satellite' : 'street')} className="bg-white hover:bg-slate-50 text-slate-700 w-12 h-12 flex items-center justify-center rounded-2xl shadow-xl border border-slate-200 transition-all hover:scale-105 active:scale-95 group relative">
                       {mapType === 'street' ? <Layers className="w-6 h-6" /> : <Satellite className="w-6 h-6" />}
-                      <span className="absolute right-14 bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg">
-                          {mapType === 'street' ? 'Mudar para Satélite' : 'Mudar para Mapa'}
-                      </span>
+                      <span className="absolute right-14 bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg">{mapType === 'street' ? 'Mudar para Satélite' : 'Mudar para Mapa'}</span>
                   </button>
               </div>
-
-              <MapContainer 
-                center={[operation.latitude, operation.longitude]} 
-                zoom={17} 
-                style={{ height: '100%', width: '100%', background: 'transparent' }} 
-                preferCanvas={true} 
-              >
-                  <MapController 
-                    center={[operation.latitude, operation.longitude]} 
-                    isCreating={!!tempGeometry} 
-                    onMapReady={(map) => { leafletMapRef.current = map; }} 
-                  />
+              <MapContainer center={[operation.latitude, operation.longitude]} zoom={17} style={{ height: '100%', width: '100%', background: 'transparent' }} preferCanvas={true}>
+                  <MapController center={[operation.latitude, operation.longitude]} isCreating={!!tempGeometry} onMapReady={(map) => { leafletMapRef.current = map; }} />
                   <MapDrawingBridge drawMode={currentDrawMode} setDrawMode={setCurrentDrawMode} />
-                  <TileLayer 
-                    url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} 
-                    crossOrigin="anonymous" 
-                  />
+                  <TileLayer url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} crossOrigin="anonymous" />
                   <SectorsLayer onCreated={handleDrawCreated} />
-                  {visibleLayers.base && pcPosition && (
-                      <Marker 
-                          position={pcPosition} 
-                          icon={createTacticalDroneIcon({
-                              id: 'main-drone-virtual',
-                              operation_id: operation.id,
-                              drone_id: operation.drone_id,
-                              pilot_id: operation.pilot_id,
-                              status: 'active',
-                              flight_altitude: operation.flight_altitude,
-                              radius: operation.radius,
-                              drone: mainResources.drone,
-                              pilot: mainResources.pilot
-                          })} 
-                          draggable={true} 
-                          eventHandlers={{ dragend: handleMainDroneDragEnd }} 
-                      />
-                  )}
+                  {visibleLayers.base && pcPosition && (<Marker position={pcPosition} icon={createTacticalDroneIcon({ id: 'main-drone-virtual', operation_id: operation.id, drone_id: operation.drone_id, pilot_id: operation.pilot_id, status: 'active', flight_altitude: operation.flight_altitude, radius: operation.radius, drone: mainResources.drone, pilot: mainResources.pilot })} draggable={true} eventHandlers={{ dragend: handleMainDroneDragEnd }} />)}
                   {visibleLayers.sectors && sectors.filter(s => s.type !== 'route').map(s => (<Polygon key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 1) as any} pathOptions={{ color: s.color, fillOpacity: 0.25, weight: 3 }} eventHandlers={{ click: () => { setSelectedEntity({...s}); setEntityType('sector'); setActivePanel('manage'); } }} />))}
                   {visibleLayers.routes && sectors.filter(s => s.type === 'route').map(s => (<Polyline key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 0) as any} pathOptions={{ color: s.color, weight: 6, dashArray: '8, 12' }} eventHandlers={{ click: () => { setSelectedEntity({...s}); setEntityType('sector'); setActivePanel('manage'); } }} />))}
                   {visibleLayers.pois && pois.map(p => (<Marker key={p.id} position={[p.lat, p.lng]} icon={getPoiIcon(p.type)} eventHandlers={{ click: () => { setSelectedEntity({...p}); setEntityType('poi'); setActivePanel('manage'); } }} />))}
                   {visibleLayers.drones && tacticalDrones.map(td => td.current_lat && (<Marker key={td.id} position={[td.current_lat, td.current_lng]} icon={createTacticalDroneIcon(td)} draggable={true} eventHandlers={{ click: () => { setSelectedEntity({...td}); setEntityType('drone'); setActivePanel('manage'); }, dragend: (e) => handleDroneDragEnd(e, td) }} />))}
+                  
+                  {/* Camadas KML Externas Sobrepostas */}
+                  {kmlLayers.filter(l => l.visible).map(layer => (
+                      layer.type === 'sector' ? (
+                        <Polygon key={layer.id} positions={L.GeoJSON.coordsToLatLngs(layer.geojson.features[0].geometry.coordinates, 1) as any} pathOptions={{ color: layer.color, weight: 2, fillOpacity: 0.15 }} />
+                      ) : (
+                        <Polyline key={layer.id} positions={L.GeoJSON.coordsToLatLngs(layer.geojson.features[0].geometry.coordinates, 0) as any} pathOptions={{ color: layer.color, weight: 3, dashArray: '5, 5' }} />
+                      )
+                  ))}
               </MapContainer>
           </div>
       </div>
