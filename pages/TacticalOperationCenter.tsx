@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, Circle, useMap } from 'react-leaflet';
@@ -12,7 +11,8 @@ import { Card, Button, Input, Select, Badge } from '../components/ui_components'
 import { 
   ArrowLeft, Radio, Plus, Trash2, Crosshair, Hexagon, Flag, 
   MapPin, Settings, X, Save, Eye, EyeOff, Move, Navigation,
-  ShieldAlert, Target, Video, ListFilter, History, Zap, 
+  /* Added AlertTriangle here */
+  AlertTriangle, ShieldAlert, Target, Video, ListFilter, History, Zap, 
   Map as MapIcon, Globe, ChevronRight, ChevronLeft, Maximize, Minimize, MousePointer2,
   Users, Truck, Dog, UserCheck, Ruler, LayoutDashboard, Camera, CheckCircle, Loader2, Layers, Satellite, FileUp, Files
 } from 'lucide-react';
@@ -164,7 +164,6 @@ export default function TacticalOperationCenter() {
   const [activePanel, setActivePanel] = useState<'create' | 'manage' | 'import' | null>(null);
   const [selectedEntity, setSelectedEntity] = useState<any>(null); 
   const [entityType, setEntityType] = useState<'sector' | 'poi' | 'drone' | 'kml' | null>(null);
-  const [showFloatingVideo, setShowFloatingVideo] = useState(false);
   const [mapType, setMapType] = useState<'street' | 'satellite'>('street');
   const [currentDrawMode, setCurrentDrawMode] = useState<string | null>(null);
   const [visibleLayers, setVisibleLayers] = useState({ sectors: true, routes: true, pois: true, drones: true, base: true });
@@ -176,7 +175,7 @@ export default function TacticalOperationCenter() {
   const [mainResources, setMainResources] = useState<{ pilot?: Pilot, drone?: Drone }>({});
   
   // Import State
-  const [importType, setImportType] = useState<'sector' | 'path'>('sector');
+  const [importType, setImportType] = useState<'sector' | 'path' | 'full'>('sector');
 
   useEffect(() => { if (id) loadTacticalData(id); }, [id]);
 
@@ -292,34 +291,89 @@ export default function TacticalOperationCenter() {
   };
 
   const parseKml = (text: string) => {
-    const parser = new DOMParser();
-    const xml = parser.parseFromString(text, "text/xml");
-    const placemarks = Array.from(xml.getElementsByTagName("Placemark"));
-    const features: any[] = [];
-    placemarks.forEach(pm => {
-      const coordsTags = pm.getElementsByTagName("coordinates");
-      if (coordsTags.length > 0) {
-        const rawCoords = coordsTags[0].textContent?.trim() || "";
-        const points = rawCoords.split(/\s+/).map(p => {
-          const [lng, lat] = p.split(",").map(Number);
-          return [lng, lat];
+    try {
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(text, "text/xml");
+        
+        // Verificação se é um XML válido
+        if (xml.getElementsByTagName("parsererror").length > 0) return null;
+
+        const placemarks = Array.from(xml.getElementsByTagName("Placemark"));
+        const features: any[] = [];
+
+        placemarks.forEach(pm => {
+            const name = pm.getElementsByTagName("name")[0]?.textContent || "Elemento Importado";
+            
+            // Tenta achar Polígonos, Linhas ou Pontos
+            const polygonTags = pm.getElementsByTagName("Polygon");
+            const lineTags = pm.getElementsByTagName("LineString");
+            const pointTags = pm.getElementsByTagName("Point");
+
+            const processCoords = (coordsTag: Element) => {
+                const raw = coordsTag.textContent?.trim() || "";
+                return raw.split(/\s+/).map(p => {
+                    const parts = p.split(",").map(Number);
+                    // Retorna [longitude, latitude] ignorando altitude se houver
+                    return [parts[0], parts[1]];
+                }).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+            };
+
+            if (polygonTags.length > 0) {
+                const coords = processCoords(polygonTags[0].getElementsByTagName("coordinates")[0]);
+                if (coords.length >= 3) {
+                    features.push({ 
+                        type: "Feature", 
+                        geometry: { type: "Polygon", coordinates: [coords] }, 
+                        properties: { name, type: 'sector' } 
+                    });
+                }
+            } else if (lineTags.length > 0) {
+                const coords = processCoords(lineTags[0].getElementsByTagName("coordinates")[0]);
+                if (coords.length >= 2) {
+                    features.push({ 
+                        type: "Feature", 
+                        geometry: { type: "LineString", coordinates: coords }, 
+                        properties: { name, type: 'path' } 
+                    });
+                }
+            } else if (pointTags.length > 0) {
+                const coords = processCoords(pointTags[0].getElementsByTagName("coordinates")[0]);
+                if (coords.length > 0) {
+                    features.push({ 
+                        type: "Feature", 
+                        geometry: { type: "Point", coordinates: coords[0] }, 
+                        properties: { name, type: 'poi' } 
+                    });
+                }
+            }
         });
-        if (pm.getElementsByTagName("Polygon").length > 0) {
-          features.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [points] }, properties: { name: pm.getElementsByTagName("name")[0]?.textContent || "Área Importada" } });
-        } else if (pm.getElementsByTagName("LineString").length > 0) {
-          features.push({ type: "Feature", geometry: { type: "LineString", coordinates: points }, properties: { name: pm.getElementsByTagName("name")[0]?.textContent || "Percurso Importado" } });
-        }
-      }
-    });
-    return features.length > 0 ? { type: "FeatureCollection", features } : null;
+
+        return features.length > 0 ? { type: "FeatureCollection", features } : null;
+    } catch (e) {
+        console.error("KML Parse Error:", e);
+        return null;
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !id) return;
+
+    // Alerta sobre KMZ binário
+    if (file.name.toLowerCase().endsWith('.kmz')) {
+        alert("Arquivos .KMZ do Google Earth são compactados. Por favor, exporte como .KML (formato texto) para garantir a leitura no sistema.");
+    }
+
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const content = ev.target?.result as string;
+      
+      // Validação básica de binário (se começar com PK é um ZIP/KMZ)
+      if (content.startsWith('PK')) {
+          alert("Erro: Este é um arquivo binário (KMZ). Por favor, use a opção 'Salvar como... .KML' no Google Earth.");
+          return;
+      }
+
       const geojson = parseKml(content);
       if (geojson) {
         await tacticalService.saveKmlLayer({
@@ -328,11 +382,11 @@ export default function TacticalOperationCenter() {
           type: importType,
           geojson,
           visible: true,
-          color: importType === 'sector' ? '#3b82f6' : '#f59e0b'
+          color: importType === 'sector' ? '#3b82f6' : (importType === 'path' ? '#f59e0b' : '#10b981')
         });
         loadTacticalData(id);
         addLog(`CAMADA IMPORTADA: ${file.name}`, Files);
-      } else alert("Não foi possível extrair geometrias deste arquivo.");
+      } else alert("Não foi possível extrair geometrias deste arquivo. Verifique se o formato está correto.");
     };
     reader.readAsText(file);
   };
@@ -423,7 +477,9 @@ export default function TacticalOperationCenter() {
                                               </button>
                                               <div className="min-w-0">
                                                   <p className="text-[10px] font-bold text-slate-700 truncate uppercase">{layer.name}</p>
-                                                  <p className="text-[8px] text-slate-400 uppercase font-black">{layer.type === 'sector' ? 'Setorização' : 'Percurso'}</p>
+                                                  <p className="text-[8px] text-slate-400 uppercase font-black">
+                                                      {layer.type === 'sector' ? 'Setorização' : (layer.type === 'path' ? 'Percurso' : 'Completo')}
+                                                  </p>
                                               </div>
                                           </div>
                                           <button onClick={() => deleteKmlLayer(layer.id)} className="text-slate-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5"/></button>
@@ -451,7 +507,7 @@ export default function TacticalOperationCenter() {
                           <div className="flex justify-between items-center border-b pb-3">
                               <h2 className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
                                   {activePanel === 'create' ? <><Plus className="w-4 h-4 text-blue-600"/> Identificar Elemento</> : 
-                                   activePanel === 'import' ? <><FileUp className="w-4 h-4 text-orange-600"/> Importar KML/KMZ</> :
+                                   activePanel === 'import' ? <><FileUp className="w-4 h-4 text-orange-600"/> Importar KML / Google Earth</> :
                                    <><Settings className="w-4 h-4 text-slate-600"/> Gerenciar Ativo</>}
                               </h2>
                               <button onClick={() => { setActivePanel(null); setTempGeometry(null); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X className="w-5 h-5 text-slate-400"/></button>
@@ -461,26 +517,32 @@ export default function TacticalOperationCenter() {
                                   <div className="space-y-6">
                                       <div className="space-y-3">
                                           <label className="text-[10px] font-black uppercase text-slate-500">Tipo de Camada</label>
-                                          <div className="grid grid-cols-2 gap-2">
-                                              <button onClick={() => setImportType('sector')} className={`p-4 rounded-xl border flex flex-col items-center gap-2 transition-all ${importType === 'sector' ? 'bg-blue-600 text-white border-blue-700 shadow-lg' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
-                                                  <Hexagon className="w-6 h-6"/><span className="text-[9px] font-black uppercase">Setorização</span>
+                                          <div className="grid grid-cols-3 gap-1.5">
+                                              <button onClick={() => setImportType('sector')} className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${importType === 'sector' ? 'bg-blue-600 text-white border-blue-700 shadow-lg' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                                                  <Hexagon className="w-5 h-5"/><span className="text-[8px] font-black uppercase">Setores</span>
                                               </button>
-                                              <button onClick={() => setImportType('path')} className={`p-4 rounded-xl border flex flex-col items-center gap-2 transition-all ${importType === 'path' ? 'bg-orange-600 text-white border-orange-700 shadow-lg' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
-                                                  <Navigation className="w-6 h-6"/><span className="text-[9px] font-black uppercase">Percurso Drone</span>
+                                              <button onClick={() => setImportType('path')} className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${importType === 'path' ? 'bg-orange-600 text-white border-orange-700 shadow-lg' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                                                  <Navigation className="w-5 h-5"/><span className="text-[8px] font-black uppercase">Rastro</span>
+                                              </button>
+                                              <button onClick={() => setImportType('full')} className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${importType === 'full' ? 'bg-green-600 text-white border-green-700 shadow-lg' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                                                  <LayoutDashboard className="w-5 h-5"/><span className="text-[8px] font-black uppercase">Completo</span>
                                               </button>
                                           </div>
                                       </div>
-                                      <div className="p-8 border-2 border-dashed border-slate-200 rounded-2xl text-center bg-slate-50 space-y-4">
+                                      <div className="p-6 border-2 border-dashed border-slate-200 rounded-2xl text-center bg-slate-50 space-y-4">
                                           <FileUp className="w-10 h-10 text-slate-300 mx-auto" />
                                           <div>
-                                              <p className="text-xs font-bold text-slate-700">Selecione o Arquivo</p>
-                                              <p className="text-[10px] text-slate-400 mt-1">Formatos suportados: .KML / .KMZ</p>
+                                              <p className="text-xs font-bold text-slate-700">Selecione o Arquivo .KML</p>
+                                              <p className="text-[9px] text-slate-400 mt-1 uppercase">Google Earth / Mapas Externos</p>
                                           </div>
-                                          <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".kml,.kmz" className="hidden" />
-                                          <Button onClick={() => fileInputRef.current?.click()} className="w-full bg-slate-900">Procurar Arquivo</Button>
+                                          <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".kml" className="hidden" />
+                                          <Button onClick={() => fileInputRef.current?.click()} className="w-full bg-slate-900 text-[10px] font-black h-10">Procurar Arquivo</Button>
                                       </div>
-                                      <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                                          <p className="text-[10px] text-blue-700 leading-relaxed font-medium">As camadas importadas serão renderizadas uma sobre a outra, permitindo a visualização de múltiplos percursos ou áreas simultaneamente.</p>
+                                      <div className="bg-amber-50 p-4 rounded-xl border border-amber-100">
+                                          <p className="text-[10px] text-amber-700 leading-relaxed font-bold flex gap-2">
+                                              <AlertTriangle className="w-4 h-4 shrink-0" />
+                                              IMPORTANTE: Se o seu arquivo for .KMZ, renomeie ou exporte como .KML no Google Earth para processamento via web.
+                                          </p>
                                       </div>
                                   </div>
                               )}
@@ -505,7 +567,7 @@ export default function TacticalOperationCenter() {
                           <button onClick={() => setCurrentDrawMode(currentDrawMode === 'route' ? null : 'route')} className={`p-3 rounded-xl transition-all group relative ${currentDrawMode === 'route' ? 'bg-orange-600 text-white shadow-lg ring-2 ring-orange-300' : 'hover:bg-orange-50 text-orange-600'}`}>
                               <Navigation className="w-6 h-6"/><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase whitespace-nowrap">Rota</span>
                           </button>
-                          <button onClick={() => setCurrentDrawMode(currentDrawMode === 'poi' ? null : 'poi')} className={`p-3 rounded-xl transition-all group relative ${currentDrawMode === 'poi' ? 'bg-red-600 text-white shadow-lg ring-2 ring-red-300' : 'hover:bg-red-50 text-red-600'}`}>
+                          <button onClick={() => setCurrentDrawMode(currentDrawMode === 'poi' ? null : 'poi')} className={`p-3 rounded-xl transition-all group relative ${currentDrawMode === 'poi' ? 'bg-red-600 text-white shadow-lg ring-2 ring-red-300' : 'hover:bg-blue-50 text-red-600'}`}>
                               <Flag className="w-6 h-6"/><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[9px] px-2 py-1 rounded font-black opacity-0 group-hover:opacity-100 z-50 uppercase whitespace-nowrap">Ponto</span>
                           </button>
                           {currentDrawMode && (<button onClick={() => setCurrentDrawMode(null)} className="p-3 bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-600 rounded-xl border border-slate-200 ml-2 animate-fade-in"><X className="w-6 h-6"/></button>)}
@@ -529,13 +591,25 @@ export default function TacticalOperationCenter() {
                   {visibleLayers.pois && pois.map(p => (<Marker key={p.id} position={[p.lat, p.lng]} icon={getPoiIcon(p.type)} eventHandlers={{ click: () => { setSelectedEntity({...p}); setEntityType('poi'); setActivePanel('manage'); } }} />))}
                   {visibleLayers.drones && tacticalDrones.map(td => td.current_lat && (<Marker key={td.id} position={[td.current_lat, td.current_lng]} icon={createTacticalDroneIcon(td)} draggable={true} eventHandlers={{ click: () => { setSelectedEntity({...td}); setEntityType('drone'); setActivePanel('manage'); }, dragend: (e) => handleDroneDragEnd(e, td) }} />))}
                   
-                  {/* Camadas KML Externas Sobrepostas */}
-                  {kmlLayers.filter(l => l.visible).map(layer => (
-                      layer.type === 'sector' ? (
-                        <Polygon key={layer.id} positions={L.GeoJSON.coordsToLatLngs(layer.geojson.features[0].geometry.coordinates, 1) as any} pathOptions={{ color: layer.color, weight: 2, fillOpacity: 0.15 }} />
-                      ) : (
-                        <Polyline key={layer.id} positions={L.GeoJSON.coordsToLatLngs(layer.geojson.features[0].geometry.coordinates, 0) as any} pathOptions={{ color: layer.color, weight: 3, dashArray: '5, 5' }} />
-                      )
+                  {/* Camadas KML Externas Sobrepostas - Tratamento Seguro de GeoJSON */}
+                  {kmlLayers.filter(l => l.visible && l.geojson?.features).map(layer => (
+                      <React.Fragment key={layer.id}>
+                          {layer.geojson.features.map((f: any, fidx: number) => {
+                              try {
+                                  if (!f.geometry?.coordinates || f.geometry.coordinates.length === 0) return null;
+                                  
+                                  if (f.geometry.type === 'Polygon') {
+                                      return <Polygon key={`${layer.id}-f-${fidx}`} positions={L.GeoJSON.coordsToLatLngs(f.geometry.coordinates, 1) as any} pathOptions={{ color: layer.color, weight: 2, fillOpacity: 0.15 }} />;
+                                  } else if (f.geometry.type === 'LineString') {
+                                      return <Polyline key={`${layer.id}-f-${fidx}`} positions={L.GeoJSON.coordsToLatLngs(f.geometry.coordinates, 0) as any} pathOptions={{ color: layer.color, weight: 3, dashArray: '5, 5' }} />;
+                                  } else if (f.geometry.type === 'Point') {
+                                      const [lng, lat] = f.geometry.coordinates;
+                                      return <Marker key={`${layer.id}-f-${fidx}`} position={[lat, lng]} icon={getPoiIcon('interest')} />;
+                                  }
+                                  return null;
+                              } catch(e) { return null; }
+                          })}
+                      </React.Fragment>
                   ))}
               </MapContainer>
           </div>
