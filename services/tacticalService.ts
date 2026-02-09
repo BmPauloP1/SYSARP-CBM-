@@ -38,15 +38,27 @@ export interface TacticalDrone {
   battery_level?: number;
   flight_altitude?: number; 
   radius?: number;
-  stream_url?: string; // Adicionado: URL de live individual do drone
+  stream_url?: string; 
   drone?: Drone;
   pilot?: Pilot;
+}
+
+export interface TacticalKmlLayer {
+  id: string;
+  operation_id: string;
+  name: string;
+  type: 'sector' | 'path';
+  geojson: any;
+  visible: boolean;
+  color: string;
+  created_at: string;
 }
 
 const STORAGE_SECTORS = 'sysarp_tactical_sectors';
 const STORAGE_POIS = 'sysarp_tactical_pois';
 const STORAGE_DRONES = 'sysarp_tactical_drones';
-const STORAGE_SNAPSHOTS = 'sysarp_tactical_snapshots'; // Adicionado: Cache de imagens do mapa
+const STORAGE_SNAPSHOTS = 'sysarp_tactical_snapshots';
+const STORAGE_KML_LAYERS = 'sysarp_tactical_kml';
 
 const getLocal = <T>(key: string): T[] => {
   try {
@@ -143,7 +155,38 @@ export const tacticalService = {
       setLocal(STORAGE_DRONES, all.filter(d => d.id !== id));
   },
 
-  // ADICIONADO: Métodos para Snapshot do Mapa
+  // Camadas KML Externas
+  getKmlLayers: async (operationId: string): Promise<TacticalKmlLayer[]> => {
+    const all = getLocal<TacticalKmlLayer>(STORAGE_KML_LAYERS);
+    return all.filter(l => l.operation_id === operationId);
+  },
+
+  saveKmlLayer: async (layer: Omit<TacticalKmlLayer, 'id' | 'created_at'>): Promise<TacticalKmlLayer> => {
+    const newLayer = {
+      ...layer,
+      id: crypto.randomUUID(),
+      created_at: new Date().toISOString()
+    };
+    const all = getLocal<TacticalKmlLayer>(STORAGE_KML_LAYERS);
+    all.push(newLayer);
+    setLocal(STORAGE_KML_LAYERS, all);
+    return newLayer;
+  },
+
+  updateKmlLayer: async (id: string, updates: Partial<TacticalKmlLayer>): Promise<void> => {
+    const all = getLocal<TacticalKmlLayer>(STORAGE_KML_LAYERS);
+    const idx = all.findIndex(l => l.id === id);
+    if (idx !== -1) {
+      all[idx] = { ...all[idx], ...updates };
+      setLocal(STORAGE_KML_LAYERS, all);
+    }
+  },
+
+  deleteKmlLayer: async (id: string): Promise<void> => {
+    const all = getLocal<TacticalKmlLayer>(STORAGE_KML_LAYERS);
+    setLocal(STORAGE_KML_LAYERS, all.filter(l => l.id !== id));
+  },
+
   saveMapSnapshot: (operationId: string, base64: string) => {
       try {
         const snapshots = JSON.parse(localStorage.getItem(STORAGE_SNAPSHOTS) || '{}');
@@ -157,7 +200,6 @@ export const tacticalService = {
   getMapSnapshot: (operationId: string): string | null => {
       try {
         const snapshots = JSON.parse(localStorage.getItem(STORAGE_SNAPSHOTS) || '{}');
-        // Ensure result is string or null, handle potential corrupt data
         return (snapshots && typeof snapshots === 'object' && snapshots[operationId]) ? String(snapshots[operationId]) : null;
       } catch {
         return null;
