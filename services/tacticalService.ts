@@ -47,7 +47,7 @@ export interface TacticalKmlLayer {
   id: string;
   operation_id: string;
   name: string;
-  type: 'sector' | 'path';
+  type: 'sector' | 'path' | 'full';
   geojson: any;
   visible: boolean;
   color: string;
