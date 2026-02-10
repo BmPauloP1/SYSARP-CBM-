@@ -23,7 +23,7 @@ export interface TacticalPOI {
   lat: number;
   lng: number;
   description?: string;
-  stream_url?: string; // URL de transmissão opcional para o ponto
+  stream_url?: string; 
   created_at: string;
 }
 
@@ -165,7 +165,6 @@ export const tacticalService = {
       setLocal(STORAGE_DRONES, all.filter(d => d.id !== id));
   },
 
-  // Camadas KML Externas
   getKmlLayers: async (operationId: string): Promise<TacticalKmlLayer[]> => {
     const all = getLocal<TacticalKmlLayer>(STORAGE_KML_LAYERS);
     return all.filter(l => l.operation_id === operationId);

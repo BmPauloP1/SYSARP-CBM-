@@ -64,8 +64,9 @@ const isPointInPolygon = (lat: number, lng: number, polygonCoords: any) => {
     return inside;
 };
 
-const getPoiIcon = (type: string) => {
-    if (poiIconCache[type]) return poiIconCache[type];
+const getPoiIcon = (type: string, hasStream?: boolean) => {
+    const cacheKey = `${type}-${hasStream}`;
+    if (poiIconCache[cacheKey]) return poiIconCache[cacheKey];
     let iconHtml = ''; let color = '';
     switch(type) {
         case 'base': iconHtml = `<svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4 text-white"><path d="M12.75 3.066a2.25 2.25 0 00-1.5 0l-9.75 3.9A2.25 2.25 0 000 9.066v9.457c0 1.05.738 1.956 1.767 2.169l9.75 2.025a2.25 2.25 0 00.966 0l9.75-2.025A2.25 2.25 0 0024 18.523V9.066a2.25 2.25 0 00-1.5-2.1l-9.75-3.9z" /></svg>`; color = '#b91c1c'; break;
@@ -78,8 +79,16 @@ const getPoiIcon = (type: string) => {
         case 'object': iconHtml = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-4 h-4 text-white"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>`; color = '#0891b2'; break;
         default: iconHtml = `<svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4 text-white"><circle cx="12" cy="12" r="10"/></svg>`; color = '#64748b';
     }
-    const icon = L.divIcon({ className: 'custom-poi-marker', html: `<div style="background-color: ${color}; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border: 2.5px solid white;">${iconHtml}</div>`, iconSize: [34, 34], iconAnchor: [17, 17] });
-    poiIconCache[type] = icon;
+    const icon = L.divIcon({ 
+        className: 'custom-poi-marker', 
+        html: `<div style="position: relative; background-color: ${color}; width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border: 2.5px solid white;">
+            ${hasStream ? `<div style="position: absolute; top: -10px; background: #ef4444; border-radius: 50%; width: 8px; height: 8px; border: 1.5px solid white;" class="animate-pulse"></div>` : ''}
+            ${iconHtml}
+        </div>`, 
+        iconSize: [34, 34], 
+        iconAnchor: [17, 17] 
+    });
+    poiIconCache[cacheKey] = icon;
     return icon;
 };
 
@@ -94,7 +103,7 @@ const createTacticalDroneIcon = (td: TacticalDrone) => {
     if (droneIconCache[cacheKey]) return droneIconCache[cacheKey];
     const icon = L.divIcon({ 
         className: 'drone-tactical-marker', 
-        html: `<div style="display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.4));">
+        html: `<div style="display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.4)); position: relative;">
             ${hasStream ? `<div style="position: absolute; top: -15px; background: #ef4444; border-radius: 50%; width: 10px; height: 10px; border: 1.5px solid white; z-index: 10;" class="animate-pulse"></div>` : ''}
             <div style="background: ${isMain ? '#b91c1c' : '#0f172a'}; color: white; font-size: 9px; font-weight: 900; padding: 2px 8px; border-radius: 4px; margin-bottom: 4px; border: 1.5px solid rgba(255,255,255,0.4); white-space: nowrap; text-transform: uppercase; letter-spacing: -0.2px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
                 ${pilotName}${isMain ? ' (PRINCIPAL)' : ''}
@@ -119,9 +128,9 @@ const createTacticalDroneIcon = (td: TacticalDrone) => {
     return icon;
 };
 
-// Componente de Janela Flutuante para Transmissão
+// Componente de Janela Flutuante para Transmissão (PiP)
 const FloatingPiP = ({ stream, onClose }: { stream: { id: string, name: string, url: string }, onClose: () => void }) => {
-    const [pos, setPos] = useState({ x: 100, y: 100 });
+    const [pos, setPos] = useState({ x: window.innerWidth - 350, y: 100 });
     const [size, setSize] = useState({ w: 320, h: 180 });
     const draggingRef = useRef(false);
     const startRef = useRef({ x: 0, y: 0 });
@@ -148,17 +157,17 @@ const FloatingPiP = ({ stream, onClose }: { stream: { id: string, name: string, 
     return (
         <div 
             className="fixed z-[9000] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col group animate-fade-in"
-            style={{ left: pos.x, top: pos.y, width: size.w, height: size.h + 30, resize: 'both' }}
+            style={{ left: pos.x, top: pos.y, width: size.w, height: size.h + 30, resize: 'both', minWidth: 200, minHeight: 150 }}
         >
             <div 
-                className="h-8 bg-slate-800 flex items-center justify-between px-3 cursor-move shrink-0"
+                className="h-8 bg-slate-800 flex items-center justify-between px-3 cursor-move shrink-0 border-b border-slate-700"
                 onMouseDown={handleMouseDown}
             >
                 <div className="flex items-center gap-2">
                     <Video className="w-3.5 h-3.5 text-red-500" />
-                    <span className="text-[10px] font-black text-slate-300 uppercase truncate">{stream.name}</span>
+                    <span className="text-[10px] font-black text-slate-300 uppercase truncate max-w-[200px]">{stream.name}</span>
                 </div>
-                <button onClick={onClose} className="p-1 hover:bg-slate-700 rounded text-slate-400">
+                <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="p-1 hover:bg-red-600 rounded text-slate-400 hover:text-white transition-colors">
                     <X className="w-4 h-4" />
                 </button>
             </div>
@@ -166,13 +175,13 @@ const FloatingPiP = ({ stream, onClose }: { stream: { id: string, name: string, 
                 {videoData?.type === 'youtube' ? (
                     <iframe
                         src={`https://www.youtube.com/embed/${videoData.id}?rel=0&modestbranding=1&autoplay=1`}
-                        className="w-full h-full"
+                        className="w-full h-full pointer-events-auto"
                         frameBorder="0"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                         allowFullScreen
                     />
                 ) : (
-                    <iframe src={stream.url} className="w-full h-full" frameBorder="0" allowFullScreen />
+                    <iframe src={stream.url} className="w-full h-full pointer-events-auto" frameBorder="0" allowFullScreen />
                 )}
             </div>
         </div>
@@ -250,6 +259,11 @@ export default function TacticalOperationCenter() {
   
   // PiP State
   const [activePiPs, setActivePiPs] = useState<Record<string, { id: string, name: string, url: string }>>({});
+
+  // Form inputs for new drone assignment
+  const [assignDroneId, setAssignDroneId] = useState("");
+  const [assignPilotId, setAssignPilotId] = useState("");
+  const [assignStreamUrl, setAssignStreamUrl] = useState("");
 
   // Import State
   const [importType, setImportType] = useState<'sector' | 'path' | 'full'>('sector');
@@ -371,120 +385,13 @@ export default function TacticalOperationCenter() {
       try {
           if (newItemType === 'poi') { 
             const [lng, lat] = tempGeometry.geometry.coordinates; 
-            await tacticalService.createPOI({ operation_id: id, name: newItemName, type: newItemSubType as any, lat, lng }); 
+            await tacticalService.createPOI({ operation_id: id, name: newItemName, type: newItemSubType as any, lat, lng, stream_url: assignStreamUrl }); 
           } else { 
             await tacticalService.createSector({ operation_id: id, name: newItemName, type: newItemType === 'line' ? 'route' : 'sector', color: newItemColor, geojson: tempGeometry.geometry, responsible: "N/A" }); 
           }
-          setActivePanel(null); setTempGeometry(null); await loadTacticalData(id); syncTacticalSummary();
+          setActivePanel(null); setTempGeometry(null); setAssignStreamUrl(""); await loadTacticalData(id); syncTacticalSummary();
           addLog(`NOVO ELEMENTO: ${newItemName}`, newItemType === 'poi' ? Flag : Hexagon);
       } catch (e) { alert("Falha ao persistir."); }
-  };
-
-  const parseKml = (text: string) => {
-    try {
-        const parser = new DOMParser();
-        const xml = parser.parseFromString(text, "text/xml");
-        
-        if (xml.getElementsByTagName("parsererror").length > 0) return null;
-
-        const placemarks = Array.from(xml.getElementsByTagName("Placemark"));
-        const features: any[] = [];
-
-        placemarks.forEach(pm => {
-            const name = pm.getElementsByTagName("name")[0]?.textContent || "Elemento Importado";
-            const polygonTags = pm.getElementsByTagName("Polygon");
-            const lineTags = pm.getElementsByTagName("LineString");
-            const pointTags = pm.getElementsByTagName("Point");
-
-            const processCoords = (coordsTag: Element) => {
-                const raw = coordsTag.textContent?.trim() || "";
-                return raw.split(/\s+/).map(p => {
-                    const parts = p.split(",").map(Number);
-                    return [parts[0], parts[1]];
-                }).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
-            };
-
-            if (polygonTags.length > 0) {
-                const coords = processCoords(polygonTags[0].getElementsByTagName("coordinates")[0]);
-                if (coords.length >= 3) {
-                    features.push({ 
-                        type: "Feature", 
-                        geometry: { type: "Polygon", coordinates: [coords] }, 
-                        properties: { name, type: 'sector' } 
-                    });
-                }
-            } else if (lineTags.length > 0) {
-                const coords = processCoords(lineTags[0].getElementsByTagName("coordinates")[0]);
-                if (coords.length >= 2) {
-                    features.push({ 
-                        type: "Feature", 
-                        geometry: { type: "LineString", coordinates: coords }, 
-                        properties: { name, type: 'path' } 
-                    });
-                }
-            } else if (pointTags.length > 0) {
-                const coords = processCoords(pointTags[0].getElementsByTagName("coordinates")[0]);
-                if (coords.length > 0) {
-                    features.push({ 
-                        type: "Feature", 
-                        geometry: { type: "Point", coordinates: coords[0] }, 
-                        properties: { name, type: 'poi' } 
-                    });
-                }
-            }
-        });
-
-        return features.length > 0 ? { type: "FeatureCollection", features } : null;
-    } catch (e) {
-        console.error("KML Parse Error:", e);
-        return null;
-    }
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !id) return;
-
-    if (file.name.toLowerCase().endsWith('.kmz')) {
-        alert("Arquivos .KMZ do Google Earth são compactados. Por favor, exporte como .KML (formato texto) para garantir a leitura no sistema.");
-    }
-
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const content = ev.target?.result as string;
-      
-      if (content.startsWith('PK')) {
-          alert("Erro: Este é um arquivo binário (KMZ). Por favor, use a opção 'Salvar como... .KML' no Google Earth.");
-          return;
-      }
-
-      const geojson = parseKml(content);
-      if (geojson) {
-        await tacticalService.saveKmlLayer({
-          operation_id: id,
-          name: file.name.replace(".kml", "").replace(".kmz", ""),
-          type: importType,
-          geojson,
-          visible: true,
-          color: importType === 'sector' ? '#3b82f6' : (importType === 'path' ? '#f59e0b' : '#10b981')
-        });
-        loadTacticalData(id);
-        addLog(`CAMADA IMPORTADA: ${file.name}`, Files);
-      } else alert("Não foi possível extrair geometrias deste arquivo. Verifique se o formato está correto.");
-    };
-    reader.readAsText(file);
-  };
-
-  const toggleKmlVisibility = async (layer: TacticalKmlLayer) => {
-    await tacticalService.updateKmlLayer(layer.id, { visible: !layer.visible });
-    loadTacticalData(id!);
-  };
-
-  const deleteKmlLayer = async (layerId: string) => {
-    if (confirm("Remover esta camada do teatro operacional?")) {
-      await tacticalService.deleteKmlLayer(layerId);
-      loadTacticalData(id!);
-    }
   };
 
   const handleDroneDragEnd = async (e: any, drone: TacticalDrone) => {
@@ -499,10 +406,151 @@ export default function TacticalOperationCenter() {
       }, 0);
   };
 
-  const handleAssignDrone = async (droneId: string, pilotId: string) => {
-      if (!droneId || !id) return;
-      await tacticalService.assignDrone({ operation_id: id, drone_id: droneId, pilot_id: pilotId, status: 'active', current_lat: operation?.latitude, current_lng: operation?.longitude, flight_altitude: 60, radius: 200, stream_url: availableDrones.find(d => d.id === droneId)?.prefix.includes("01") ? "https://www.youtube.com/live/v1AyuKms2nE" : undefined });
+  const handleAssignDroneAction = async () => {
+      if (!assignDroneId || !assignPilotId || !id) {
+          alert("Aeronave e Comandante são obrigatórios.");
+          return;
+      }
+      await tacticalService.assignDrone({ 
+          operation_id: id, 
+          drone_id: assignDroneId, 
+          pilot_id: assignPilotId, 
+          status: 'active', 
+          current_lat: operation?.latitude, 
+          current_lng: operation?.longitude, 
+          flight_altitude: 60, 
+          radius: 200, 
+          stream_url: assignStreamUrl 
+      });
+      setAssignDroneId(""); setAssignPilotId(""); setAssignStreamUrl("");
       await loadTacticalData(id); syncTacticalSummary();
+  };
+
+  // Fix: Adicionada função para alternar visibilidade de camadas KML
+  const toggleKmlVisibility = async (layer: TacticalKmlLayer) => {
+      try {
+          await tacticalService.updateKmlLayer(layer.id, { visible: !layer.visible });
+          if (id) loadTacticalData(id);
+      } catch (e) {
+          console.error("Erro ao alternar visibilidade KML", e);
+      }
+  };
+
+  // Fix: Adicionada função para excluir camada KML
+  const deleteKmlLayer = async (layerId: string) => {
+      if (!confirm("Deseja remover esta camada permanentemente?")) return;
+      try {
+          await tacticalService.deleteKmlLayer(layerId);
+          if (id) loadTacticalData(id);
+          addLog("CAMADA REMOVIDA", Trash2);
+      } catch (e) {
+          console.error("Erro ao excluir camada KML", e);
+      }
+  };
+
+  // Fix: Adicionada função para processar upload de arquivos KML
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || !id) return;
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+          try {
+              const kmlText = event.target?.result as string;
+              const parser = new DOMParser();
+              const kml = parser.parseFromString(kmlText, "text/xml");
+              
+              const geojson = {
+                  type: 'FeatureCollection',
+                  features: [] as any[]
+              };
+
+              const placemarks = Array.from(kml.getElementsByTagName("Placemark"));
+              
+              placemarks.forEach(p => {
+                  const name = p.getElementsByTagName("name")[0]?.textContent || "Elemento KML";
+                  
+                  // Polygons
+                  const pols = Array.from(p.getElementsByTagName("Polygon"));
+                  pols.forEach(pol => {
+                      const coordsText = pol.getElementsByTagName("coordinates")[0]?.textContent;
+                      if (coordsText) {
+                          const coords = coordsText.trim().split(/[\s\n\r]+/).map(line => {
+                              const parts = line.split(',').map(Number);
+                              return [parts[0], parts[1]]; // [lng, lat]
+                          }).filter(c => !isNaN(c[0]) && !isNaN(c[1]));
+                          
+                          if (coords.length >= 3) {
+                              geojson.features.push({
+                                  type: 'Feature',
+                                  properties: { name },
+                                  geometry: { type: 'Polygon', coordinates: [coords] }
+                              });
+                          }
+                      }
+                  });
+
+                  // LineStrings
+                  const lines = Array.from(p.getElementsByTagName("LineString"));
+                  lines.forEach(line => {
+                      const coordsText = line.getElementsByTagName("coordinates")[0]?.textContent;
+                      if (coordsText) {
+                          const coords = coordsText.trim().split(/[\s\n\r]+/).map(l => {
+                              const parts = l.split(',').map(Number);
+                              return [parts[0], parts[1]];
+                          }).filter(c => !isNaN(c[0]) && !isNaN(c[1]));
+                          
+                          if (coords.length >= 2) {
+                              geojson.features.push({
+                                  type: 'Feature',
+                                  properties: { name },
+                                  geometry: { type: 'LineString', coordinates: coords }
+                              });
+                          }
+                      }
+                  });
+                  
+                  // Points
+                  const points = Array.from(p.getElementsByTagName("Point"));
+                  points.forEach(pt => {
+                      const coordsText = pt.getElementsByTagName("coordinates")[0]?.textContent;
+                      if (coordsText) {
+                          const parts = coordsText.trim().split(',').map(Number);
+                          if (!isNaN(parts[0]) && !isNaN(parts[1])) {
+                              geojson.features.push({
+                                  type: 'Feature',
+                                  properties: { name },
+                                  geometry: { type: 'Point', coordinates: [parts[0], parts[1]] }
+                              });
+                          }
+                      }
+                  });
+              });
+
+              if (geojson.features.length === 0) {
+                  alert("Não foram encontrados elementos táticos válidos no arquivo KML.");
+                  return;
+              }
+
+              await tacticalService.saveKmlLayer({
+                  operation_id: id,
+                  name: file.name.replace('.kml', ''),
+                  type: importType,
+                  geojson: geojson,
+                  visible: true,
+                  color: importType === 'sector' ? '#3b82f6' : (importType === 'path' ? '#f97316' : '#10b981')
+              });
+
+              await loadTacticalData(id);
+              setActivePanel(null);
+              addLog(`IMPORTADO: ${file.name}`, Globe);
+          } catch (err) {
+              console.error("KML Error", err);
+              alert("Falha ao processar KML.");
+          }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
   };
 
   const handleMainDroneDragEnd = async (e: any) => {
@@ -518,7 +566,7 @@ export default function TacticalOperationCenter() {
   return (
     <div className="flex flex-col h-screen bg-slate-900 overflow-hidden text-slate-800 font-sans">
       
-      {/* Janelas Flutuantes de Transmissão */}
+      {/* Janelas Flutuantes de Transmissão (PiP) */}
       {Object.values(activePiPs).map(pip => (
           <FloatingPiP key={pip.id} stream={pip} onClose={() => handleTogglePiP(pip.id, pip.name)} />
       ))}
@@ -579,9 +627,34 @@ export default function TacticalOperationCenter() {
                           <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3 shadow-2xl">
                               <h3 className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-2"><Plus className="w-3.5 h-3.5"/> Ativar Vetor RPA</h3>
                               <div className="space-y-2">
-                                  <Select className="h-9 text-[11px] bg-slate-800 border-slate-700 text-white" id="drone-select"><option value="">Aeronave...</option>{availableDrones.filter(d => d.status === 'available').map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}</Select>
-                                  <Select className="h-9 text-[11px] bg-slate-800 border-slate-700 text-white" id="pilot-select"><option value="">Comandante...</option>{availablePilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}</Select>
-                                  <Button className="w-full h-10 bg-red-600 hover:bg-red-700 text-white font-black uppercase text-[10px] tracking-widest shadow-lg" onClick={() => handleAssignDrone((document.getElementById('drone-select') as HTMLSelectElement).value, (document.getElementById('pilot-select') as HTMLSelectElement).value)}>Lançar no Mapa</Button>
+                                  <Select 
+                                      className="h-9 text-[11px] bg-white border-slate-700 text-slate-900" 
+                                      value={assignDroneId}
+                                      onChange={e => setAssignDroneId(e.target.value)}
+                                  >
+                                      <option value="">Aeronave...</option>
+                                      {availableDrones.filter(d => d.status === 'available').map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
+                                  </Select>
+                                  <Select 
+                                      className="h-9 text-[11px] bg-white border-slate-700 text-slate-900" 
+                                      value={assignPilotId}
+                                      onChange={e => setAssignPilotId(e.target.value)}
+                                  >
+                                      <option value="">Comandante...</option>
+                                      {availablePilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                                  </Select>
+                                  <Input 
+                                      placeholder="Link de Transmissão (PiP)" 
+                                      value={assignStreamUrl}
+                                      onChange={e => setAssignStreamUrl(e.target.value)}
+                                      className="h-9 text-[11px] bg-white text-slate-900"
+                                  />
+                                  <Button 
+                                      className="w-full h-10 bg-red-600 hover:bg-red-700 text-white font-black uppercase text-[10px] tracking-widest shadow-lg mt-2" 
+                                      onClick={handleAssignDroneAction}
+                                  >
+                                      Lançar no Mapa
+                                  </Button>
                               </div>
                           </div>
                       </div>
@@ -630,6 +703,7 @@ export default function TacticalOperationCenter() {
                               {activePanel === 'create' && (<>
                                 <Input label="Identificação Tática" autoFocus value={newItemName} onChange={e => setNewItemName(e.target.value)} className="font-black text-xs uppercase h-10 bg-slate-50 border-slate-200" labelClassName="text-[10px] font-black uppercase text-slate-500" />
                                 {newItemType === 'poi' && (
+                                    <>
                                     <div className="grid grid-cols-2 gap-2">
                                         {[
                                             { id: 'base', label: 'Base / PC', icon: MapPin }, 
@@ -647,6 +721,14 @@ export default function TacticalOperationCenter() {
                                             </button>
                                         ))}
                                     </div>
+                                    <Input 
+                                        label="Link de Transmissão (Opcional)" 
+                                        placeholder="YouTube / RTSP URL" 
+                                        value={assignStreamUrl} 
+                                        onChange={e => setAssignStreamUrl(e.target.value)} 
+                                        className="h-10 text-xs font-bold"
+                                    />
+                                    </>
                                 )}
                                 <Button onClick={saveNewItem} className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-black uppercase text-[11px] tracking-widest shadow-xl">Salvar Elemento</Button>
                               </>)}
@@ -654,12 +736,12 @@ export default function TacticalOperationCenter() {
                                   <div className="space-y-5">
                                       <div className="p-4 bg-slate-900 rounded-3xl flex items-center justify-between text-white border border-slate-800 shadow-2xl">
                                           <div>
-                                              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Aeronave Ativa</p>
-                                              <h4 className="text-lg font-black">{selectedEntity.drone?.prefix}</h4>
+                                              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Ativo RPA</p>
+                                              <h4 className="text-lg font-black">{selectedEntity.drone?.prefix || selectedEntity.name}</h4>
                                           </div>
                                           {selectedEntity.stream_url && (
                                               <button 
-                                                onClick={() => handleTogglePiP(selectedEntity.id, selectedEntity.drone?.prefix || 'Drone', selectedEntity.stream_url)}
+                                                onClick={() => handleTogglePiP(selectedEntity.id, selectedEntity.drone?.prefix || selectedEntity.name || 'Drone', selectedEntity.stream_url)}
                                                 className={`p-2 rounded-full transition-all ${activePiPs[selectedEntity.id] ? 'bg-red-600 text-white' : 'bg-slate-700 text-slate-300'}`}
                                                 title="Monitorar Transmissão"
                                               >
@@ -667,9 +749,26 @@ export default function TacticalOperationCenter() {
                                               </button>
                                           )}
                                       </div>
-                                      <div className="grid grid-cols-2 gap-3">
-                                          <Input label="Altitude (m)" type="number" value={selectedEntity.flight_altitude} onChange={e => { const val = Number(e.target.value); tacticalService.updateDroneStatus(selectedEntity.id, { flight_altitude: val }); setSelectedEntity({...selectedEntity, flight_altitude: val}); loadTacticalData(id!); }} className="text-xs h-10 font-black" />
-                                          <Input label="Raio (m)" type="number" value={selectedEntity.radius} onChange={e => { const val = Number(e.target.value); tacticalService.updateDroneStatus(selectedEntity.id, { radius: val }); setSelectedEntity({...selectedEntity, radius: val}); loadTacticalData(id!); }} className="text-xs h-10 font-black" />
+                                      <div className="space-y-3">
+                                          <Input 
+                                              label="Link de Transmissão" 
+                                              value={selectedEntity.stream_url || ''} 
+                                              onChange={e => {
+                                                  const val = e.target.value;
+                                                  setSelectedEntity({...selectedEntity, stream_url: val});
+                                                  if (entityType === 'drone') {
+                                                      tacticalService.updateDroneStatus(selectedEntity.id, { stream_url: val });
+                                                  }
+                                                  loadTacticalData(id!);
+                                              }} 
+                                              className="text-xs h-9 font-bold"
+                                          />
+                                          {entityType === 'drone' && (
+                                              <div className="grid grid-cols-2 gap-3">
+                                                  <Input label="Altitude (m)" type="number" value={selectedEntity.flight_altitude} onChange={e => { const val = Number(e.target.value); tacticalService.updateDroneStatus(selectedEntity.id, { flight_altitude: val }); setSelectedEntity({...selectedEntity, flight_altitude: val}); loadTacticalData(id!); }} className="text-xs h-10 font-black" />
+                                                  <Input label="Raio (m)" type="number" value={selectedEntity.radius} onChange={e => { const val = Number(e.target.value); tacticalService.updateDroneStatus(selectedEntity.id, { radius: val }); setSelectedEntity({...selectedEntity, radius: val}); loadTacticalData(id!); }} className="text-xs h-10 font-black" />
+                                              </div>
+                                          )}
                                       </div>
                                       <Button variant="danger" onClick={async () => { if(confirm("Desmobilizar?")) { await tacticalService.removeDroneFromOp(selectedEntity.id); setActivePanel(null); loadTacticalData(id!); syncTacticalSummary(); } }} className="w-full h-11 text-[10px] font-black uppercase">Desmobilizar Unidade</Button>
                                   </div>
@@ -694,7 +793,7 @@ export default function TacticalOperationCenter() {
                                       <div className="space-y-3">
                                           <Input label="Identificação" value={selectedEntity.name} onChange={e => { const val = e.target.value; setSelectedEntity({...selectedEntity, name: val}); tacticalService.updatePOI(selectedEntity.id, { name: val }); }} className="text-xs h-10 font-bold" />
                                           <textarea 
-                                              className="w-full p-3 border border-slate-200 rounded-xl text-xs h-24 bg-slate-50 focus:ring-2 focus:ring-blue-500"
+                                              className="w-full p-3 border border-slate-200 rounded-xl text-xs h-24 bg-white focus:ring-2 focus:ring-blue-500"
                                               placeholder="Observações do ponto..."
                                               value={selectedEntity.description || ''}
                                               onChange={e => { const val = e.target.value; setSelectedEntity({...selectedEntity, description: val}); tacticalService.updatePOI(selectedEntity.id, { description: val }); }}
@@ -704,7 +803,7 @@ export default function TacticalOperationCenter() {
                                               placeholder="YouTube / RTSP..."
                                               value={selectedEntity.stream_url || ''}
                                               onChange={e => { const val = e.target.value; setSelectedEntity({...selectedEntity, stream_url: val}); tacticalService.updatePOI(selectedEntity.id, { stream_url: val }); }}
-                                              className="text-xs h-9"
+                                              className="text-xs h-9 font-bold bg-white"
                                           />
                                       </div>
                                       <Button variant="outline" onClick={async () => { if(confirm("Remover este ponto?")) { await tacticalService.deletePOI(selectedEntity.id); setActivePanel(null); loadTacticalData(id!); } }} className="w-full h-10 text-[10px] font-black text-red-600 uppercase border-red-100 hover:bg-red-50">Excluir Ponto</Button>
@@ -750,8 +849,8 @@ export default function TacticalOperationCenter() {
                   {visibleLayers.base && pcPosition && (<Marker position={pcPosition} icon={createTacticalDroneIcon({ id: 'main-drone-virtual', operation_id: operation.id, drone_id: operation.drone_id, pilot_id: operation.pilot_id, status: 'active', flight_altitude: operation.flight_altitude, radius: operation.radius, drone: mainResources.drone, pilot: mainResources.pilot, stream_url: operation.stream_url })} draggable={true} eventHandlers={{ click: () => { setSelectedEntity({...operation}); setEntityType('drone'); setActivePanel('manage'); }, dragend: handleMainDroneDragEnd }} />)}
                   {visibleLayers.sectors && sectors.filter(s => s.type !== 'route').map(s => (<Polygon key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 1) as any} pathOptions={{ color: s.color, fillOpacity: 0.25, weight: 3 }} eventHandlers={{ click: () => { setSelectedEntity({...s}); setEntityType('sector'); setActivePanel('manage'); } }} />))}
                   {visibleLayers.routes && sectors.filter(s => s.type === 'route').map(s => (<Polyline key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 0) as any} pathOptions={{ color: s.color, weight: 6, dashArray: '8, 12' }} eventHandlers={{ click: () => { setSelectedEntity({...s}); setEntityType('sector'); setActivePanel('manage'); } }} />))}
-                  {visibleLayers.pois && pois.map(p => (<Marker key={p.id} position={[p.lat, p.lng]} icon={getPoiIcon(p.type)} eventHandlers={{ click: () => { setSelectedEntity({...p}); setEntityType('poi'); setActivePanel('manage'); } }} />))}
-                  {visibleLayers.drones && tacticalDrones.map(td => td.current_lat && (<Marker key={td.id} position={[td.current_lat, td.current_lng]} icon={createTacticalDroneIcon(td)} draggable={true} eventHandlers={{ click: () => { setSelectedEntity({...td}); setEntityType('drone'); setActivePanel('manage'); }, dragend: (e) => handleDroneDragEnd(e, td) }} />))}
+                  {visibleLayers.pois && pois.map(p => (<Marker key={p.id} position={[p.lat, p.lng]} icon={getPoiIcon(p.type, !!p.stream_url)} eventHandlers={{ click: () => { setSelectedEntity({...p}); setEntityType('poi'); setActivePanel('manage'); if(p.stream_url) handleTogglePiP(p.id, p.name, p.stream_url); } }} />))}
+                  {visibleLayers.drones && tacticalDrones.map(td => td.current_lat && (<Marker key={td.id} position={[td.current_lat, td.current_lng]} icon={createTacticalDroneIcon(td)} draggable={true} eventHandlers={{ click: () => { setSelectedEntity({...td}); setEntityType('drone'); setActivePanel('manage'); if(td.stream_url) handleTogglePiP(td.id, td.drone?.prefix || 'Drone', td.stream_url); }, dragend: (e) => handleDroneDragEnd(e, td) } } />))}
                   
                   {kmlLayers.filter(l => l.visible && l.geojson?.features).map(layer => (
                       <React.Fragment key={layer.id}>
