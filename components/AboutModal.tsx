@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Card, Button } from './ui_components';
 import { X, Users, Award, Book, Shield, ExternalLink, Code2, Globe2, Scale } from 'lucide-react';
@@ -77,7 +76,8 @@ export default function AboutModal({ isOpen, onClose }: AboutModalProps) {
             <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100">
               <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-xs font-bold text-slate-600 uppercase">
                 <li className="flex items-center gap-2 italic">• Seção de Operações Aéreas (SOARP - CCB)</li>
-                <li className="flex items-center gap-2 italic">• Batalhão de Operações Aéreas (BOA)</li>
+                <li className="flex items-center gap-2 italic">• SOARP - EQUIPE DOCENTE</li>
+                <li className="flex items-center gap-2 italic">• Grupo de Resgate Aéreo (GRAER)</li>
                 <li className="flex items-center gap-2 italic">• Centro de Comando e Controle (CCC)</li>
                 <li className="flex items-center gap-2 italic">• Comandos Regionais de Bombeiro Militar (CRBM)</li>
               </ul>
@@ -95,6 +95,7 @@ export default function AboutModal({ isOpen, onClose }: AboutModalProps) {
                 { title: "ICA 100-40 (DECEA)", desc: "Aeronaves não Tripuladas e o Acesso ao Espaço Aéreo Brasileiro." },
                 { title: "RBAC-E nº 94 (ANAC)", desc: "Requisitos Gerais para Aeronaves Não Tripuladas de uso Civil." },
                 { title: "MCA 100-11 (DECEA)", desc: "Gerenciamento do Risco de Segurança Operacional." },
+                { title: "MCA 56-5 (DECEA)", desc: "Instruções e Normas sobre Aeronaves Não Tripuladas de Uso Público." },
                 { title: "Portaria nº 2.451/GC3", desc: "Regras para emprego de RPAs em missões de Defesa e Segurança." },
                 { title: "Diretrizes CBMPR", desc: "Procedimentos Operacionais Padrão para Emprego de RPAs." },
                 { title: "ISO/IEC 27001", desc: "Padrões de Segurança da Informação adotados no desenvolvimento." }
