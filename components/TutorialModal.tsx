@@ -68,7 +68,7 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
             
             <section className="space-y-2">
               <h4 className="text-sm font-black text-red-700 uppercase flex items-center gap-2"><Zap className="w-4 h-4"/> Como lançar uma ocorrência</h4>
-              <p className="text-xs">Acesse <strong>Operações</strong> > <strong>Nova Missão</strong>. O sistema gera automaticamente o <strong>Protocolo ARP</strong> baseado no ano e na sua unidade. Preencha a natureza da missão e localize o Ponto de Comando (PC) no mapa.</p>
+              <p className="text-xs">Acesse <strong>Operações</strong> &gt; <strong>Nova Missão</strong>. O sistema gera automaticamente o <strong>Protocolo ARP</strong> baseado no ano e na sua unidade. Preencha a natureza da missão e localize o Ponto de Comando (PC) no mapa.</p>
             </section>
 
             <section className="space-y-2">
