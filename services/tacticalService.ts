@@ -19,10 +19,11 @@ export interface TacticalPOI {
   id: string;
   operation_id: string;
   name: string;
-  type: 'base' | 'victim' | 'hazard' | 'landing_zone' | 'interest' | 'ground_team' | 'vehicle' | 'k9';
+  type: 'base' | 'victim' | 'hazard' | 'landing_zone' | 'interest' | 'ground_team' | 'vehicle' | 'k9' | 'footprint' | 'object';
   lat: number;
   lng: number;
   description?: string;
+  stream_url?: string; // URL de transmissão opcional para o ponto
   created_at: string;
 }
 
@@ -117,6 +118,15 @@ export const tacticalService = {
     all.push(newPOI);
     setLocal(STORAGE_POIS, all);
     return newPOI;
+  },
+
+  updatePOI: async (id: string, updates: Partial<TacticalPOI>): Promise<void> => {
+    const all = getLocal<TacticalPOI>(STORAGE_POIS);
+    const idx = all.findIndex(p => p.id === id);
+    if (idx !== -1) {
+        all[idx] = { ...all[idx], ...updates };
+        setLocal(STORAGE_POIS, all);
+    }
   },
 
   deletePOI: async (poiId: string): Promise<void> => {
