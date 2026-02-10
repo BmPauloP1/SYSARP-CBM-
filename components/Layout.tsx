@@ -4,30 +4,37 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Radio, Activity, 
   BarChart3, Shield, LogOut, Menu, X, ChevronDown, Plane, 
-  Database, ShieldAlert, Settings
+  Database, ShieldAlert, Settings, HelpCircle, Info
 } from 'lucide-react';
 import { base44 } from '../services/base44Client';
 import { Pilot, SYSARP_LOGO } from '../types';
+import TutorialModal from './TutorialModal';
+import AboutModal from './AboutModal';
 
 export default function Layout({ children }: { children?: React.ReactNode }) {
-  // Evita o flicker: Busca o usuário do localStorage primeiro (cache rápido)
   const [user, setUser] = useState<Pilot | null>(() => {
     const cached = localStorage.getItem('sysarp_user_session');
     return cached ? JSON.parse(cached) : null;
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isTutorialOpen, setIsTutorialOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Verifica sessão real em segundo plano
     base44.auth.me().then(me => {
       setUser(me);
       localStorage.setItem('sysarp_user_session', JSON.stringify(me));
-    }).catch(() => {
-      if (!user) navigate('/login');
+    }).catch((err) => {
+      console.warn("[Layout] Falha na verificação de sessão:", err.message);
+      localStorage.removeItem('sysarp_user_session');
+      setUser(null);
+      if (location.pathname !== '/login') {
+          navigate('/login');
+      }
     });
-  }, [location.pathname]);
+  }, [location.pathname, navigate]);
 
   const navItems = [
     { title: "DASHBOARD", url: "/", icon: LayoutDashboard },
@@ -82,7 +89,7 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
   };
 
   return (
-    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans">
+    <div className="flex h-screen bg-slate-100 overflow-hidden font-sans text-slate-800">
       {/* Sidebar Mobile Overlay */}
       {isSidebarOpen && <div className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm" onClick={() => setIsSidebarOpen(false)} />}
 
@@ -122,7 +129,6 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
                   )}
                 </Link>
 
-                {/* Sub-items (Auto-expand if parent is active) */}
                 {isActive && item.subItems && (
                   <div className="mt-2 mb-4 space-y-1 bg-black/10 rounded-2xl py-3 px-2 animate-fade-in">
                     {item.subItems.map(sub => {
@@ -144,6 +150,25 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
               </div>
             );
           })}
+
+          {/* Complementary Access */}
+          <div className="pt-4 border-t border-red-900/30 space-y-1">
+            <button 
+              onClick={() => { setIsTutorialOpen(true); setIsSidebarOpen(false); }}
+              className="flex items-center gap-4 w-full px-5 py-4 rounded-2xl text-red-200 hover:bg-white/10 transition-all text-[11px] font-black uppercase tracking-widest"
+            >
+              <HelpCircle className="w-6 h-6 text-yellow-400" /> 
+              <span>Central de Ajuda</span>
+            </button>
+            
+            <button 
+              onClick={() => { setIsAboutOpen(true); setIsSidebarOpen(false); }}
+              className="flex items-center gap-4 w-full px-5 py-4 rounded-2xl text-red-200 hover:bg-white/10 transition-all text-[11px] font-black uppercase tracking-widest"
+            >
+              <Info className="w-6 h-6 text-blue-300" /> 
+              <span>Sobre o Sistema</span>
+            </button>
+          </div>
         </nav>
 
         {/* Footer: Profile & Logout */}
@@ -170,9 +195,7 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* Content Area */}
       <main className="flex-1 flex flex-col overflow-hidden relative bg-white">
-        {/* Mobile Header */}
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:hidden shrink-0 z-50 shadow-sm">
            <div className="flex items-center gap-3">
               <img src={SYSARP_LOGO} className="w-8 h-8 object-contain" alt="Logo" />
@@ -186,11 +209,14 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
            </button>
         </header>
         
-        {/* Page Container */}
         <div className="flex-1 relative overflow-hidden">
           {children}
         </div>
       </main>
+
+      {/* Overlays */}
+      <TutorialModal isOpen={isTutorialOpen} onClose={() => setIsTutorialOpen(false)} />
+      <AboutModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
     </div>
   );
 }

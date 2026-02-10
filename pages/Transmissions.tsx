@@ -1,27 +1,22 @@
-
 import React, { useState, useEffect } from "react";
 import { base44 } from "../services/base44Client";
 import { Card } from "../components/ui_components";
 import { Badge } from "../components/ui_components";
-import { Video, Play, Radio as RadioIcon, Users, Calendar, MapPin, Signal, Wifi, Activity, Maximize2, MoreHorizontal } from "lucide-react";
+import { Video, Play, Radio as RadioIcon, Users, Calendar, MapPin, Signal, Wifi, Activity, Maximize2, MoreHorizontal, UsersRound, Share2 } from "lucide-react";
 import { Operation, Pilot, Drone, MISSION_LABELS } from "../types";
 
 const extractVideoId = (url: string) => {
   if (!url) return null;
   
-  // YouTube Live specific (formato comum para lives: youtube.com/live/ID)
   const liveMatch = url.match(/youtube\.com\/live\/([^?&/]{11})/);
   if (liveMatch) return { type: 'youtube', id: liveMatch[1] };
 
-  // YouTube Standard
   const youtubeMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
   if (youtubeMatch) return { type: 'youtube', id: youtubeMatch[1] };
   
-  // Vimeo
   const vimeoMatch = url.match(/vimeo\.com\/(\d+)/);
   if (vimeoMatch) return { type: 'vimeo', id: vimeoMatch[1] };
   
-  // Twitch
   const twitchMatch = url.match(/twitch\.tv\/([^\/\?]+)/);
   if (twitchMatch) return { type: 'twitch', channel: twitchMatch[1] };
   
@@ -31,12 +26,10 @@ const extractVideoId = (url: string) => {
 const VideoPlayer = ({ videoData, isMain }: { videoData: any, isMain: boolean }) => {
   if (!videoData) return null;
   
-  // Use Tailwind aspect-video for responsive height instead of fixed pixels
   const containerClass = isMain 
     ? "w-full h-full absolute inset-0 bg-black" 
     : "w-full aspect-video bg-black";
   
-  // Safe origin check
   const origin = window.location.origin && window.location.origin !== 'null' 
     ? `&origin=${encodeURIComponent(window.location.origin)}` 
     : '';
@@ -97,7 +90,7 @@ export default function Transmissions() {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 30000);
+    const interval = setInterval(loadData, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -109,30 +102,18 @@ export default function Transmissions() {
         base44.entities.Drone.list()
       ]);
       
-      // Filter only ops with valid streams
       const activeWithStreams = ops.filter(op => op.stream_url && op.stream_url.length > 5);
       
       setOperations(activeWithStreams);
       setPilots(pil);
       setDrones(drn);
       
-      // Lógica de seleção inteligente para evitar troca automática
       setMainStream((currentSelection) => {
-        // 1. Se o usuário já selecionou algo, verifique se ainda está online
         if (currentSelection) {
             const stillActive = activeWithStreams.find(op => op.id === currentSelection.id);
-            if (stillActive) {
-                // Retorna o objeto atualizado (para atualizar metadados), mas mantém o vídeo
-                return stillActive;
-            }
+            if (stillActive) return stillActive;
         }
-
-        // 2. Se nada selecionado OU o vídeo atual ficou offline, seleciona o primeiro disponível
-        if (activeWithStreams.length > 0) {
-            return activeWithStreams[0];
-        }
-
-        // 3. Nenhum vídeo disponível
+        if (activeWithStreams.length > 0) return activeWithStreams[0];
         return null;
       });
 
@@ -157,7 +138,6 @@ export default function Transmissions() {
   return (
     <div className="flex flex-col h-full bg-slate-950 overflow-hidden text-slate-200 font-sans">
       
-      {/* Header Tático */}
       <div className="flex-shrink-0 bg-slate-900 border-b border-slate-800 px-6 py-4 shadow-md z-10 flex justify-between items-center">
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-3 tracking-wide">
@@ -188,7 +168,6 @@ export default function Transmissions() {
         </div>
       </div>
 
-      {/* Main Content Area */}
       {operations.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center p-8 text-slate-600">
           <div className="bg-slate-900 p-8 rounded-full mb-6 border border-slate-800 shadow-2xl relative">
@@ -203,16 +182,13 @@ export default function Transmissions() {
       ) : (
         <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
           
-          {/* Main Player Column */}
           <div className="flex-1 overflow-y-auto lg:overflow-hidden p-4 md:p-6 flex flex-col min-h-0">
              {mainStream && (
                 <div className="flex flex-col h-full gap-4">
                    
-                   {/* Player Container */}
                    <div className="flex-1 bg-black rounded-xl overflow-hidden shadow-2xl border border-slate-800 relative group min-h-[300px]">
                       <VideoPlayer videoData={extractVideoId(mainStream.stream_url || '')} isMain={true} />
                       
-                      {/* Video Overlays */}
                       <div className="absolute top-4 left-4 flex gap-2">
                           <span className="bg-red-600 text-white text-[10px] font-black px-2 py-1 rounded uppercase tracking-widest animate-pulse shadow-lg">
                               AO VIVO
@@ -233,52 +209,48 @@ export default function Transmissions() {
                       </div>
                    </div>
 
-                   {/* Telemetry / Info Panel */}
                    <div className="h-auto shrink-0 grid grid-cols-1 md:grid-cols-4 gap-4 animate-fade-in">
-                      {/* Card 1: Piloto */}
-                      <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center gap-4 shadow-lg">
+                      
+                      <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center gap-4 shadow-lg border-l-4 border-l-blue-600">
                           <div className="p-3 bg-blue-900/20 rounded-lg text-blue-500 border border-blue-900/30">
                               <Users className="w-5 h-5" />
                           </div>
                           <div className="min-w-0">
-                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Comandante (PIC)</p>
+                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">PIC</p>
                               <p className="text-sm font-bold text-slate-200 truncate">{pilots.find(p => p.id === mainStream.pilot_id)?.full_name || 'N/A'}</p>
                           </div>
                       </div>
 
-                      {/* Card 2: Aeronave */}
                       <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center gap-4 shadow-lg">
                           <div className="p-3 bg-orange-900/20 rounded-lg text-orange-500 border border-orange-900/30">
                               <Wifi className="w-5 h-5" />
                           </div>
                           <div className="min-w-0">
-                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Aeronave / Link</p>
+                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Vetor</p>
                               <p className="text-sm font-bold text-slate-200 truncate">
                                   {drones.find(d => d.id === mainStream.drone_id)?.model || 'Desconhecido'}
                               </p>
                           </div>
                       </div>
 
-                      {/* Card 3: Tempo */}
                       <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center gap-4 shadow-lg">
                           <div className="p-3 bg-green-900/20 rounded-lg text-green-500 border border-green-900/30">
                               <Calendar className="w-5 h-5" />
                           </div>
                           <div className="min-w-0">
-                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Início da Operação</p>
+                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Início</p>
                               <p className="text-sm font-bold text-slate-200 font-mono">
                                   {new Date(mainStream.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                               </p>
                           </div>
                       </div>
 
-                      {/* Card 4: Local */}
                       <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex items-center gap-4 shadow-lg">
                           <div className="p-3 bg-red-900/20 rounded-lg text-red-500 border border-red-900/30">
                               <MapPin className="w-5 h-5" />
                           </div>
                           <div className="min-w-0">
-                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Coordenadas</p>
+                              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Coords</p>
                               <p className="text-sm font-bold text-slate-200 font-mono truncate">
                                   {mainStream.latitude.toFixed(4)}, {mainStream.longitude.toFixed(4)}
                               </p>
@@ -286,7 +258,6 @@ export default function Transmissions() {
                       </div>
                    </div>
                    
-                   {/* Description Strip */}
                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl text-sm text-slate-400 flex items-start gap-3 shadow-lg">
                         <Activity className="w-5 h-5 text-slate-600 mt-0.5 shrink-0" />
                         <div>
@@ -299,7 +270,6 @@ export default function Transmissions() {
              )}
           </div>
 
-          {/* Sidebar Playlist */}
           <div className="w-full lg:w-80 flex-shrink-0 bg-slate-900 border-l border-slate-800 overflow-y-auto h-auto lg:h-full z-10 custom-scrollbar">
              <div className="p-4 border-b border-slate-800 sticky top-0 z-10 bg-slate-900/95 backdrop-blur">
                 <h3 className="font-bold text-slate-200 text-xs uppercase tracking-widest flex items-center gap-2">
@@ -323,12 +293,10 @@ export default function Transmissions() {
                         onClick={() => setMainStream(op)}
                         className="group cursor-pointer bg-black/40 border border-slate-800 rounded-lg overflow-hidden hover:border-red-600/50 hover:bg-slate-800 transition-all relative"
                       >
-                         {/* Thumbnail Container */}
                          <div className="relative aspect-video bg-black w-full opacity-80 group-hover:opacity-100 transition-opacity">
                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                <VideoPlayer videoData={extractVideoId(op.stream_url || '')} isMain={false} />
                             </div>
-                            {/* Blocker to allow click */}
                             <div className="absolute inset-0 bg-transparent z-20"></div>
                             
                             <div className="absolute bottom-2 right-2 bg-black/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded border border-white/10 z-30">

@@ -212,6 +212,7 @@ export interface Operation {
   end_time?: string;
   estimated_end_time?: string;
   flight_hours?: number;
+  crowd_count?: number;
   photos: string[];
   gpx_file?: string;
   stream_url?: string;

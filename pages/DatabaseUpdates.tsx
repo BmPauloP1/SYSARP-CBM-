@@ -11,41 +11,35 @@ interface SchemaMigration {
 
 const ALL_UPDATES = [
   {
-    id: 'multi_point_operations_v1.0',
-    title: 'Suporte a Operações Multi-Pontos',
-    description: 'Adiciona a coluna necessária para armazenar múltiplas coordenadas, raios e altitudes em uma única missão. Essencial para o novo sistema de compartilhamento.',
-    category: 'ops',
+    id: 'critical_pause_system_v1.0',
+    title: 'Correção Crítica: Sistema de Pausa e Notas',
+    description: 'Adiciona as colunas "is_paused" e "notes" na tabela de operações. Sem esta atualização, o botão de pausar missão e o encerramento de logs falharão.',
+    category: 'critical',
     sql: `
--- ADICIONA COLUNA DE MULTI-PONTOS (JSONB) NA TABELA DE OPERAÇÕES
+-- ADICIONA COLUNAS PARA O SISTEMA DE PAUSA E HISTÓRICO DE NOTAS
 ALTER TABLE public.operations 
-ADD COLUMN IF NOT EXISTS takeoff_points jsonb DEFAULT '[]'::jsonb;
+ADD COLUMN IF NOT EXISTS is_paused boolean DEFAULT false,
+ADD COLUMN IF NOT EXISTS notes text DEFAULT '';
 
--- RECARREGA O SCHEMA PARA O POSTGREST RECONHECER A COLUNA
+-- RECARREGA O SCHEMA
 NOTIFY pgrst, 'reload schema';
 `
   },
   {
-    id: 'formal_incident_reporting_v1.0',
-    title: 'Suporte a Boletim de Ocorrência Formal',
-    description: 'Adiciona campos de texto longo para narrativa operacional e ações tomadas, essenciais para a validade jurídica dos relatórios.',
+    id: 'multi_point_operations_v1.0',
+    title: 'Suporte a Operações Multi-Pontos',
+    description: 'Adiciona a coluna necessária para armazenar múltiplas coordenadas, raios e altitudes em uma única missão.',
     category: 'ops',
     sql: `
--- 1. ADICIONA OU REFORÇA COLUNAS DE TEXTO LONGO NA TABELA DE OPERAÇÕES
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS description text;
-ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS actions_taken text;
-
--- 2. CRIA ÍNDICE DE BUSCA PARA PROTOCOLO E NOME (VELOCIDADE)
-CREATE INDEX IF NOT EXISTS idx_operations_protocol ON public.operations(occurrence_number);
-CREATE INDEX IF NOT EXISTS idx_operations_name ON public.operations(name);
-
--- 3. RECARREGA O SCHEMA
+ALTER TABLE public.operations 
+ADD COLUMN IF NOT EXISTS takeoff_points jsonb DEFAULT '[]'::jsonb;
 NOTIFY pgrst, 'reload schema';
 `
   },
   {
     id: 'drone_documents_system_v1.0',
     title: 'Módulo de Pasta Digital de Aeronaves',
-    description: 'Adiciona suporte ao armazenamento de URLs de documentos (Prefácio, Manuais, Checklists) na tabela de drones via campo JSONB.',
+    description: 'Adiciona suporte ao armazenamento de documentos na tabela de drones via campo JSONB.',
     category: 'ops',
     sql: `
 ALTER TABLE public.drones ADD COLUMN IF NOT EXISTS documents jsonb DEFAULT '{}'::jsonb;
@@ -53,63 +47,13 @@ NOTIFY pgrst, 'reload schema';
 `
   },
   {
-    id: 'summer_op_permissions_v1.0',
-    title: 'Permissões de Edição - Operação Verão',
-    description: 'Habilita a permissão de UPDATE na tabela de voos de verão para que o recurso de edição funcione corretamente.',
-    category: 'permissions',
+    id: 'formal_incident_reporting_v1.0',
+    title: 'Suporte a Boletim de Ocorrência Formal',
+    description: 'Adiciona campos de texto longo para narrativa operacional e ações tomadas.',
+    category: 'ops',
     sql: `
--- HABILITA RLS E CRIA POLÍTICA DE ATUALIZAÇÃO
-ALTER TABLE public.op_summer_flights ENABLE ROW LEVEL SECURITY;
-
-DO $$ 
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies 
-        WHERE tablename = 'op_summer_flights' 
-        AND policyname = 'Permitir atualizar voos verao'
-    ) THEN
-        CREATE POLICY "Permitir atualizar voos verao" 
-        ON public.op_summer_flights 
-        FOR UPDATE 
-        TO authenticated 
-        USING (true) 
-        WITH CHECK (true);
-    END IF;
-END $$;
-
-NOTIFY pgrst, 'reload schema';
-`
-  },
-  {
-    id: 'general_ops_permissions_v1.0',
-    title: 'Permissões de Edição - Operações Gerais',
-    description: 'Habilita a permissão de UPDATE na tabela principal de operações, permitindo que administradores editem registros de outros pilotos.',
-    category: 'permissions',
-    sql: `
--- GARANTE QUE A TABELA TENHA RLS HABILITADO
-ALTER TABLE public.operations ENABLE ROW LEVEL SECURITY;
-
-DO $$ 
-BEGIN
-    -- REMOVE POLÍTICA RESTRITIVA ANTIGA SE EXISTIR PARA EVITAR CONFLITOS
-    IF EXISTS (
-        SELECT 1 FROM pg_policies 
-        WHERE tablename = 'operations' 
-        AND policyname = 'Permitir atualizar operacoes'
-    ) THEN
-        DROP POLICY "Permitir atualizar operacoes" ON public.operations;
-    END IF;
-
-    -- CRIA NOVA POLÍTICA PERMISSIVA PARA USUÁRIOS AUTENTICADOS
-    CREATE POLICY "Permitir atualizar operacoes" 
-    ON public.operations 
-    FOR UPDATE 
-    TO authenticated 
-    USING (true) 
-    WITH CHECK (true);
-    
-END $$;
-
+ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS actions_taken text;
 NOTIFY pgrst, 'reload schema';
 `
   }
@@ -138,18 +82,18 @@ export default function DatabaseUpdates() {
 
   const handleCopySql = (sql: string) => {
     navigator.clipboard.writeText(sql);
-    alert("Código SQL copiado!");
+    alert("Código SQL copiado! Cole-o no Editor SQL do seu Supabase.");
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6 h-full overflow-y-auto pb-20">
+    <div className="p-6 max-w-5xl mx-auto space-y-6 h-full overflow-y-auto pb-20 bg-slate-50">
       <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
-        <div className="p-3 bg-slate-800 rounded-xl text-white shadow-lg">
+        <div className="p-3 bg-red-700 rounded-xl text-white shadow-lg">
           <Database className="w-8 h-8" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Atualizações de Estrutura</h1>
-          <p className="text-sm text-slate-500">Mantenha o banco de dados sincronizado com as novas funcionalidades.</p>
+          <h1 className="text-2xl font-bold text-slate-900">Estrutura do Banco de Dados</h1>
+          <p className="text-sm text-slate-500">Sincronize seu banco de dados com as últimas correções do sistema.</p>
         </div>
       </div>
 
@@ -157,30 +101,28 @@ export default function DatabaseUpdates() {
         {ALL_UPDATES.map(update => {
           const applied = isApplied(update.id);
           return (
-            <Card key={update.id} className={`p-6 border-l-4 transition-all ${applied ? 'border-l-green-500' : 'border-l-amber-500 shadow-md ring-1 ring-amber-100'}`}>
+            <Card key={update.id} className={`p-6 border-l-4 transition-all ${applied ? 'border-l-green-500' : 'border-l-red-600 shadow-md ring-1 ring-red-50'}`}>
               <div className="flex flex-col md:flex-row justify-between items-start gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <Badge variant={applied ? 'success' : 'warning'} className="uppercase font-bold tracking-wider">
-                      {applied ? 'Aplicado' : 'Pendente'}
+                    <Badge variant={applied ? 'success' : 'danger'} className="uppercase font-black tracking-wider text-[10px]">
+                      {applied ? 'Aplicado' : 'Ação Necessária'}
                     </Badge>
                   </div>
-                  <h3 className="text-lg font-bold text-slate-800">{update.title}</h3>
+                  <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">{update.title}</h3>
                   <p className="text-sm text-slate-600 mt-1 leading-relaxed">{update.description}</p>
                 </div>
-                <Button onClick={() => handleCopySql(update.sql)} variant="outline" className="h-10">
+                <Button onClick={() => handleCopySql(update.sql)} variant="outline" className="h-10 border-slate-300 font-bold uppercase text-[10px]">
                    <Copy className="w-4 h-4 mr-2" /> Copiar SQL
                 </Button>
               </div>
-              {!applied && (
-                <div className="mt-6">
-                  <div className="relative group">
-                    <pre className="bg-slate-900 text-green-400 p-5 rounded-xl text-xs overflow-x-auto font-mono border border-slate-800 max-h-80 shadow-inner">
-                      {update.sql}
-                    </pre>
-                  </div>
+              <div className="mt-6">
+                <div className="relative group">
+                  <pre className="bg-slate-900 text-green-400 p-5 rounded-xl text-xs overflow-x-auto font-mono border border-slate-800 max-h-80 shadow-inner">
+                    {update.sql}
+                  </pre>
                 </div>
-              )}
+              </div>
             </Card>
           );
         })}

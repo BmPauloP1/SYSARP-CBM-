@@ -163,7 +163,8 @@ export default function Reports() {
     if (window.confirm(`ATENÇÃO: Tem certeza que deseja EXCLUIR permanentemente ${selectedOpIds.size} registro(s)?\n\nEsta ação não pode ser desfeita.`)) {
       setLoading(true);
       try {
-        const promises = Array.from(selectedOpIds).map(id => base44.entities.Operation.delete(id));
+        /* Fix: Explicitly typed id as string to resolve TS unknown error on line 166 */
+        const promises = Array.from(selectedOpIds).map((id: string) => base44.entities.Operation.delete(id));
         await Promise.all(promises);
         
         setSelectedOpIds(new Set());

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, CircleMarker, Polygon, Polyline, useMapEvents } from "react-leaflet";
 import L from "leaflet";
@@ -14,7 +13,7 @@ import {
   Shield, MapPin, LocateFixed, Users, 
   CheckSquare, Phone, Building2, Share2, 
   Pause, Play, Pencil, Ban, CheckCircle, 
-  Crosshair, Loader2, Save, FileText, Navigation, AlertTriangle, Map as MapIcon, Info, Youtube, Link as LinkIcon, Sun, Calendar, Zap, Hexagon, MousePointer2, Anchor, Target, Trash2, RotateCcw, Flag, Copy, CheckCheck
+  Crosshair, Loader2, Save, FileText, Navigation, AlertTriangle, Map as MapIcon, Info, Youtube, Link as LinkIcon, Sun, Calendar, Zap, Hexagon, MousePointer2, Anchor, Target, Trash2, RotateCcw, Flag, Share
 } from "lucide-react";
 import { useNavigate } from "react-router-dom"; 
 
@@ -149,7 +148,6 @@ export default function OperationManagement() {
   const [plannedElements, setPlannedElements] = useState<{sectors: Partial<TacticalSector>[], pois: Partial<TacticalPOI>[]}>({ sectors: [], pois: [] });
   const [summerCity, setSummerCity] = useState("");
   const [summerPgv, setSummerPgv] = useState("");
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => { loadData(); }, []);
 
@@ -174,13 +172,6 @@ export default function OperationManagement() {
       const [ops, pils, drns, me] = await Promise.all([base44.entities.Operation.list('-created_at'), base44.entities.Pilot.list(), base44.entities.Drone.list(), base44.auth.me()]);
       setOperations(ops); setPilots(pils); setDrones(drns); setCurrentUser(me);
     } catch(e) {}
-  };
-
-  const handleCopyId = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(id);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
   };
 
   const handleShareOp = (op: Operation) => {
@@ -432,11 +423,7 @@ export default function OperationManagement() {
                                     <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3"><div className="flex items-center gap-3 text-sm font-bold text-slate-700 truncate"><User className="w-4 h-4 text-slate-400" /> Piloto: <span className="font-medium text-slate-600">{pilot?.full_name}</span></div><div className="flex items-center gap-3 text-sm font-bold text-slate-700 truncate"><Plane className="w-4 h-4 text-slate-400" /> RPA: <span className="font-medium text-slate-600">{drone?.prefix} - {drone?.model}</span></div><div className="flex items-start gap-3 text-sm font-bold text-slate-700"><Building2 className="w-4 h-4 text-slate-400 mt-0.5" /><div className="flex flex-col"><div className="text-sm font-bold text-slate-700 uppercase">Área / Unidade</div><div className="text-xs text-slate-500">{op.op_unit || pilot?.unit || 'N/A'}</div><div className="text-[10px] text-slate-400 font-bold uppercase">{op.op_crbm || pilot?.crbm}</div></div></div></div>
                                     <div className="flex items-center justify-between text-[11px] text-slate-400 font-black uppercase pt-3 border-t border-slate-100"><span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> {new Date(op.start_time).toLocaleTimeString()}</span><span className="flex items-center gap-1.5 text-blue-600"><Navigation className="w-3.5 h-3.5" /> RAIO: {op.radius}M</span></div>
                                     <div className="pt-3 border-t border-slate-100 flex gap-2">
-                                        <Button size="sm" variant="outline" className="flex-1 h-9 border-blue-200 text-blue-600 font-black text-[10px] uppercase" onClick={(e) => handleCopyId(e, op.id)}>
-                                            {copiedId === op.id ? <CheckCheck className="w-3.5 h-3.5 mr-1" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
-                                            {copiedId === op.id ? 'COPIADO' : 'ID IA'}
-                                        </Button>
-                                        <Button size="sm" className="flex-[2] h-9 text-[10px] font-black uppercase bg-slate-900" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>ACESSAR CCO TÁTICO</Button>
+                                        <Button size="sm" className="flex-1 h-9 text-[10px] font-black uppercase bg-slate-900" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>ACESSAR CCO TÁTICO</Button>
                                     </div>
                                 </div>
                             </div>
@@ -462,7 +449,6 @@ export default function OperationManagement() {
                           <div className="flex justify-between items-start"><div className="min-w-0 flex-1"><h4 className="font-black text-slate-900 text-lg uppercase leading-none truncate">{op.name}</h4><p className="text-[10px] font-mono text-slate-400 mt-2 uppercase tracking-tighter font-bold">#{op.occurrence_number}</p></div><div className="flex flex-col items-end gap-1.5">{isPaused ? (<Badge className="bg-amber-100 text-amber-700 border-none text-[9px] font-black uppercase px-3 py-1.5 rounded-lg shadow-sm">PAUSADA</Badge>) : (<Badge className="bg-green-100 text-green-700 border-none text-[9px] font-black uppercase px-3 py-1.5 rounded-lg shadow-sm">EM ANDAMENTO</Badge>)}</div></div>
                           <div className="space-y-3"><div className="flex items-center gap-3 text-slate-500 font-black text-[11px] uppercase tracking-tighter"><Clock className="w-4 h-4 text-slate-300" /><span>{new Date(op.start_time).toLocaleString()}</span></div><div className="flex items-center gap-3 text-slate-500 font-black text-[11px] uppercase tracking-tighter"><User className="w-4 h-4 text-slate-300" /><span className="truncate">PIC: {pilot?.full_name}</span></div></div>
                           <div className="w-full h-px bg-slate-100 my-1" /><div className="flex gap-2.5">
-                            <button onClick={(e) => handleCopyId(e, op.id)} className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 hover:bg-blue-100 transition-colors shadow-sm" title="Copiar ID para IA">{copiedId === op.id ? <CheckCheck className="w-5 h-5"/> : <Copy className="w-5 h-5" />}</button>
                             <button onClick={() => handleShareOp(op)} className="w-12 h-12 rounded-xl bg-green-50 text-green-600 flex items-center justify-center border border-green-100 hover:bg-green-100 transition-colors shadow-sm"><Share2 className="w-5 h-5" /></button>
                           <button onClick={(e) => { e.stopPropagation(); isPaused ? handleResume(op) : setControlModal({type: 'pause', op}); }} className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-colors shadow-sm ${isPaused ? 'bg-green-50 text-green-600 border-green-100 hover:bg-green-100' : 'bg-orange-50 text-orange-600 border-orange-100 hover:bg-orange-100'}`}>{isPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}</button>
                           <button onClick={() => handleEditMission(op)} className="w-12 h-12 rounded-xl bg-slate-50 text-slate-600 flex items-center justify-center border border-slate-200 hover:bg-slate-100 transition-colors shadow-sm"><Pencil className="w-5 h-5" /></button><button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="h-12 flex-1 rounded-xl bg-slate-900 text-white flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest"><Crosshair className="w-5 h-5 text-red-500 animate-pulse" /> CCO TÁTICO</button></div>

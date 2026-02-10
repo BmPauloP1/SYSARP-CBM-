@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '../services/base44Client';
 import { Card, Button, Input, Select } from '../components/ui_components';
-import { Lock, UserPlus, Shield, AlertTriangle, LogIn, Mail, KeyRound, CheckSquare, X, FileText, UserCog, Database, Copy, CheckCircle, User } from 'lucide-react';
+import { Lock, UserPlus, Shield, AlertTriangle, LogIn, Mail, KeyRound, CheckSquare, X, FileText, UserCog, Database, Copy, CheckCircle, User, Map } from 'lucide-react';
 import { ORGANIZATION_CHART, LGPD_TERMS, SYSARP_LOGO } from '../types';
 
 export default function Login() {
@@ -13,7 +13,9 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   
-  const [logoError, setLogoError] = useState(false);
+  // Badge and Logo states
+  const [badgeError, setBadgeError] = useState(false);
+  const [badgeLoaded, setBadgeLoaded] = useState(false);
 
   // States for Modals
   const [showRegister, setShowRegister] = useState(false);
@@ -41,10 +43,8 @@ export default function Login() {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [changePasswordTermsAccepted, setChangePasswordTermsAccepted] = useState(false);
 
-  // Filtra o input do usuário conforme regras institucionais
   const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    // Permite letras, números, ponto, sublinhado e hífen. Bloqueia @ e outros símbolos.
     const filteredValue = value.replace(/[^a-z0-9._-]/gi, '').toLowerCase();
     setUsername(filteredValue);
   };
@@ -55,9 +55,7 @@ export default function Login() {
     setLoginError('');
 
     try {
-      // Concatena o domínio institucional de forma invisível
       const fullEmail = `${username}@cbm.pr.gov.br`;
-      
       const user = await base44.auth.login(fullEmail, password);
       
       if (user?.change_password_required) {
@@ -67,7 +65,6 @@ export default function Login() {
       }
     } catch (err: any) {
       console.error("Login error:", err);
-      // Mensagem genérica conforme regra de segurança
       setLoginError("Usuário ou senha inválidos.");
     } finally {
       setLoading(false);
@@ -88,7 +85,6 @@ export default function Login() {
     setLoading(true);
     try {
       const fullEmail = `${regEmailPrefix}@cbm.pr.gov.br`;
-      
       await base44.auth.createAccount({
         ...regForm,
         full_name: regForm.full_name,
@@ -97,13 +93,11 @@ export default function Login() {
 
       alert("Solicitação de cadastro enviada! Faça o login com o seu usuário e senha criados.");
       setShowRegister(false);
-      
       setRegForm({
         full_name: '', phone: '', sarpas_code: '', crbm: '', unit: '', license: '',
         password: '', confirmPassword: '', terms_accepted: false
       });
       setRegEmailPrefix('');
-
     } catch (err: any) {
       alert(`Erro no cadastro: ${err.message}`);
     } finally {
@@ -141,21 +135,24 @@ export default function Login() {
     }
   };
 
-
   return (
     <div className="h-[100dvh] w-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-red-900 via-slate-950 to-black flex flex-col items-center justify-center p-4 overflow-hidden relative font-sans text-slate-800">
       
-      {/* AIRDATA SAFETY BADGE - Hidden on small mobile to save space */}
-      <div className="absolute top-6 left-6 z-[100] opacity-60 hover:opacity-100 transition-all hover:scale-105 hidden md:block grayscale hover:grayscale-0 duration-500">
-        <a href='https://certificates.airdata.com/QcvFJL' target="_blank" rel="noopener noreferrer" title="Airdata UAV Safety Verified">
-          <img 
-            alt='Airdata UAV|Drone Safety Verified Badge' 
-            src='https://certificates.airdata.com/badge?i=QcvFJL&r=Hnhr&t=7&m=3&size=12&c=0' 
-            className="w-[180px] md:w-[240px] h-auto drop-shadow-2xl"
-            style={{ imageRendering: 'smooth' }}
-          />
-        </a>
-      </div>
+      {/* AIRDATA SAFETY BADGE - Hidden if broken or still loading for cleaner UI */}
+      {!badgeError && (
+        <div className={`absolute top-6 left-6 z-[100] transition-all duration-700 hidden md:block hover:scale-105 grayscale hover:grayscale-0 ${badgeLoaded ? 'opacity-60 translate-y-0' : 'opacity-0 -translate-y-4'}`}>
+          <a href='https://certificates.airdata.com/QcvFJL' target="_blank" rel="noopener noreferrer" title="Airdata UAV Safety Verified">
+            <img 
+              alt='Airdata UAV|Drone Safety Verified Badge' 
+              src='https://certificates.airdata.com/badge?i=QcvFJL&r=Hnhr&t=7&m=3&size=12&c=0' 
+              className="w-[180px] md:w-[240px] h-auto drop-shadow-2xl"
+              onLoad={() => setBadgeLoaded(true)}
+              onError={() => setBadgeError(true)}
+              style={{ imageRendering: 'smooth' }}
+            />
+          </a>
+        </div>
+      )}
 
       {/* EMAIL FIX MODAL */}
       {emailFixSql && (
@@ -213,12 +210,9 @@ export default function Login() {
         
         {/* Header Logo */}
         <div className="text-center">
-           {/* Logo SYSARP - Tamanho Aumentado com Efeitos de Destaque */}
            <div className="relative w-36 h-36 md:w-48 md:h-48 mx-auto mb-2 md:mb-6 group">
-              {/* Efeito de Glow Externo Intenso */}
               <div className="absolute inset-0 bg-red-600 rounded-full blur-3xl opacity-40 group-hover:opacity-60 transition-opacity duration-700 animate-pulse"></div>
               
-              {/* Container da Logo (Vidro, Borda e Sombra) */}
               <div className="relative w-full h-full bg-gradient-to-b from-white/10 to-transparent backdrop-blur-xl rounded-full flex items-center justify-center shadow-2xl border border-white/20 ring-1 ring-red-500/30 p-4 transform transition-all duration-500 hover:scale-105 hover:border-red-500/50">
                 <img 
                   src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/696c235cd3c7dd9b211e6fa5/ef1f7eb49_9d6d0ab9-baa7-46f6-ad3c-0def22bac6e8.png" 
@@ -231,9 +225,8 @@ export default function Login() {
            <p className="text-red-200/80 text-[10px] font-bold uppercase tracking-[0.3em] mt-1 md:mt-2">Sistema de Aeronaves Remotamente Pilotadas</p>
         </div>
 
-        {/* Login Card - Compactado para Mobile */}
+        {/* Login Card */}
         <Card className="p-6 md:p-8 shadow-2xl bg-white/95 backdrop-blur-xl border border-white/40 rounded-3xl relative overflow-hidden">
-          {/* Top Decorative Line */}
           <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-700 via-red-500 to-red-700"></div>
 
           <form onSubmit={handleLogin} className="space-y-4 md:space-y-6 mt-1">
@@ -313,7 +306,7 @@ export default function Login() {
         </div>
       </div>
 
-      {/* --- MODAL DE CADASTRO --- */}
+      {/* MODAL DE CADASTRO */}
       {showRegister && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 animate-fade-in">
           <Card className="w-full max-w-2xl p-0 shadow-2xl rounded-2xl overflow-hidden bg-white max-h-[90vh] flex flex-col">
@@ -329,7 +322,6 @@ export default function Login() {
             
             <div className="overflow-y-auto p-6 md:p-8">
               <form onSubmit={handleRegister} className="space-y-5">
-                
                 <div className="w-full">
                     <Input 
                       label="Nome Completo" 
@@ -402,7 +394,7 @@ export default function Login() {
         </div>
       )}
 
-      {/* --- MODAL DE ALTERAÇÃO DE SENHA --- */}
+      {/* MODAL DE ALTERAÇÃO DE SENHA */}
       {showChangePassword && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 animate-fade-in">
            <Card className="w-full max-w-md p-8 shadow-2xl animate-fade-in bg-white rounded-2xl border-t-8 border-red-600">
@@ -439,11 +431,4 @@ export default function Login() {
       )}
     </div>
   );
-}
-
-// Helper icon component for Lotação section in modal
-function Map({ className }: { className?: string }) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/></svg>
-    )
 }

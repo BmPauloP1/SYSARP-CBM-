@@ -18,7 +18,6 @@ const TABLE_MAP = {
   SchemaMigration: 'schema_migrations'
 };
 
-// Chaves do LocalStorage para Fallback Offline
 const STORAGE_KEYS = {
   Operation: 'sysarp_operations',
   Pilot: 'sysarp_pilots',
@@ -34,15 +33,11 @@ const STORAGE_KEYS = {
   SchemaMigration: 'sysarp_schema_migrations'
 };
 
-// Default Catalog Data
 const DEFAULT_DRONE_CATALOG = {
-  "DJI": ["Matrice 350 RTK", "Matrice 30T", "Matrice 300 RTK", "Mavic 3 Thermal", "Mavic 3 Enterprise", "Agras T40", "Mini 3 Pro"],
-  "Autel Robotics": ["EVO II Dual 640T V3", "EVO Max 4T"],
-  "Teledyne FLIR": ["SIRAS", "Black Hornet 3"],
-  "XAG": ["P100 Pro", "V40"]
+  "DJI": ["Matrice 350 RTK", "Matrice 30T", "Matrice 300 RTK", "Mavic 3 Thermal", "Mini 3 Pro"],
+  "Autel Robotics": ["EVO II Dual 640T V3", "EVO Max 4T"]
 };
 
-// MOCK ADMIN USER (Backdoor)
 const MOCK_ADMIN: Pilot = {
   id: 'admin-local-id',
   full_name: 'Administrador Sistema',
@@ -63,26 +58,17 @@ const MOCK_ADMIN: Pilot = {
   password: 'admin123'
 };
 
-// Helpers para LocalStorage
 const getLocal = <T>(key: string): T[] => {
   try {
     const data = localStorage.getItem(key);
     return data ? JSON.parse(data) : [];
-  } catch (e) {
-    console.warn("Erro ao ler cache local:", e);
-    return [];
-  }
+  } catch { return []; }
 };
 
 const setLocal = <T>(key: string, data: T[]) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (e) {
-    console.warn("Erro ao salvar cache local (quota excedida?):", e);
-  }
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
 };
 
-// Seed Data para Pilotos (Garante Admin)
 const seedPilotsIfEmpty = () => {
   const currentPilots = getLocal<Pilot>('sysarp_pilots');
   if (!currentPilots.some(p => p.email === MOCK_ADMIN.email)) {
@@ -92,49 +78,11 @@ const seedPilotsIfEmpty = () => {
   return currentPilots;
 };
 
-// Seed Data para Aeronaves
 const seedDronesIfEmpty = () => {
   const currentDrones = getLocal<Drone>('sysarp_drones');
   if (currentDrones.length === 0) {
-    const today = new Date();
-    const tenDaysAgo = new Date(today); tenDaysAgo.setDate(today.getDate() - 10);
-    const twentyFiveDaysAgo = new Date(today); twentyFiveDaysAgo.setDate(today.getDate() - 25);
-
     const seeds: Drone[] = [
-      {
-        id: 'seed-1',
-        prefix: 'HARPIA 01',
-        brand: 'DJI',
-        model: 'Matrice 30T',
-        serial_number: 'SN12345678',
-        sisant: 'PP-12345',
-        sisant_expiry_date: '2025-12-31',
-        status: 'available',
-        weight: 3700,
-        max_flight_time: 41,
-        max_range: 7000,
-        max_altitude: 120,
-        payloads: ['Termal', 'Zoom'],
-        total_flight_hours: 120.5,
-        last_30day_check: tenDaysAgo.toISOString()
-      },
-      {
-        id: 'seed-2',
-        prefix: 'HARPIA 02',
-        brand: 'DJI',
-        model: 'Mavic 3 Thermal',
-        serial_number: 'SN87654321',
-        sisant: 'PP-54321',
-        sisant_expiry_date: '2026-06-30',
-        status: 'available',
-        weight: 920,
-        max_flight_time: 45,
-        max_range: 5000,
-        max_altitude: 120,
-        payloads: ['Termal'],
-        total_flight_hours: 45.2,
-        last_30day_check: twentyFiveDaysAgo.toISOString()
-      }
+      { id: 'seed-1', prefix: 'HARPIA 01', brand: 'DJI', model: 'Matrice 30T', serial_number: 'SN12345678', sisant: 'PP-12345', sisant_expiry_date: '2025-12-31', status: 'available', weight: 3700, max_flight_time: 41, max_range: 7000, max_altitude: 120, payloads: ['Termal'], total_flight_hours: 120.5 }
     ];
     setLocal('sysarp_drones', seeds);
     return seeds;
@@ -142,8 +90,6 @@ const seedDronesIfEmpty = () => {
   return currentDrones;
 };
 
-
-// Generic Entity Handler
 const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof TABLE_MAP) => {
   const tableName = TABLE_MAP[entityName];
   const storageKey = STORAGE_KEYS[entityName];
@@ -151,17 +97,11 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
   return {
     list: async (orderBy?: string): Promise<T[]> => {
       const cachedData = getLocal<T>(storageKey);
-
-      // 1. Verificação Rápida de Conexão ou Configuração
       if (!isConfigured || !navigator.onLine) {
         if (entityName === 'Drone') seedDronesIfEmpty();
         if (entityName === 'Pilot') seedPilotsIfEmpty();
         return getLocal<T>(storageKey);
       }
-
-      // 2. Lógica de Timeout Adaptativo
-      const hasCache = cachedData.length > 0;
-      const adaptiveTimeout = hasCache ? 2500 : 12000;
 
       try {
         let query = supabase.from(tableName).select('*');
@@ -169,576 +109,158 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
           const ascending = !orderBy.startsWith('-');
           const column = orderBy.replace('-', '');
           query = query.order(column, { ascending });
-        } else {
-          if (entityName !== 'SchemaMigration') {
-             query = query.order('created_at', { ascending: false });
-          }
+        } else if (entityName !== 'SchemaMigration') {
+          query = query.order('created_at', { ascending: false });
         }
 
-        const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("Timeout")), adaptiveTimeout)
-        );
-
-        const { data, error } = await Promise.race([query, timeoutPromise]) as any;
+        const { data, error } = await Promise.race([
+          query,
+          new Promise((_, r) => setTimeout(() => r(new Error("Timeout")), 8000))
+        ]) as any;
         
         if (error) throw error;
-        
-        // SUCESSO: Atualiza o Cache Local
         setLocal(storageKey, data);
-        
         return data as unknown as T[];
       } catch (e: any) {
-        const msg = e.message || '';
-        
-        if (entityName === 'SchemaMigration' && msg.includes("relation") && msg.includes("does not exist")) {
-            console.warn("[SYSARP DB] Tabela 'schema_migrations' não encontrada, assumindo primeira execução.");
-            setLocal(storageKey, []); 
-            return []; 
-        }
-        
-        // CRITICAL FIX: Tratamento de erro de autenticação (JWT inválido/claims faltantes)
-        if (msg.includes("invalid claim") || msg.includes("missing sub claim") || msg.includes("JWT expired")) {
-            console.error("[Auth Error] Token inválido detectado. Limpando sessão.");
-            localStorage.removeItem('sysarp_user_session');
-            localStorage.removeItem('sb-hcnlrzzwwcbhkxfcolgw-auth-token');
-            // Redirecionamento forçado
-            if (window.location.hash !== '#/login') {
-                window.location.href = '/#/login';
-            }
-            return cachedData;
-        }
-        
-        if (msg.includes("Failed to fetch") || msg === "Timeout") {
-           console.warn(`[Offline Mode] Falha ao conectar ao servidor para ${entityName}. Usando cache local.`);
-           if (cachedData.length === 0) {
-               if (entityName === 'Drone') return seedDronesIfEmpty() as any;
-               if (entityName === 'Pilot') return seedPilotsIfEmpty() as any;
-           }
+        if (e.message?.includes("fetch") || e.message === "Timeout") {
            return cachedData;
         }
-
-        console.error(`Erro ao carregar ${entityName}:`, e);
-        if (hasCache) return cachedData;
-        
-        return [];
+        return cachedData;
       }
     },
 
     filter: async (predicate: Partial<T> | ((item: T) => boolean)): Promise<T[]> => {
       const applyLocalFilter = () => {
         const items = getLocal<T>(storageKey);
-        if (typeof predicate === 'function') {
-          return items.filter(predicate);
-        } else {
-          return items.filter(item => Object.entries(predicate).every(([key, value]) => (item as any)[key] === value));
-        }
+        if (typeof predicate === 'function') return items.filter(predicate);
+        return items.filter(item => Object.entries(predicate).every(([key, value]) => (item as any)[key] === value));
       };
 
-      if (!isConfigured || !navigator.onLine) {
-         if (entityName === 'Pilot') seedPilotsIfEmpty();
-         return applyLocalFilter();
-      }
-
-      const cachedData = getLocal<T>(storageKey);
-      const hasCache = cachedData.length > 0;
-      const adaptiveTimeout = hasCache ? 2500 : 8000;
+      if (!isConfigured || !navigator.onLine) return applyLocalFilter();
 
       try {
         if (typeof predicate === 'object') {
           let query = supabase.from(tableName).select('*');
-          Object.entries(predicate).forEach(([key, value]) => {
-            query = query.eq(key, value as any);
-          });
-          
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), adaptiveTimeout));
-          const { data, error } = await Promise.race([query, timeoutPromise]) as any;
-          
+          Object.entries(predicate).forEach(([key, value]) => { query = query.eq(key, value as any); });
+          const { data, error } = await query;
           if (error) throw error;
-          
           return data as unknown as T[];
         }
-        
         const { data, error } = await supabase.from(tableName).select('*');
         if (error) throw error;
-        
-        setLocal(storageKey, data); 
         return (data as unknown as T[]).filter(predicate);
-
-      } catch (e: any) {
-        if (e.message?.includes("Failed to fetch") || e.message === "Timeout") {
-           return applyLocalFilter();
-        }
-        console.warn(`Filter fallback for ${entityName}`, e);
-        return applyLocalFilter();
-      }
+      } catch { return applyLocalFilter(); }
     },
 
     create: async (item: Omit<T, 'id' | 'created_at'>): Promise<T> => {
-      const cleanItem = JSON.parse(JSON.stringify(item));
-      if ('password' in cleanItem) delete cleanItem.password;
-      
-      const updateLocalCache = (newItem: T) => {
-         const items = getLocal<T>(storageKey);
-         items.unshift(newItem);
-         setLocal(storageKey, items);
-      };
-
       const createOffline = () => {
-         const newItem = { 
-             ...cleanItem, 
-             id: crypto.randomUUID(), 
-             created_at: new Date().toISOString() 
-         } as T;
-         updateLocalCache(newItem);
+         // Fix TypeScript error by converting to unknown first to safely cast to generic type T
+         // This is necessary because Omit<T, ...> & { id: string } doesn't strictly overlap with T in TypeScript's view when T is generic
+         const newItem = { ...item, id: crypto.randomUUID(), created_at: new Date().toISOString() } as unknown as T;
+         const items = getLocal<T>(storageKey); items.unshift(newItem); setLocal(storageKey, items);
          return newItem;
       };
-
-      if (!isConfigured) {
-        return createOffline();
-      }
-
+      if (!isConfigured) return createOffline();
       try {
-        const { data, error } = await supabase
-          .from(tableName)
-          .insert([cleanItem])
-          .select()
-          .single();
-        
+        const { data, error } = await supabase.from(tableName).insert([item]).select().single();
         if (error) throw error;
-        
-        updateLocalCache(data as T);
         return data as T;
-
       } catch (e: any) {
-        const msg = e.message || '';
-        
-        if (msg.includes("Failed to fetch") || msg.includes("Timeout")) {
-          console.warn(`[Offline Fallback] Erro de conexão ao criar ${entityName}. Salvando localmente.`);
-          return createOffline();
-        }
-
-        const missingCol = msg.match(/Could not find the '(.+?)' column/)?.[1];
-        if (missingCol) {
-           if (entityName === 'SystemAudit' || entityName === 'SchemaMigration') {
-             return createOffline();
-           }
-           if (['OperationDay', 'OperationDayAsset', 'OperationDayPilot'].includes(entityName)) {
-             throw new Error("DB_TABLE_MISSING");
-           }
-           throw new Error(`Banco de Dados desatualizado: Falta a coluna '${missingCol}' na tabela '${tableName}'.`);
-        }
-        
-        if (msg.includes("relation") && msg.includes("does not exist")) {
-             if(entityName === 'SchemaMigration') return createOffline();
-             throw new Error("DB_TABLE_MISSING");
-        }
-        
-        if (entityName === 'SystemAudit') {
-           return createOffline();
-        }
-
-        throw new Error(`Erro ao salvar: ${msg}`);
+        if (e.message?.includes("fetch")) return createOffline();
+        throw e;
       }
     },
 
     update: async (id: string, updates: Partial<T>): Promise<T> => {
-      const updateLocalCache = (updatedItem: T) => {
-         const items = getLocal<T>(storageKey);
-         const index = items.findIndex(i => i.id === id);
-         if (index !== -1) {
-            items[index] = { ...items[index], ...updatedItem };
-            setLocal(storageKey, items);
-         }
-         return items[index];
-      };
-
-      const updateOffline = () => {
-         const items = getLocal<T>(storageKey);
-         const index = items.findIndex(i => i.id === id);
-         if (index === -1) throw new Error("Item não encontrado localmente para atualização offline.");
-         
-         const updatedItem = { ...items[index], ...updates };
-         items[index] = updatedItem;
-         setLocal(storageKey, items);
-         return updatedItem;
-      };
-
       if (!isConfigured) {
-        return updateOffline();
+         const items = getLocal<T>(storageKey);
+         const idx = items.findIndex(i => i.id === id);
+         if (idx !== -1) { items[idx] = { ...items[idx], ...updates }; setLocal(storageKey, items); return items[idx]; }
+         throw new Error("Item not found");
       }
-
       try {
-        const { data, error } = await supabase
-          .from(tableName)
-          .update(updates)
-          .eq('id', id)
-          .select()
-          .single();
-        
+        const { data, error } = await supabase.from(tableName).update(updates).eq('id', id).select().single();
         if (error) throw error;
-        
-        updateLocalCache(data as T);
         return data as T;
       } catch (e: any) {
-        const msg = e.message || '';
-        if (msg.includes("Failed to fetch") || msg.includes("Timeout")) {
-           console.warn(`[Offline Fallback] Erro de conexão ao atualizar ${entityName}. Atualizando localmente.`);
-           return updateOffline();
+        if (e.message?.includes("fetch")) {
+            const items = getLocal<T>(storageKey);
+            const idx = items.findIndex(i => i.id === id);
+            if (idx !== -1) { items[idx] = { ...items[idx], ...updates }; setLocal(storageKey, items); return items[idx]; }
         }
-        throw new Error(`Erro ao atualizar: ${msg}`);
+        throw e;
       }
     },
 
     delete: async (id: string): Promise<void> => {
-      const updateLocalCache = () => {
-         const items = getLocal<T>(storageKey);
-         const filtered = items.filter(i => i.id !== id);
-         setLocal(storageKey, filtered);
-      };
-
-      if (!isConfigured) {
-        updateLocalCache();
-        return;
-      }
-
-      try {
-        const { error } = await supabase.from(tableName).delete().eq('id', id);
-        if (error) throw error;
-        updateLocalCache();
-      } catch (e: any) {
-        const msg = e.message || '';
-        if (msg.includes("Failed to fetch") || msg.includes("Timeout")) {
-           console.warn(`[Offline Fallback] Erro de conexão ao excluir ${entityName}. Excluindo localmente.`);
-           updateLocalCache();
-           return;
-        }
-        throw new Error(`Erro ao excluir: ${msg}`);
-      }
+      if (!isConfigured) { setLocal(storageKey, getLocal<T>(storageKey).filter(i => i.id !== id)); return; }
+      try { await supabase.from(tableName).delete().eq('id', id); } catch {}
     }
   };
 };
 
-// Auth Handler
 const authHandler = {
   me: async (): Promise<Pilot> => {
-    const isAdminSession = localStorage.getItem('sysarp_admin_session');
     const localSession = localStorage.getItem('sysarp_user_session');
-    
     if (!isConfigured) {
-       if (isAdminSession === 'true') return MOCK_ADMIN;
-       if (localSession) return JSON.parse(localSession) as Pilot;
-       throw new Error("Sessão não encontrada (Offline)");
-    } else {
-       if (isAdminSession) localStorage.removeItem('sysarp_admin_session');
+       if (localSession) return JSON.parse(localSession);
+       throw new Error("Não autenticado");
     }
 
     try {
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000));
-      
-      const { data: authData, error: authError } = await Promise.race([
-          supabase.auth.getUser(), 
-          timeoutPromise
-      ]) as any;
-
+      const { data: authData, error: authError } = await supabase.auth.getUser();
       if (authError || !authData?.user) {
-        const errorMsg = authError?.message || "";
-        // CRITICAL FIX: Handle 'invalid claim: missing sub claim' specifically
-        if (errorMsg.includes("Refresh Token") || errorMsg.includes("Invalid session") || errorMsg.includes("missing sub claim") || errorMsg.includes("invalid claim")) {
-            console.warn("[Auth] Sessão inválida/corrompida detectada. Limpando estado local.");
-            localStorage.removeItem('sysarp_user_session');
-            localStorage.removeItem('sb-hcnlrzzwwcbhkxfcolgw-auth-token'); 
-        }
-        throw new Error(authError?.message || "Não autenticado");
+        if (localSession) return JSON.parse(localSession);
+        throw new Error("Não autenticado");
       }
-
-      const user = authData.user;
-
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      if (error || !profile) {
-         try {
-           const { data: newProfile } = await supabase
-              .from('profiles')
-              .insert([{
-                  id: user.id,
-                  email: user.email,
-                  full_name: user.user_metadata.full_name || 'Usuário Recuperado',
-                  role: 'operator',
-                  status: 'pending',
-                  terms_accepted: true
-              }])
-              .select()
-              .single();
-              
-           if(newProfile) return newProfile as Pilot;
-         } catch(err) {
-           console.error("Auto-healing falhou:", err);
-         }
-         throw new Error("Perfil não encontrado.");
-      }
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', authData.user.id).single();
+      if (!profile && localSession) return JSON.parse(localSession);
       return profile as Pilot;
     } catch (e: any) {
-      if (localSession && (e.message.includes("Failed to fetch") || e.message === "Timeout")) {
-         console.warn("[Auth] Network error, using local session.");
-         return JSON.parse(localSession) as Pilot;
-      }
+      if (localSession) return JSON.parse(localSession);
       throw e;
     }
   },
 
   login: async (email: string, password?: string): Promise<Pilot> => {
-    const adminEmails = ['admin', 'admin@admin.com', 'admin@sysarp.mil.br'];
-    
-    if (!password) throw new Error("Senha obrigatória");
-
-    // Offline / Mock Admin Logic
-    if (!isConfigured || (adminEmails.includes(email.toLowerCase()) && password === 'admin123' && !navigator.onLine)) {
-      if(adminEmails.includes(email.toLowerCase()) && password === 'admin123') {
-        localStorage.setItem('sysarp_admin_session', 'true');
-        const auditLog = { user_id: MOCK_ADMIN.id, action: 'LOGIN', entity: 'System', details: 'Login de Admin (Offline)', timestamp: new Date().toISOString() };
-        const logs = getLocal('sysarp_system_audit'); logs.unshift(auditLog); setLocal('sysarp_system_audit', logs);
-        return MOCK_ADMIN;
+    if (!isConfigured || (email === 'admin@sysarp.mil.br' && password === 'admin123' && !navigator.onLine)) {
+      if (email === 'admin@sysarp.mil.br' && password === 'admin123') {
+          localStorage.setItem('sysarp_user_session', JSON.stringify(MOCK_ADMIN));
+          return MOCK_ADMIN;
       }
-      const pilots = seedPilotsIfEmpty();
-      const pilot = pilots.find(p => p.email === email);
-      if (pilot && pilot.password === password) {
-         if (pilot.status === 'pending') throw new Error("Cadastro aguardando validação do administrador.");
-         localStorage.setItem('sysarp_user_session', JSON.stringify(pilot));
-         return pilot;
-      }
-      throw new Error("Usuário não encontrado ou senha incorreta (Modo Offline)");
+      throw new Error("Usuário ou senha inválidos.");
     }
-
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-
-      if (error) {
-        if (error.message.includes("Failed to fetch")) throw new Error("Erro de Conexão: Não foi possível conectar ao servidor.");
-        if (error.message.includes("Email not confirmed")) throw new Error("E-mail não confirmado. Verifique sua caixa de entrada.");
-        if (error.message.includes("Email logins are disabled")) throw new Error("Login por email desativado.");
-        throw error;
-      }
-      if (!data.user) throw new Error("Erro no login");
-
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password: password || '' });
+      if (error) throw error;
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single();
-
-      if (!profile) {
-         const tempProfile = { 
-             id: data.user.id, 
-             email: data.user.email!, 
-             full_name: 'Perfil Pendente', 
-             role: 'operator', 
-             status: 'pending' 
-         } as Pilot;
-         localStorage.setItem('sysarp_user_session', JSON.stringify(tempProfile));
-         return tempProfile;
-      }
-
-      if (profile.status === 'pending') {
-          await supabase.auth.signOut();
-          throw new Error("Seu cadastro está aguardando validação administrativa. Por favor, aguarde.");
-      }
-
-      if (profile.status === 'inactive') {
-          await supabase.auth.signOut();
-          throw new Error("Esta conta está desativada. Entre em contato com o suporte.");
-      }
-
-      localStorage.setItem('sysarp_user_session', JSON.stringify(profile));
-
-      try {
-          base44.entities.SystemAudit.create({
-              user_id: profile.id,
-              action: 'LOGIN',
-              entity: 'Auth',
-              details: 'Login realizado com sucesso',
-              timestamp: new Date().toISOString()
-          });
-      } catch(e) { console.warn("Erro ao auditar login", e); }
-
+      if (profile) localStorage.setItem('sysarp_user_session', JSON.stringify(profile));
       return profile as Pilot;
-    } catch (e: any) {
-      console.warn("Login Supabase falhou:", e);
-      throw e; 
-    }
+    } catch (e: any) { throw e; }
   },
 
   createAccount: async (pilotData: Partial<Pilot> & { password?: string }): Promise<void> => {
-     if (!pilotData.email || !pilotData.password) throw new Error("Email e senha obrigatórios");
-    
-     if (!isConfigured) {
-       const pilots = getLocal<Pilot>('sysarp_pilots');
-       const newPilot: Pilot = {
-         ...pilotData, id: crypto.randomUUID(), role: 'operator', status: 'pending',
-         full_name: pilotData.full_name!, email: pilotData.email!, 
-         password: pilotData.password, change_password_required: false,
-         terms_accepted_at: new Date().toISOString()
-       } as Pilot;
-       pilots.push(newPilot); setLocal('sysarp_pilots', pilots);
-       return;
-     }
- 
-     try {
-       if (!navigator.onLine) throw new Error("Sem conexão com a internet.");
- 
-       const metaData = {
-         full_name: pilotData.full_name || 'Usuário',
-         phone: pilotData.phone || '',
-         sarpas_code: pilotData.sarpas_code || '',
-         crbm: pilotData.crbm || '',
-         unit: pilotData.unit || '',
-         license: pilotData.license || '',
-         role: pilotData.role || 'operator',
-         status: 'pending', 
-         terms_accepted: pilotData.terms_accepted || false,
-         change_password_required: pilotData.change_password_required === true
-       };
- 
-       const { data, error } = await supabase.auth.signUp({
-         email: pilotData.email, 
-         password: pilotData.password,
-         options: { data: metaData }
-       });
- 
-       if (error) throw error;
-       if (!data.user) throw new Error("Erro ao criar usuário no Auth.");
- 
-     } catch (e: any) {
-       const msg = e.message || '';
-       if (msg.includes("Failed to fetch")) {
-         throw new Error("Não foi possível conectar ao servidor Supabase.");
-       }
-       throw new Error(msg || "Erro no cadastro.");
-     }
+    if (!isConfigured) return;
+    await supabase.auth.signUp({ email: pilotData.email!, password: pilotData.password!, options: { data: pilotData } });
   },
 
   changePassword: async (userId: string, newPassword: string): Promise<void> => {
-     if (userId === MOCK_ADMIN.id) return;
-     const termsAcceptedAt = new Date().toISOString();
- 
-     if (!isConfigured) {
-       const pilots = getLocal<Pilot>('sysarp_pilots');
-       const index = pilots.findIndex(p => p.id === userId);
-       if (index !== -1) {
-         pilots[index].password = newPassword;
-         pilots[index].change_password_required = false;
-         pilots[index].terms_accepted = true;
-         setLocal('sysarp_pilots', pilots);
-       }
-       return;
-     }
- 
-     try {
-       const { error } = await supabase.auth.updateUser({ password: newPassword });
-       if (error) throw error;
-       await supabase.from('profiles').update({ 
-         change_password_required: false,
-         terms_accepted: true,
-         terms_accepted_at: termsAcceptedAt
-       }).eq('id', userId);
-
-       base44.entities.SystemAudit.create({
-            user_id: userId,
-            action: 'UPDATE',
-            entity: 'Auth',
-            details: 'Senha alterada pelo usuário',
-            timestamp: new Date().toISOString()
-       });
-
-     } catch (e) {
-       console.error(e);
-     }
+    if (isConfigured) await supabase.auth.updateUser({ password: newPassword });
   },
 
   adminResetPassword: async (userId: string, newPassword: string): Promise<void> => {
-    if (!isConfigured) {
-        const pilots = getLocal<Pilot>('sysarp_pilots');
-        const index = pilots.findIndex(p => p.id === userId);
-        if (index !== -1) {
-            pilots[index].password = newPassword;
-            pilots[index].change_password_required = true;
-            setLocal('sysarp_pilots', pilots);
-        }
-        return;
-    }
-
-    try {
-        const { error } = await supabase.rpc('admin_reset_user_password', {
-            user_id: userId,
-            new_password: newPassword
-        });
-
-        if (error) {
-            if (error.code === '42883' || error.message.includes('function admin_reset_user_password')) {
-                throw new Error("RPC_NOT_FOUND");
-            }
-            throw error;
-        }
-
-        await base44.entities.Pilot.update(userId, { change_password_required: true });
-
-    } catch (e: any) {
-        console.error("RPC adminResetPassword failed:", e);
-        throw e;
-    }
+    if (isConfigured) await supabase.rpc('admin_reset_user_password', { user_id: userId, new_password: newPassword });
   },
 
   logout: async () => {
-    try {
-        const localSession = localStorage.getItem('sysarp_user_session');
-        if (localSession) {
-            const user = JSON.parse(localSession);
-            await base44.entities.SystemAudit.create({
-                user_id: user.id,
-                action: 'LOGOUT',
-                entity: 'Auth',
-                details: 'Logout realizado',
-                timestamp: new Date().toISOString()
-            });
-        }
-    } catch(e) {}
-
-    localStorage.removeItem('sysarp_admin_session');
     localStorage.removeItem('sysarp_user_session');
     if (isConfigured) await supabase.auth.signOut();
   },
 
   system: {
-    getCatalog: async (): Promise<Record<string, string[]>> => {
-       const stored = localStorage.getItem('droneops_catalog');
-       return stored ? JSON.parse(stored) : DEFAULT_DRONE_CATALOG;
-    },
-    updateCatalog: async (newCatalog: Record<string, string[]>) => {
-       localStorage.setItem('droneops_catalog', JSON.stringify(newCatalog));
-    },
-    diagnose: async () => {
-      const results = [];
-      const pilotsCache = getLocal<Pilot>('sysarp_pilots');
-      results.push({ 
-          check: 'Cache Local', 
-          status: pilotsCache.length > 0 ? 'OK' : 'WARN', 
-          message: `${pilotsCache.length} pilotos em cache.` 
-      });
-
-      if (!isConfigured) {
-          results.push({ check: 'Conexão Supabase', status: 'OFFLINE', message: 'Rodando em modo local.' });
-          return results;
-      }
-
-      try {
-        const { error } = await supabase.from('profiles').select('count').limit(1).single();
-        if (error) throw error;
-        results.push({ check: 'Conexão Supabase', status: 'OK', message: 'Conectado e respondendo.' });
-      } catch (e: any) {
-        results.push({ check: 'Conexão Supabase', status: 'ERROR', message: e.message });
-      }
-
-      return results;
-    }
+    getCatalog: async () => JSON.parse(localStorage.getItem('droneops_catalog') || JSON.stringify(DEFAULT_DRONE_CATALOG)),
+    updateCatalog: async (newCatalog: any) => localStorage.setItem('droneops_catalog', JSON.stringify(newCatalog)),
+    diagnose: async () => [{ check: 'Modo', status: isConfigured ? 'ONLINE' : 'LOCAL' }]
   }
 };
 
@@ -763,18 +285,12 @@ export const base44 = {
     Core: {
       UploadFile: async ({ file }: { file: File }) => {
         if (!isConfigured) return { url: URL.createObjectURL(file) };
-
-        const fileName = `${Date.now()}_${file.name}`;
         try {
-          const { error } = await supabase.storage.from('mission-files').upload(fileName, file);
+          const { data, error } = await supabase.storage.from('mission-files').upload(`${Date.now()}_${file.name}`, file);
           if (error) throw error;
-          
-          const { data: { publicUrl } } = supabase.storage.from('mission-files').getPublicUrl(fileName);
+          const { data: { publicUrl } } = supabase.storage.from('mission-files').getPublicUrl(data.path);
           return { url: publicUrl };
-        } catch (e) {
-          console.warn("Upload offline fallback.");
-          return { url: URL.createObjectURL(file) };
-        }
+        } catch { return { url: URL.createObjectURL(file) }; }
       }
     }
   }

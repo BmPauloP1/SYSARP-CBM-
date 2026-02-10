@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useCallback, memo, useRef, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -20,7 +19,7 @@ const icon = L.icon({
   shadowSize: [41, 41]
 });
 
-// CACHE FOR ICONS
+// CACHE FOR ICONS to prevent '_leaflet_pos' undefined errors during re-renders
 const iconCache: Record<string, L.DivIcon> = {};
 
 const getCustomIcon = (color: string) => {
@@ -47,8 +46,12 @@ const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
   useEffect(() => {
     if (!map) return;
 
-    // Force resize
-    setTimeout(() => { if (map.getContainer()) map.invalidateSize(); }, 250);
+    // Force resize with safety check
+    const timer = setTimeout(() => { 
+        if (map && map.getContainer()) {
+            map.invalidateSize(); 
+        }
+    }, 250);
 
     const validOps = activeOps.filter(op => isValidCoord(op.latitude, op.longitude));
     
@@ -63,10 +66,14 @@ const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
       map.locate({ setView: true, maxZoom: 14, enableHighAccuracy: true });
       
       map.on('locationerror', () => {
-         // Fallback to central Paraná
-         map.setView([-24.5, -51.0], 7); 
+         if (map && map.getContainer()) {
+             // Fallback to central Paraná
+             map.setView([-24.5, -51.0], 7); 
+         }
       });
     }
+
+    return () => clearTimeout(timer);
   }, [map, activeOps]);
 
   return null;
@@ -169,7 +176,11 @@ export default function Dashboard() {
       const opColor = MISSION_COLORS[op.mission_type] || '#ef4444';
 
       return (
-          <Marker key={`active-op-${op.id}`} position={[Number(op.latitude), Number(op.longitude)]} icon={getCustomIcon(opColor)}>
+          <Marker 
+            key={`active-op-${op.id}`} 
+            position={[Number(op.latitude), Number(op.longitude)]} 
+            icon={getCustomIcon(opColor)}
+          >
             <Popup>
               <div className="min-w-[280px] p-1 font-sans">
                 <h3 className="font-bold text-slate-900 text-base uppercase leading-tight border-b pb-2 mb-2">{op.name}</h3>
@@ -211,14 +222,14 @@ export default function Dashboard() {
                    <span className="flex items-center gap-1"><Navigation className="w-3" /> Raio: {op.radius}m</span>
                 </div>
                 
-                <div className="mt-3 pt-3 border-t border-slate-100">
+                <div className="mt-3 pt-3 border-t border-slate-100 flex gap-2">
                     <Button 
                         size="sm" 
-                        className="w-full h-9 text-xs font-bold uppercase bg-red-700 hover:bg-red-800 shadow-lg"
+                        className="flex-1 h-9 text-[10px] font-bold uppercase bg-red-700 hover:bg-red-800 shadow-lg"
                         onClick={() => navigate(`/operations/${op.id}/gerenciar`)}
                     >
-                        <Crosshair className="w-4 h-4 mr-2" />
-                        ACESSAR CCO TÁTICO
+                        <Crosshair className="w-3.5 h-3.5 mr-1.5" />
+                        CCO TÁTICO
                     </Button>
                 </div>
               </div>
@@ -323,7 +334,9 @@ export default function Dashboard() {
                                     <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse shadow-sm"></span>
                                     Em Andamento
                                  </span>
-                                 <button onClick={(e) => { e.stopPropagation(); handleShareOp(op); }} className="text-slate-300 hover:text-green-600 transition-colors bg-white hover:bg-green-50 p-1.5 rounded border border-transparent hover:border-green-100"><Share2 className="w-3.5 h-3.5" /></button>
+                                 <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                                    <button onClick={(e) => { e.stopPropagation(); handleShareOp(op); }} className="text-slate-300 hover:text-green-600 transition-colors bg-white hover:bg-green-50 p-1.5 rounded border border-transparent hover:border-green-100"><Share2 className="w-3.5 h-3.5" /></button>
+                                 </div>
                               </div>
                               <div className="pl-2">
                                   <h4 className="font-bold text-slate-800 text-sm leading-tight mb-1 truncate pr-2">{op.name}</h4>

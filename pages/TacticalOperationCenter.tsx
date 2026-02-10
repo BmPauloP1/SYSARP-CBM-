@@ -11,7 +11,6 @@ import { Card, Button, Input, Select, Badge } from '../components/ui_components'
 import { 
   ArrowLeft, Radio, Plus, Trash2, Crosshair, Hexagon, Flag, 
   MapPin, Settings, X, Save, Eye, EyeOff, Move, Navigation,
-  /* Added AlertTriangle here */
   AlertTriangle, ShieldAlert, Target, Video, ListFilter, History, Zap, 
   Map as MapIcon, Globe, ChevronRight, ChevronLeft, Maximize, Minimize, MousePointer2,
   Users, Truck, Dog, UserCheck, Ruler, LayoutDashboard, Camera, CheckCircle, Loader2, Layers, Satellite, FileUp, Files
@@ -295,7 +294,6 @@ export default function TacticalOperationCenter() {
         const parser = new DOMParser();
         const xml = parser.parseFromString(text, "text/xml");
         
-        // Verificação se é um XML válido
         if (xml.getElementsByTagName("parsererror").length > 0) return null;
 
         const placemarks = Array.from(xml.getElementsByTagName("Placemark"));
@@ -303,8 +301,6 @@ export default function TacticalOperationCenter() {
 
         placemarks.forEach(pm => {
             const name = pm.getElementsByTagName("name")[0]?.textContent || "Elemento Importado";
-            
-            // Tenta achar Polígonos, Linhas ou Pontos
             const polygonTags = pm.getElementsByTagName("Polygon");
             const lineTags = pm.getElementsByTagName("LineString");
             const pointTags = pm.getElementsByTagName("Point");
@@ -313,7 +309,6 @@ export default function TacticalOperationCenter() {
                 const raw = coordsTag.textContent?.trim() || "";
                 return raw.split(/\s+/).map(p => {
                     const parts = p.split(",").map(Number);
-                    // Retorna [longitude, latitude] ignorando altitude se houver
                     return [parts[0], parts[1]];
                 }).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
             };
@@ -359,7 +354,6 @@ export default function TacticalOperationCenter() {
     const file = e.target.files?.[0];
     if (!file || !id) return;
 
-    // Alerta sobre KMZ binário
     if (file.name.toLowerCase().endsWith('.kmz')) {
         alert("Arquivos .KMZ do Google Earth são compactados. Por favor, exporte como .KML (formato texto) para garantir a leitura no sistema.");
     }
@@ -368,7 +362,6 @@ export default function TacticalOperationCenter() {
     reader.onload = async (ev) => {
       const content = ev.target?.result as string;
       
-      // Validação básica de binário (se começar com PK é um ZIP/KMZ)
       if (content.startsWith('PK')) {
           alert("Erro: Este é um arquivo binário (KMZ). Por favor, use a opção 'Salvar como... .KML' no Google Earth.");
           return;
@@ -452,7 +445,6 @@ export default function TacticalOperationCenter() {
               <div className="flex-1 overflow-y-auto custom-scrollbar p-3 relative bg-white space-y-5">
                   {activeTab === 'plan' && !activePanel && (
                       <div className="space-y-5 animate-fade-in">
-                          {/* Resumo de Cena */}
                           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-4 shadow-sm">
                               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b pb-2"><LayoutDashboard className="w-3.5 h-3.5"/> Resumo de Cena</h3>
                               <div className="grid grid-cols-2 gap-3">
@@ -461,7 +453,6 @@ export default function TacticalOperationCenter() {
                               </div>
                           </div>
 
-                          {/* Seção de Camadas KML/KMZ */}
                           <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-4 shadow-sm">
                               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center justify-between border-b pb-2">
                                 <span className="flex items-center gap-2"><Globe className="w-3.5 h-3.5 text-blue-600"/> Camadas Externas</span>
@@ -488,7 +479,6 @@ export default function TacticalOperationCenter() {
                               </div>
                           </div>
 
-                          {/* Ativar Vetor RPA */}
                           <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3 shadow-2xl">
                               <h3 className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-2"><Plus className="w-3.5 h-3.5"/> Ativar Vetor RPA</h3>
                               <div className="space-y-2">
@@ -591,7 +581,6 @@ export default function TacticalOperationCenter() {
                   {visibleLayers.pois && pois.map(p => (<Marker key={p.id} position={[p.lat, p.lng]} icon={getPoiIcon(p.type)} eventHandlers={{ click: () => { setSelectedEntity({...p}); setEntityType('poi'); setActivePanel('manage'); } }} />))}
                   {visibleLayers.drones && tacticalDrones.map(td => td.current_lat && (<Marker key={td.id} position={[td.current_lat, td.current_lng]} icon={createTacticalDroneIcon(td)} draggable={true} eventHandlers={{ click: () => { setSelectedEntity({...td}); setEntityType('drone'); setActivePanel('manage'); }, dragend: (e) => handleDroneDragEnd(e, td) }} />))}
                   
-                  {/* Camadas KML Externas Sobrepostas - Tratamento Seguro de GeoJSON */}
                   {kmlLayers.filter(l => l.visible && l.geojson?.features).map(layer => (
                       <React.Fragment key={layer.id}>
                           {layer.geojson.features.map((f: any, fidx: number) => {
