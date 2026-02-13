@@ -11,6 +11,7 @@ export interface TacticalSector {
   responsible?: string;
   notes?: string;
   assigned_drones?: string[]; 
+  stream_url?: string; // Adicionado suporte a live em setores (ex: monitoramento de perímetro)
   created_at: string;
 }
 
@@ -47,20 +48,16 @@ export interface TacticalKmlLayer {
   id: string;
   operation_id: string;
   name: string;
-  type: 'sector' | 'path' | 'full';
   geojson: any;
   visible: boolean;
   color: string;
-  created_at: string;
 }
 
 export const tacticalService = {
   
-  // --- SETORES (POLÍGONOS) ---
   getSectors: async (operationId: string): Promise<TacticalSector[]> => {
     if (!isConfigured) return [];
-    const { data, error } = await supabase.from('tactical_sectors').select('*').eq('operation_id', operationId);
-    if (error) return [];
+    const { data } = await supabase.from('tactical_sectors').select('*').eq('operation_id', operationId);
     return data || [];
   },
 
@@ -74,11 +71,9 @@ export const tacticalService = {
     await supabase.from('tactical_sectors').delete().eq('id', id);
   },
 
-  // --- POIS (PONTOS) ---
   getPOIs: async (operationId: string): Promise<TacticalPOI[]> => {
     if (!isConfigured) return [];
-    const { data, error } = await supabase.from('tactical_pois').select('*').eq('operation_id', operationId);
-    if (error) return [];
+    const { data } = await supabase.from('tactical_pois').select('*').eq('operation_id', operationId);
     return data || [];
   },
 
@@ -88,15 +83,17 @@ export const tacticalService = {
     return data;
   },
 
+  updatePOI: async (id: string, updates: Partial<TacticalPOI>): Promise<void> => {
+    await supabase.from('tactical_pois').update(updates).eq('id', id);
+  },
+
   deletePOI: async (id: string): Promise<void> => {
     await supabase.from('tactical_pois').delete().eq('id', id);
   },
 
-  // --- DRONES TÁTICOS (DESPACHO) ---
   getTacticalDrones: async (operationId: string): Promise<TacticalDrone[]> => {
     if (!isConfigured) return [];
-    const { data, error } = await supabase.from('tactical_drones').select('*').eq('operation_id', operationId);
-    if (error) return [];
+    const { data } = await supabase.from('tactical_drones').select('*').eq('operation_id', operationId);
     return data || [];
   },
 
@@ -114,7 +111,18 @@ export const tacticalService = {
     await supabase.from('tactical_drones').delete().eq('id', id);
   },
 
-  // --- SNAPSHOTS (STORAGE) ---
+  saveKmlLayer: (opId: string, layer: TacticalKmlLayer) => {
+    const key = `sysarp_kml_${opId}`;
+    const current = JSON.parse(localStorage.getItem(key) || '[]');
+    current.push(layer);
+    localStorage.setItem(key, JSON.stringify(current));
+  },
+
+  getKmlLayers: (opId: string): TacticalKmlLayer[] => {
+    const key = `sysarp_kml_${opId}`;
+    return JSON.parse(localStorage.getItem(key) || '[]');
+  },
+
   saveMapSnapshot: async (operationId: string, base64: string) => {
       if (!isConfigured) return;
       try {
@@ -125,34 +133,6 @@ export const tacticalService = {
         if (error) throw error;
         const { data: { publicUrl } } = supabase.storage.from('mission-files').getPublicUrl(data.path);
         await supabase.from('operations').update({ shapes: { snapshot_url: publicUrl } }).eq('id', operationId);
-        
-        // Limpa cache local pesado se existir
-        localStorage.removeItem('sysarp_tactical_snapshots');
-      } catch (e) {
-        console.error("Erro no storage snapshot", e);
-      }
-  },
-
-  getMapSnapshot: (operationId: string): string | null => {
-      return null; // Buscado via operations.shapes.snapshot_url no componente de relatórios
-  },
-
-  // --- KML LAYERS ---
-  getKmlLayers: async (operationId: string): Promise<TacticalKmlLayer[]> => {
-    const all = JSON.parse(localStorage.getItem('sysarp_tactical_kml') || '[]');
-    return all.filter((l: any) => l.operation_id === operationId);
-  },
-
-  saveKmlLayer: async (layer: Omit<TacticalKmlLayer, 'id' | 'created_at'>): Promise<TacticalKmlLayer> => {
-    const newLayer = { ...layer, id: crypto.randomUUID(), created_at: new Date().toISOString() };
-    const all = JSON.parse(localStorage.getItem('sysarp_tactical_kml') || '[]');
-    all.push(newLayer);
-    localStorage.setItem('sysarp_tactical_kml', JSON.stringify(all));
-    return newLayer;
-  },
-
-  deleteKmlLayer: async (id: string): Promise<void> => {
-    const all = JSON.parse(localStorage.getItem('sysarp_tactical_kml') || '[]');
-    localStorage.setItem('sysarp_tactical_kml', JSON.stringify(all.filter((l: any) => l.id !== id)));
+      } catch (e) { console.error(e); }
   }
 };

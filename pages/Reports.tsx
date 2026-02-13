@@ -252,16 +252,19 @@ export default function Reports() {
                 }
             }
 
-            const snapshot = tacticalService.getMapSnapshot(op.id);
-            if (snapshot && yAfter + 100 < pageHeight) {
-                doc.setFont("helvetica", "bold"); doc.text("3. GEOPROCESSAMENTO TÁTICO", 14, yAfter);
-                doc.addImage(snapshot, 'JPEG', 14, yAfter + 4, 182, 90); 
-                yAfter += 100;
+            // Fix: Directly retrieve snapshot URL from operation data as getMapSnapshot is not implemented
+            const snapshotUrl = op.shapes?.snapshot_url;
+            if (snapshotUrl && yAfter + 100 < pageHeight) {
+                const snapshotData = await getImageData(snapshotUrl);
+                if (snapshotData.data) {
+                    doc.setFont("helvetica", "bold"); doc.text("3. GEOPROCESSAMENTO TÁTICO", 14, yAfter);
+                    doc.addImage(snapshotData.data, 'JPEG', 14, yAfter + 4, 182, 90); 
+                    yAfter += 100;
+                }
             }
 
             if (yAfter > pageHeight - 40) doc.addPage();
             doc.setFont("helvetica", "bold"); doc.text("4. RELATO OPERACIONAL", 14, yAfter || 20);
-            // Fix: Corrected invalid escape sequence by adding newline character properly
             const relato = `NARRATIVA:\n${op.description || 'Sem descrição.'}\n\nAÇÕES TOMADAS:\n${op.actions_taken || 'Nenhuma ação detalhada.'}`;
             const splitNarrative = doc.splitTextToSize(relato, pageWidth - 28);
             doc.setFont("helvetica", "normal"); doc.setFontSize(9);
@@ -450,7 +453,6 @@ export default function Reports() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <Card className="p-8 shadow-md bg-white border border-slate-100">
                         <h4 className="text-xs font-black text-slate-700 uppercase tracking-widest mb-10 flex items-center gap-3"><Users className="w-5 h-5 text-red-700"/> PRODUTIVIDADE: HORAS POR PILOTO (TOP 10)</h4>
-                        {/* Fix: Removed textTransform from YAxis tick property as it is not a valid SVG attribute and moved transformation to data mapping */}
                         <div className="h-[500px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={statsData.pilotData} layout="vertical" margin={{ left: 60, right: 20 }}><CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" /><XAxis type="number" tick={{fontSize: 11, fontWeight: 600}} axisLine={false} tickLine={false} /><YAxis dataKey="name" type="category" width={140} tick={{fontSize: 9, fontWeight: 700, fill: '#475569'}} axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="value" fill="#1e293b" radius={[0, 8, 8, 0]} barSize={24} /></BarChart></ResponsiveContainer></div>
                     </Card>
                     <Card className="p-8 shadow-md bg-white border border-slate-100">
