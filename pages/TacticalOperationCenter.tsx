@@ -15,7 +15,9 @@ import {
   AlertTriangle, ShieldAlert, Target, Video, ListFilter, History, Zap, 
   Map as MapIcon, Globe, ChevronRight, ChevronLeft, Maximize, Minimize, MousePointer2,
   Users, Truck, Dog, UserCheck, Ruler, LayoutDashboard, Camera, CheckCircle, Loader2, Layers, Satellite, FileUp, Files,
-  Footprints, Package, GripHorizontal, Activity, Wifi, Gauge, Thermometer, Wind, Battery, Zap as Bolt
+  Footprints, Package, GripHorizontal, Activity, Wifi, Gauge, Thermometer, Wind, Battery, Zap as Bolt,
+  // Added missing icon import
+  Plane
 } from 'lucide-react';
 import SectorsLayer from '../components/maps/tactical/SectorsLayer';
 
@@ -32,37 +34,6 @@ const extractVideoId = (url: string) => {
   return { type: 'iframe', url };
 };
 
-const calculatePolygonArea = (coordinates: any) => {
-    if (!coordinates || !Array.isArray(coordinates) || coordinates.length === 0) return 0;
-    try {
-        const latLngs = L.GeoJSON.coordsToLatLngs(coordinates, 1)[0] as L.LatLng[];
-        if (!latLngs || latLngs.length < 3) return 0;
-        let area = 0; const radius = 6378137;
-        for (let i = 0; i < latLngs.length; i++) {
-            const p1 = latLngs[i]; const p2 = latLngs[(i + 1) % latLngs.length];
-            area += (p2.lng - p1.lng) * Math.PI / 180 * (2 + Math.sin(p1.lat * Math.PI / 180) + Math.sin(p2.lat * Math.PI / 180));
-        }
-        area = Math.abs(area * radius * radius / 2.0); return area;
-    } catch (e) { return 0; }
-};
-
-const formatArea = (m2: number) => {
-    if (m2 >= 10000) return `${(m2 / 10000).toFixed(2)} ha`;
-    if (m2 > 0) return `${Math.round(m2).toLocaleString('pt-BR')} m²`;
-    return "0 m²";
-};
-
-const isPointInPolygon = (lat: number, lng: number, polygonCoords: any) => {
-    if (!polygonCoords || !polygonCoords[0]) return false;
-    const coords = polygonCoords[0]; let inside = false;
-    for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
-        const xi = coords[i][1], yi = coords[i][0]; const xj = coords[j][1], yj = coords[j][0];
-        const intersect = ((yi > lng) !== (yj > lng)) && (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi);
-        if (intersect) inside = !inside;
-    }
-    return inside;
-};
-
 const getPoiIcon = (type: string, hasStream?: boolean) => {
     const cacheKey = `${type}-${hasStream}`;
     if (poiIconCache[cacheKey]) return poiIconCache[cacheKey];
@@ -72,10 +43,7 @@ const getPoiIcon = (type: string, hasStream?: boolean) => {
         case 'victim': iconHtml = `<svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4 text-white"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`; color = '#ef4444'; break;
         case 'hazard': iconHtml = `<svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4 text-white"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>`; color = '#f59e0b'; break;
         case 'ground_team': iconHtml = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-4 h-4 text-white"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`; color = '#2563eb'; break;
-        case 'vehicle': iconHtml = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-4 h-4 text-white"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M9 18h6"/><path d="M19 18h2a1 1 0 0 0 1-1v-5l-3-4h-5"/></svg>`; color = '#dc2626'; break;
         case 'k9': iconHtml = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-4 h-4 text-white"><path d="M10 5.172l.596.596a2 2 0 0 0 2.828 0L14 5.172M20 21l-2-6M6 21l2-6M12 21v-6M4 4l3 3M20 4l-3 3M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z"/></svg>`; color = '#78350f'; break;
-        case 'footprint': iconHtml = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-4 h-4 text-white"><path d="M4 16v-2.382a2 2 0 0 1 1.106-1.789l5.788-2.894A2 2 0 0 1 12 8.146V6M16 21v-2.382a2 2 0 0 1 1.106-1.789l2.788-1.394A2 2 0 0 1 21 13.646V11.5M12 21v-2.382a2 2 0 0 1 1.106-1.789l1.788-0.894A2 2 0 0 1 16 15.146V13M8 21v-2.382a2 2 0 0 1 1.106-1.789l2.788-1.394A2 2 0 0 1 13 13.646V11.5"/></svg>`; color = '#4b5563'; break;
-        case 'object': iconHtml = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-4 h-4 text-white"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>`; color = '#0891b2'; break;
         default: iconHtml = `<svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4 text-white"><circle cx="12" cy="12" r="10"/></svg>`; color = '#64748b';
     }
     const icon = L.divIcon({ 
@@ -128,11 +96,13 @@ const createTacticalDroneIcon = (td: any) => {
     return icon;
 };
 
+// Componente de Janela Flutuante para Transmissão (PiP)
 const FloatingPiP: React.FC<{ stream: { id: string, name: string, url: string }, onClose: () => void }> = ({ stream, onClose }) => {
     const [pos, setPos] = useState({ x: window.innerWidth - 350, y: 100 });
     const draggingRef = useRef(false);
     const startRef = useRef({ x: 0, y: 0 });
     const videoData = extractVideoId(stream.url);
+
     const handleMouseDown = (e: React.MouseEvent) => {
         draggingRef.current = true;
         startRef.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
@@ -148,8 +118,9 @@ const FloatingPiP: React.FC<{ stream: { id: string, name: string, url: string },
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
     };
+
     return (
-        <div className="fixed z-[9000] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col group animate-fade-in" style={{ left: pos.x, top: pos.y, width: 320, height: 180 + 30 }}>
+        <div className="fixed z-[9000] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col group animate-fade-in" style={{ left: pos.x, top: pos.y, width: 320, height: 180 + 32 }}>
             <div className="h-8 bg-slate-800 flex items-center justify-between px-3 cursor-move shrink-0 border-b border-slate-700" onMouseDown={handleMouseDown}>
                 <div className="flex items-center gap-2">
                     <Video className="w-3.5 h-3.5 text-red-500" />
@@ -159,7 +130,7 @@ const FloatingPiP: React.FC<{ stream: { id: string, name: string, url: string },
             </div>
             <div className="flex-1 bg-black relative">
                 {videoData?.type === 'youtube' ? (
-                    <iframe src={`https://www.youtube.com/embed/${videoData.id}?rel=0&modestbranding=1&autoplay=1`} className="w-full h-full pointer-events-auto" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+                    <iframe src={`https://www.youtube.com/embed/${videoData.id}?rel=0&modestbranding=1&autoplay=1`} className="w-full h-full pointer-events-auto" frameBorder="0" allowFullScreen />
                 ) : ( <iframe src={stream.url} className="w-full h-full pointer-events-auto" frameBorder="0" allowFullScreen /> )}
             </div>
         </div>
@@ -179,10 +150,7 @@ const MapDrawingBridge = ({ drawMode, setDrawMode }: { drawMode: string | null, 
                     case 'poi': map.pm.enableDraw('Marker', options); break;
                 }
             } else map.pm.disableDraw();
-        } catch (error) {
-            map.pm.disableDraw();
-            setDrawMode(null);
-        }
+        } catch (error) { map.pm.disableDraw(); setDrawMode(null); }
         return () => { if (map && map.pm) map.pm.disableDraw(); };
     }, [drawMode, map, setDrawMode]); 
     return null;
@@ -209,7 +177,6 @@ export default function TacticalOperationCenter() {
   const [pois, setPois] = useState<TacticalPOI[]>([]);
   const [tacticalDrones, setTacticalDrones] = useState<TacticalDrone[]>([]);
   const [liveDrones, setLiveDrones] = useState<any[]>([]); 
-  const [kmlLayers, setKmlLayers] = useState<TacticalKmlLayer[]>([]);
   const [drones, setDrones] = useState<Drone[]>([]);
   const [pilots, setPilots] = useState<Pilot[]>([]);
   const [timeline, setTimeline] = useState<{id: string, text: string, time: string, icon: any}[]>([]);
@@ -217,65 +184,61 @@ export default function TacticalOperationCenter() {
   const [loading, setLoading] = useState(true);
   const [isCapturing, setIsCapturing] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState<'plan' | 'timeline' | 'weather'>('plan');
-  const [activePanel, setActivePanel] = useState<'create' | 'manage' | 'import' | null>(null);
+  const [activeTab, setActiveTab] = useState<'plan' | 'timeline'>('plan');
+  const [activePanel, setActivePanel] = useState<'create' | 'manage' | null>(null);
   const [selectedEntity, setSelectedEntity] = useState<any>(null); 
-  const [entityType, setEntityType] = useState<'sector' | 'poi' | 'drone' | 'kml' | null>(null);
+  const [entityType, setEntityType] = useState<'sector' | 'poi' | 'drone' | null>(null);
   const [mapType, setMapType] = useState<'street' | 'satellite'>('street');
   const [currentDrawMode, setCurrentDrawMode] = useState<string | null>(null);
-  const [visibleLayers, setVisibleLayers] = useState({ sectors: true, routes: true, pois: true, drones: true, base: true });
-  const [newItemType, setNewItemType] = useState<'sector' | 'poi' | 'line'>('sector');
-  const [newItemName, setNewItemName] = useState('');
-  const [newItemColor, setNewItemColor] = useState('#ef4444');
-  const [newItemSubType, setNewItemSubType] = useState('victim'); 
   const [tempGeometry, setTempGeometry] = useState<any>(null); 
-  const [mainResources, setMainResources] = useState<{ pilot?: Pilot, drone?: Drone }>({});
   const [activePiPs, setActivePiPs] = useState<Record<string, { id: string, name: string, url: string }>>({});
+  
+  // Form para despacho
   const [assignDroneId, setAssignDroneId] = useState("");
   const [assignPilotId, setAssignPilotId] = useState("");
   const [assignStreamUrl, setAssignStreamUrl] = useState("");
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemColor, setNewItemColor] = useState('#3b82f6');
+  const [newItemSubType, setNewItemSubType] = useState('victim');
 
   useEffect(() => { if (id) loadTacticalData(id); }, [id]);
 
   useEffect(() => {
     if (!id) return;
-    const fetchInitialLive = async () => {
-        try {
-            const { data, error } = await supabase.from('drone_live_status').select('*');
-            if (!error && data) setLiveDrones(data);
-        } catch (e) {}
-    };
-    fetchInitialLive();
     const channel = supabase.channel('live_telemetry').on('postgres_changes', { event: '*', schema: 'public', table: 'drone_live_status' }, (payload) => {
           setLiveDrones(current => {
               const newData = [...current];
               const idx = newData.findIndex(d => d.drone_sn === (payload.new as any).drone_sn);
               if (idx > -1) newData[idx] = payload.new;
               else newData.push(payload.new);
-              if (selectedEntity?.drone_sn === (payload.new as any).drone_sn) setSelectedEntity(payload.new);
               return newData;
           });
     }).subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [id, selectedEntity]);
+  }, [id]);
 
   const loadTacticalData = async (opId: string) => {
     try {
-      const [op, sects, points, tDrones, allDrones, allPilots, layers] = await Promise.all([
+      const [op, sects, points, tDrones, allDrones, allPilots] = await Promise.all([
           base44.entities.Operation.filter({ id: opId }).then(res => res[0]), 
           tacticalService.getSectors(opId), 
           tacticalService.getPOIs(opId), 
           tacticalService.getTacticalDrones(opId), 
           base44.entities.Drone.list(), 
-          base44.entities.Pilot.list(),
-          tacticalService.getKmlLayers(opId)
+          base44.entities.Pilot.list()
       ]);
       if (!op) { navigate('/operations'); return; }
-      const enriched = tDrones.map(td => ({ ...td, drone: allDrones.find(d => d.id === td.drone_id), pilot: allPilots.find(p => p.id === td.pilot_id) }));
-      setMainResources({ pilot: allPilots.find(p => p.id === op.pilot_id), drone: allDrones.find(d => d.id === op.drone_id) });
-      setOperation(op); if (!pcPosition) setPcPosition([op.latitude, op.longitude]);
-      setSectors(sects); setPois(points); setTacticalDrones(enriched); setDrones(allDrones); setPilots(allPilots); setKmlLayers(layers);
-    } catch (e) {} finally { setLoading(false); }
+      
+      const enrichedDrones = tDrones.map(td => ({
+        ...td,
+        drone: allDrones.find(d => d.id === td.drone_id),
+        pilot: allPilots.find(p => p.id === td.pilot_id)
+      }));
+
+      setOperation(op); setPcPosition([op.latitude, op.longitude]);
+      setSectors(sects); setPois(points); setTacticalDrones(enrichedDrones);
+      setDrones(allDrones); setPilots(allPilots);
+    } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
   const handleTogglePiP = (id: string, name: string, url?: string) => {
@@ -287,144 +250,220 @@ export default function TacticalOperationCenter() {
       });
   };
 
-  const operationalSummary = useMemo(() => {
-      const totalDrones = tacticalDrones.length + (operation?.drone_id ? 1 : 0) + liveDrones.length;
-      const totalAreaM2 = sectors.filter(s => s.type === 'sector' && s.geojson?.coordinates).reduce((acc, s) => acc + calculatePolygonArea(s.geojson.coordinates), 0);
-      return { totalAreaM2, resources: { drones: totalDrones, sectors: sectors.filter(s => s.type === 'sector').length, pois: pois.length } };
-  }, [sectors, pois, tacticalDrones, liveDrones, operation]);
-
   const addLog = (text: string, icon: any) => {
       setTimeline(prev => [{ id: crypto.randomUUID(), text, time: new Date().toLocaleTimeString('pt-BR'), icon }, ...prev]);
   };
 
-  const handleCaptureSnapshot = async () => {
-      if (!id || isCapturing || !leafletMapRef.current) return;
-      setIsCapturing(true); addLog("PROCESSANDO SNAPSHOT EM NUVEM...", Target);
-      try {
-          const mapEl = mapRef.current?.querySelector('.leaflet-container') as HTMLElement;
-          const canvas = await html2canvas(mapEl, { useCORS: true, allowTaint: true, scale: 2, ignoreElements: (element) => element.classList.contains('leaflet-control-container') });
-          const base64 = canvas.toDataURL('image/jpeg', 0.8);
-          await tacticalService.saveMapSnapshot(id, base64);
-          addLog("SNAPSHOT INTEGRAL SALVO.", CheckCircle);
-          alert("Snapshot salvo na nuvem com sucesso!");
-      } catch (e) { alert("Falha ao capturar mapa."); } finally { setIsCapturing(false); }
-  };
-
   const handleDrawCreated = (e: any) => {
     const geojson = e.layer.toGeoJSON(); 
-    let type: 'poi' | 'line' | 'sector' = 'sector';
-    if (e.layerType === 'marker' || e.shape === 'Marker') type = 'poi';
-    else if (e.layerType === 'line' || e.shape === 'Line') type = 'line';
-    setNewItemType(type); setTempGeometry(geojson); setCurrentDrawMode(null);
-    if (type !== 'poi') { setNewItemName(PHONETIC[sectors.length % PHONETIC.length]); setNewItemColor(TACTICAL_COLORS[sectors.length % TACTICAL_COLORS.length]); }
+    let type: 'poi' | 'sector' = e.layerType === 'marker' ? 'poi' : 'sector';
+    setEntityType(type); setTempGeometry(geojson); setCurrentDrawMode(null);
+    if (type === 'sector') { setNewItemName(PHONETIC[sectors.length % PHONETIC.length]); }
     setSidebarOpen(true); setActivePanel('create');
   };
 
-  const saveNewItem = async () => {
-      if (!tempGeometry || !id || !newItemName) return;
-      try {
-          if (newItemType === 'poi') { 
-            const [lng, lat] = tempGeometry.geometry.coordinates; 
-            await tacticalService.createPOI({ operation_id: id, name: newItemName, type: newItemSubType as any, lat, lng, stream_url: assignStreamUrl }); 
-          } else { 
-            await tacticalService.createSector({ operation_id: id, name: newItemName, type: newItemType === 'line' ? 'route' : 'sector', color: newItemColor, geojson: tempGeometry.geometry }); 
-          }
-          setActivePanel(null); setTempGeometry(null); setAssignStreamUrl(""); await loadTacticalData(id);
-      } catch (e) { alert("Falha ao persistir."); }
+  const handleAssignDrone = async () => {
+    if (!id || !assignDroneId || !assignPilotId) return;
+    try {
+        await tacticalService.assignDrone({
+            operation_id: id,
+            drone_id: assignDroneId,
+            pilot_id: assignPilotId,
+            status: 'active',
+            current_lat: operation?.latitude,
+            current_lng: operation?.longitude,
+            stream_url: assignStreamUrl
+        });
+        setAssignDroneId(""); setAssignPilotId(""); setAssignStreamUrl("");
+        loadTacticalData(id);
+        addLog("NOVO VETOR LANÇADO", Plane);
+    } catch (e) { alert("Falha ao despachar drone."); }
   };
 
-  const handleDeleteEntity = async () => {
+  const handleUpdateStream = async () => {
       if (!selectedEntity || !id) return;
-      if (!confirm("Remover este elemento permanentemente?")) return;
       try {
-          if (entityType === 'sector') await tacticalService.deleteSector(selectedEntity.id);
-          else if (entityType === 'poi') await tacticalService.deletePOI(selectedEntity.id);
-          setActivePanel(null); setSelectedEntity(null); loadTacticalData(id);
-      } catch (e) { alert("Erro ao excluir."); }
+          await tacticalService.updateDroneStatus(selectedEntity.id, { stream_url: selectedEntity.stream_url });
+          alert("Link de transmissão atualizado!");
+          loadTacticalData(id);
+      } catch (e) { alert("Erro ao atualizar link."); }
   };
 
-  if (loading || !operation) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white font-black">SINCRONIZANDO CCO...</div>;
+  /**
+   * Captures a high-resolution snapshot of the tactical map and saves it to the operation.
+   */
+  const handleCaptureSnapshot = async () => {
+    if (!id || !leafletMapRef.current || !mapRef.current) return;
+    setIsCapturing(true);
+    try {
+      // Small delay to allow Leaflet rendering to stabilize
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const canvas = await html2canvas(mapRef.current, {
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        backgroundColor: '#0f172a', // Matching tactical dark background
+        ignoreElements: (element) => {
+            // Exclude Leaflet interactive controls from the final capture
+            return element.classList.contains('leaflet-control-container');
+        }
+      });
+      
+      const base64 = canvas.toDataURL('image/jpeg', 0.8);
+      await tacticalService.saveMapSnapshot(id, base64);
+      addLog("MAPA TÁTICO CAPTURADO", Camera);
+      alert("Snapshot capturado e salvo na missão!");
+    } catch (e) {
+      console.error("Erro ao capturar mapa:", e);
+      alert("Falha ao capturar imagem do mapa.");
+    } finally {
+      setIsCapturing(false);
+    }
+  };
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 overflow-hidden text-slate-800 font-sans">
       {(Object.values(activePiPs) as any[]).map((pip) => (<FloatingPiP key={pip.id} stream={pip} onClose={() => handleTogglePiP(pip.id, pip.name)} />))}
+      
       <div className="h-14 bg-[#7f1d1d] border-b border-red-900/40 flex items-center justify-between px-4 z-[1000] shrink-0">
         <div className="flex items-center gap-3">
           <Button variant="outline" onClick={() => navigate('/operations')} className="h-9 w-9 p-0 border-white/20 bg-white/10 text-white rounded-full"><ArrowLeft className="w-4 h-4" /></Button>
-          <h1 className="text-sm font-black text-white uppercase tracking-tighter leading-none">{operation.name}</h1>
+          <div className="min-w-0">
+            <h1 className="text-sm font-black text-white uppercase tracking-tighter leading-none">{operation?.name}</h1>
+            <p className="text-[10px] text-red-200 opacity-60 font-bold uppercase mt-0.5">#{operation?.occurrence_number}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <Button onClick={handleCaptureSnapshot} disabled={isCapturing} className="h-9 px-4 rounded-lg text-[10px] font-black uppercase bg-blue-600 text-white">{isCapturing ? 'PROCESSANDO...' : 'SNAPSHOT NUVEM'}</Button>
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="h-9 px-5 rounded-lg text-[10px] font-black uppercase bg-white text-red-700">{sidebarOpen ? 'FECHAR PAINEL' : 'ABRIR PAINEL'}</button>
+        <div className="flex gap-2">
+            <Button onClick={() => setSidebarOpen(!sidebarOpen)} className="h-9 px-4 text-[10px] font-black uppercase bg-white text-red-700">{sidebarOpen ? 'FECHAR PAINEL' : 'ABRIR PAINEL'}</Button>
         </div>
       </div>
+
       <div className="flex-1 flex overflow-hidden relative">
           <div className={`${sidebarOpen ? 'w-80' : 'w-0'} bg-white border-r border-slate-200 flex flex-col shadow-2xl z-[500] transition-all duration-300 overflow-hidden shrink-0`}>
-              <div className="flex bg-slate-100 p-1.5 m-3 rounded-xl shrink-0"><button onClick={() => setActiveTab('plan')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg ${activeTab === 'plan' ? 'bg-white text-red-700 shadow-sm' : 'text-slate-500'}`}>Teatro</button><button onClick={() => setActiveTab('timeline')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg ${activeTab === 'timeline' ? 'bg-white text-red-700 shadow-sm' : 'text-slate-500'}`}>Logs</button></div>
-              <div className="flex-1 overflow-y-auto p-3 relative bg-white space-y-5">
+              <div className="flex bg-slate-100 p-1.5 m-3 rounded-xl shrink-0">
+                  <button onClick={() => { setActiveTab('plan'); setActivePanel(null); }} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg ${activeTab === 'plan' ? 'bg-white text-red-700 shadow-sm' : 'text-slate-500'}`}>Teatro</button>
+                  <button onClick={() => { setActiveTab('timeline'); setActivePanel(null); }} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg ${activeTab === 'timeline' ? 'bg-white text-red-700 shadow-sm' : 'text-slate-500'}`}>Logs</button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4">
                   {activeTab === 'plan' && !activePanel && (
-                      <div className="space-y-5">
-                          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 shadow-sm">
-                              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 border-b pb-2">Resumo de Cena</h3>
-                              <div className="grid grid-cols-2 gap-3 mt-3">
-                                  <div className="bg-white p-3 rounded-xl border border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase">Área Total</p><p className="text-sm font-black text-blue-600">{formatArea(operationalSummary.totalAreaM2)}</p></div>
-                                  <div className="bg-white p-3 rounded-xl border border-slate-100"><p className="text-[8px] font-black text-slate-400 uppercase">Drones</p><p className="text-sm font-black text-red-600">{operationalSummary.resources.drones}</p></div>
-                              </div>
-                          </div>
-                          <div className="space-y-2">
-                              {sectors.map(s => (<div key={s.id} onClick={() => { setSelectedEntity(s); setEntityType('sector'); setActivePanel('manage'); }} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex justify-between items-center cursor-pointer hover:bg-slate-100"><div className="flex items-center gap-3"><div className="w-3 h-3 rounded-full" style={{ backgroundColor: s.color }}></div><span className="text-xs font-bold text-slate-700 uppercase">{s.name}</span></div><ChevronRight className="w-4 h-4 text-slate-300"/></div>))}
-                              {pois.map(p => (<div key={p.id} onClick={() => { setSelectedEntity(p); setEntityType('poi'); setActivePanel('manage'); }} className="p-3 bg-slate-50 border border-slate-100 rounded-xl flex justify-between items-center cursor-pointer hover:bg-slate-100"><div className="flex items-center gap-3"><MapPin className="w-4 h-4 text-slate-400"/><span className="text-xs font-bold text-slate-700 uppercase">{p.name}</span></div><ChevronRight className="w-4 h-4 text-slate-300"/></div>))}
-                          </div>
-                      </div>
+                      <>
+                        <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3 shadow-xl">
+                            <h3 className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-2"><Zap className="w-3.5 h-3.5"/> Ativar Vetor RPA</h3>
+                            <Select className="h-9 text-[11px]" value={assignDroneId} onChange={e => setAssignDroneId(e.target.value)}>
+                                <option value="">Selecionar RPA...</option>
+                                {drones.map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
+                            </Select>
+                            <Select className="h-9 text-[11px]" value={assignPilotId} onChange={e => setAssignPilotId(e.target.value)}>
+                                <option value="">Selecionar PIC...</option>
+                                {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                            </Select>
+                            <Input placeholder="Link de Transmissão (Youtube/RTSP)" className="h-9 text-[11px]" value={assignStreamUrl} onChange={e => setAssignStreamUrl(e.target.value)} />
+                            <Button onClick={handleAssignDrone} className="w-full bg-red-600 hover:bg-red-700 text-white font-black uppercase h-9 text-[10px]">Lançar no Mapa</Button>
+                        </div>
+
+                        <div className="space-y-2">
+                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1 mb-2">Recursos no Terreno</h4>
+                            {tacticalDrones.map(td => (
+                                <div key={td.id} onClick={() => { setSelectedEntity(td); setEntityType('drone'); setActivePanel('manage'); }} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between cursor-pointer hover:bg-slate-100">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-blue-600 text-white rounded-lg"><Plane className="w-4 h-4"/></div>
+                                        <div>
+                                            <p className="text-xs font-bold text-slate-800">{td.drone?.prefix}</p>
+                                            <p className="text-[9px] text-slate-400 font-bold uppercase">{td.pilot?.full_name?.split(' ')[0]}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-1">
+                                        {td.stream_url && <Video className="w-3 h-3 text-red-500 animate-pulse"/>}
+                                        <ChevronRight className="w-4 h-4 text-slate-300"/>
+                                    </div>
+                                </div>
+                            ))}
+                            {sectors.map(s => (<div key={s.id} onClick={() => { setSelectedEntity(s); setEntityType('sector'); setActivePanel('manage'); }} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between cursor-pointer"><div className="flex items-center gap-3"><div className="w-4 h-4 rounded-full" style={{ backgroundColor: s.color }}></div><span className="text-xs font-bold text-slate-700 uppercase">{s.name}</span></div><ChevronRight className="w-4 h-4 text-slate-300"/></div>))}
+                        </div>
+                      </>
                   )}
+
                   {activePanel === 'create' && (
-                      <div className="absolute inset-0 bg-white z-[600] p-5 space-y-5 animate-fade-in flex flex-col">
-                          <div className="flex justify-between items-center border-b pb-3"><h2 className="text-[11px] font-black uppercase">Novo Elemento</h2><button onClick={() => { setActivePanel(null); setTempGeometry(null); }} className="p-1"><X className="w-5 h-5"/></button></div>
-                          <div className="space-y-4">
-                             <Input label="Identificação" value={newItemName} onChange={e => setNewItemName(e.target.value)} />
-                             {newItemType === 'poi' && (
-                                <Select label="Tipo de Ponto" value={newItemSubType} onChange={e => setNewItemSubType(e.target.value)}>
-                                   <option value="victim">Vítima</option><option value="base">Base/PC</option><option value="hazard">Perigo</option><option value="interest">Interesse</option>
-                                </Select>
-                             )}
-                             {newItemType !== 'poi' && (<div className="space-y-2"><label className="text-xs font-bold">Cor do Setor</label><div className="flex gap-2">{TACTICAL_COLORS.map(c => <button key={c} onClick={() => setNewItemColor(c)} className={`w-8 h-8 rounded-full border-2 ${newItemColor === c ? 'border-slate-900 scale-110' : 'border-transparent'}`} style={{ backgroundColor: c }} />)}</div></div>)}
-                             <Button onClick={saveNewItem} className="w-full h-12 bg-red-700 text-white font-black uppercase">Salvar no Servidor</Button>
-                          </div>
+                      <div className="animate-fade-in space-y-4">
+                          <div className="flex justify-between items-center"><h2 className="text-xs font-black uppercase">Novo Elemento</h2><button onClick={() => setActivePanel(null)}><X className="w-5 h-5 text-slate-400"/></button></div>
+                          <Input label="Identificação" value={newItemName} onChange={e => setNewItemName(e.target.value)} />
+                          {entityType === 'poi' ? (
+                            <Select label="Tipo" value={newItemSubType} onChange={e => setNewItemSubType(e.target.value)}>
+                                <option value="victim">Vítima</option><option value="hazard">Perigo</option><option value="base">Base/PC</option><option value="ground_team">Equipe Solo</option>
+                            </Select>
+                          ) : (
+                            <div className="space-y-2"><label className="text-[10px] font-bold uppercase text-slate-400">Cor do Setor</label><div className="flex flex-wrap gap-2">{TACTICAL_COLORS.map(c => <button key={c} onClick={() => setNewItemColor(c)} className={`w-8 h-8 rounded-full border-2 ${newItemColor === c ? 'border-slate-900' : 'border-transparent'}`} style={{ backgroundColor: c }} />)}</div></div>
+                          )}
+                          <Button className="w-full bg-red-700 text-white font-black uppercase h-11" onClick={async () => {
+                             if (entityType === 'poi') {
+                               const [lng, lat] = tempGeometry.geometry.coordinates;
+                               await tacticalService.createPOI({ operation_id: id!, name: newItemName, type: newItemSubType as any, lat, lng });
+                             } else {
+                               await tacticalService.createSector({ operation_id: id!, name: newItemName, type: 'sector', color: newItemColor, geojson: tempGeometry.geometry });
+                             }
+                             setActivePanel(null); loadTacticalData(id!);
+                          }}>Salvar no Servidor</Button>
                       </div>
                   )}
+
                   {activePanel === 'manage' && selectedEntity && (
-                      <div className="absolute inset-0 bg-white z-[600] p-5 space-y-6 animate-fade-in flex flex-col">
-                          <div className="flex justify-between items-center border-b pb-3"><h2 className="text-[11px] font-black uppercase">Gerenciar: {selectedEntity.name}</h2><button onClick={() => { setActivePanel(null); setSelectedEntity(null); }} className="p-1"><X className="w-5 h-5"/></button></div>
-                          <div className="p-5 bg-slate-900 rounded-3xl text-white">
-                              <p className="text-[10px] font-black text-white/40 uppercase">Identificador</p>
-                              <h4 className="text-lg font-black uppercase">{selectedEntity.name}</h4>
-                              <p className="text-[10px] text-white/60 uppercase mt-1">{entityType === 'sector' ? (selectedEntity.type === 'route' ? 'Trilha/Percurso' : 'Área Tática') : 'Ponto de Interesse'}</p>
+                      <div className="animate-fade-in space-y-5">
+                          <div className="flex justify-between items-center border-b pb-2"><h2 className="text-xs font-black uppercase">Gerenciar Elemento</h2><button onClick={() => setActivePanel(null)}><X className="w-5 h-5 text-slate-400"/></button></div>
+                          <div className="p-4 bg-slate-900 rounded-2xl text-white">
+                              <p className="text-[9px] font-black text-white/40 uppercase tracking-widest">Identificador</p>
+                              <h4 className="text-lg font-black uppercase">{selectedEntity.name || selectedEntity.drone?.prefix}</h4>
+                              <p className="text-[10px] text-white/60 font-bold uppercase mt-1">{entityType === 'drone' ? (selectedEntity.pilot?.full_name) : 'Setorização Tática'}</p>
                           </div>
-                          <div className="space-y-3">
-                              <Button variant="danger" onClick={handleDeleteEntity} className="w-full h-11 text-[10px] font-black uppercase tracking-widest shadow-lg">Remover Elemento</Button>
-                          </div>
+                          
+                          {entityType === 'drone' && (
+                              <div className="space-y-3 p-4 bg-slate-50 border rounded-2xl">
+                                  <Input label="Link de Transmissão" value={selectedEntity.stream_url || ''} onChange={e => setSelectedEntity({...selectedEntity, stream_url: e.target.value})} />
+                                  <Button className="w-full bg-blue-600 text-white text-[10px] font-black uppercase h-9" onClick={handleUpdateStream}>Atualizar Live</Button>
+                                  {selectedEntity.stream_url && (
+                                    <Button variant="outline" className="w-full h-9 text-[10px] font-black uppercase border-red-200 text-red-600" onClick={() => handleTogglePiP(selectedEntity.id, selectedEntity.drone?.prefix, selectedEntity.stream_url)}>Alternar Janela PiP</Button>
+                                  )}
+                              </div>
+                          )}
+
+                          <Button variant="danger" className="w-full h-11 text-[10px] font-black uppercase shadow-lg" onClick={async () => {
+                             if (!confirm("Remover permanentemente?")) return;
+                             if (entityType === 'drone') await tacticalService.removeDroneFromOp(selectedEntity.id);
+                             else if (entityType === 'sector') await tacticalService.deleteSector(selectedEntity.id);
+                             else await tacticalService.deletePOI(selectedEntity.id);
+                             setActivePanel(null); loadTacticalData(id!);
+                          }}>Remover do Terreno</Button>
                       </div>
                   )}
               </div>
           </div>
+
           <div className="flex-1 relative z-0 bg-slate-100" ref={mapRef}>
               <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[2000] bg-white/95 border border-slate-200 rounded-2xl shadow-2xl flex items-center p-2 gap-1 ring-4 ring-black/5">
-                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'sector' ? null : 'sector')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'sector' ? 'bg-blue-600 text-white' : 'text-blue-600'}`}><Hexagon className="w-6 h-6"/></button>
-                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'route' ? null : 'route')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'route' ? 'bg-orange-600 text-white' : 'text-orange-600'}`}><Navigation className="w-6 h-6"/></button>
-                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'poi' ? null : 'poi')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'poi' ? 'bg-red-600 text-white' : 'text-red-600'}`}><Flag className="w-6 h-6"/></button>
+                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'sector' ? null : 'sector')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'sector' ? 'bg-blue-600 text-white' : 'text-blue-600 hover:bg-blue-50'}`}><Hexagon className="w-6 h-6"/></button>
+                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'poi' ? null : 'poi')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'poi' ? 'bg-red-600 text-white' : 'text-red-600 hover:bg-red-50'}`}><Flag className="w-6 h-6"/></button>
               </div>
+              
               <div className="absolute top-1/2 right-4 -translate-y-1/2 z-[2000] flex flex-col gap-2">
-                  <button onClick={() => setMapType(prev => prev === 'street' ? 'satellite' : 'street')} className="bg-white text-slate-700 w-12 h-12 flex items-center justify-center rounded-2xl shadow-xl">{mapType === 'street' ? <Layers className="w-6 h-6" /> : <Satellite className="w-6 h-6" />}</button>
+                  <button onClick={() => setMapType(prev => prev === 'street' ? 'satellite' : 'street')} className="bg-white text-slate-700 w-12 h-12 flex items-center justify-center rounded-2xl shadow-xl border border-slate-200">{mapType === 'street' ? <Layers className="w-6 h-6" /> : <Satellite className="w-6 h-6" />}</button>
+                  <button onClick={handleCaptureSnapshot} disabled={isCapturing} className="bg-white text-slate-700 w-12 h-12 flex items-center justify-center rounded-2xl shadow-xl border border-slate-200">{isCapturing ? <Loader2 className="w-6 h-6 animate-spin"/> : <Camera className="w-6 h-6" />}</button>
               </div>
-              <MapContainer center={[operation.latitude, operation.longitude]} zoom={17} style={{ height: '100%', width: '100%', background: 'transparent' }} preferCanvas={true}>
-                  <MapController center={[operation.latitude, operation.longitude]} isCreating={!!tempGeometry} onMapReady={(map) => { leafletMapRef.current = map; }} />
+
+              <MapContainer center={[operation?.latitude || -25, operation?.longitude || -49]} zoom={17} style={{ height: '100%', width: '100%', background: 'transparent' }} preferCanvas={true}>
+                  <MapController center={[operation?.latitude || -25, operation?.longitude || -49]} isCreating={!!tempGeometry} onMapReady={(map) => { leafletMapRef.current = map; }} />
                   <MapDrawingBridge drawMode={currentDrawMode} setDrawMode={setCurrentDrawMode} />
                   <TileLayer url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} crossOrigin="anonymous" />
                   <SectorsLayer onCreated={handleDrawCreated} />
-                  {pcPosition && (<Marker position={pcPosition} icon={createTacticalDroneIcon({ id: 'main-drone-virtual', pilot: mainResources.pilot, drone: mainResources.drone })} draggable={true} eventHandlers={{ click: () => { setSelectedEntity({...operation}); setEntityType('drone'); setActivePanel('manage'); } }} />)}
-                  {sectors.map(s => (s.type === 'route' ? <Polyline key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 0) as any} pathOptions={{ color: s.color, weight: 6, dashArray: '8, 12' }} eventHandlers={{ click: () => { setSelectedEntity(s); setEntityType('sector'); setActivePanel('manage'); } }} /> : <Polygon key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 1) as any} pathOptions={{ color: s.color, fillOpacity: 0.25, weight: 3 }} eventHandlers={{ click: () => { setSelectedEntity(s); setEntityType('sector'); setActivePanel('manage'); } }} />))}
+                  
+                  {pcPosition && (<Marker position={pcPosition} icon={getPoiIcon('base')} />)}
+                  
+                  {sectors.map(s => (<Polygon key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 1) as any} pathOptions={{ color: s.color, fillOpacity: 0.25, weight: 3 }} eventHandlers={{ click: () => { setSelectedEntity(s); setEntityType('sector'); setActivePanel('manage'); } }} />))}
                   {pois.map(p => (<Marker key={p.id} position={[p.lat, p.lng]} icon={getPoiIcon(p.type, !!p.stream_url)} eventHandlers={{ click: () => { setSelectedEntity(p); setEntityType('poi'); setActivePanel('manage'); if(p.stream_url) handleTogglePiP(p.id, p.name, p.stream_url); } }} />))}
-                  {liveDrones.map((ld, idx) => (<Marker key={`live-${idx}`} position={[ld.latitude, ld.longitude]} icon={createTacticalDroneIcon(ld)} eventHandlers={{ click: () => { setSelectedEntity(ld); setEntityType('drone'); setActivePanel('manage'); } }} />))}
+                  
+                  {tacticalDrones.map(td => td.current_lat && (<Marker key={td.id} position={[td.current_lat, td.current_lng]} icon={createTacticalDroneIcon(td)} draggable={true} eventHandlers={{ click: () => { setSelectedEntity(td); setEntityType('drone'); setActivePanel('manage'); }, dragend: async (e) => { const pos = e.target.getLatLng(); await tacticalService.updateDroneStatus(td.id, { current_lat: pos.lat, current_lng: pos.lng }); } }} />))}
+                  
+                  {liveDrones.map((ld, idx) => (<Marker key={`live-${idx}`} position={[ld.latitude, ld.longitude]} icon={createTacticalDroneIcon(ld)} eventHandlers={{ click: () => { handleTogglePiP(ld.drone_sn, `LIVE: ${ld.drone_sn.slice(-4)}`, ld.stream_url); } }} />))}
               </MapContainer>
           </div>
       </div>
