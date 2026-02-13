@@ -1,0 +1,6 @@
+mobile_link/
+node_modules/
+dist/
+.env
+.env.local
+.git

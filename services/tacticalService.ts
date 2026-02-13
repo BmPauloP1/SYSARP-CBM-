@@ -1,4 +1,3 @@
-
 import { supabase, isConfigured } from './supabase';
 import { Drone, Pilot } from '../types';
 
@@ -55,95 +54,108 @@ export interface TacticalKmlLayer {
   created_at: string;
 }
 
-const STORAGE_SECTORS = 'sysarp_tactical_sectors';
-const STORAGE_POIS = 'sysarp_tactical_pois';
 const STORAGE_DRONES = 'sysarp_tactical_drones';
-const STORAGE_SNAPSHOTS = 'sysarp_tactical_snapshots';
-const STORAGE_KML_LAYERS = 'sysarp_tactical_kml';
 
 const getLocal = <T>(key: string): T[] => {
   try {
-    return JSON.parse(localStorage.getItem(key) || '[]');
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : [];
   } catch { return []; }
 };
 
-const setLocal = (key: string, data: any[]) => localStorage.setItem(key, JSON.stringify(data));
+const setLocal = (key: string, data: any[]) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (e) {
+    if (e instanceof Error && e.name === 'QuotaExceededError') {
+      // Limpeza de emergência de dados legados pesados
+      localStorage.removeItem('sysarp_tactical_snapshots');
+      localStorage.removeItem('sysarp_tactical_sectors');
+      localStorage.removeItem('sysarp_tactical_pois');
+      console.warn("LocalStorage limpo por excesso de cota.");
+    }
+  }
+};
 
 export const tacticalService = {
   
+  // --- SETORES (POLÍGONOS) NO BANCO DE DADOS ---
   getSectors: async (operationId: string): Promise<TacticalSector[]> => {
-    const all = getLocal<TacticalSector>(STORAGE_SECTORS);
-    return all.filter(s => s.operation_id === operationId);
+    if (!isConfigured) return [];
+    try {
+      const { data, error } = await supabase
+        .from('tactical_sectors')
+        .select('*')
+        .eq('operation_id', operationId);
+      if (error) throw error;
+      return data || [];
+    } catch (e) {
+      return getLocal<TacticalSector>('sysarp_tactical_sectors').filter(s => s.operation_id === operationId);
+    }
   },
 
   createSector: async (sector: Omit<TacticalSector, 'id' | 'created_at'>): Promise<TacticalSector> => {
-    const newSector = {
-        ...sector,
-        id: crypto.randomUUID(),
-        created_at: new Date().toISOString(),
-        assigned_drones: []
-    };
-    const all = getLocal<TacticalSector>(STORAGE_SECTORS);
-    all.push(newSector);
-    setLocal(STORAGE_SECTORS, all);
-    return newSector;
+    if (!isConfigured) throw new Error("Supabase não configurado");
+    const { data, error } = await supabase
+      .from('tactical_sectors')
+      .insert([sector])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
   },
 
   updateSector: async (id: string, updates: Partial<TacticalSector>): Promise<void> => {
-    const all = getLocal<TacticalSector>(STORAGE_SECTORS);
-    const idx = all.findIndex(s => s.id === id);
-    if (idx !== -1) {
-        all[idx] = { ...all[idx], ...updates };
-        setLocal(STORAGE_SECTORS, all);
-    }
+    if (!isConfigured) return;
+    await supabase.from('tactical_sectors').update(updates).eq('id', id);
   },
 
   deleteSector: async (sectorId: string): Promise<void> => {
-    const all = getLocal<TacticalSector>(STORAGE_SECTORS);
-    setLocal(STORAGE_SECTORS, all.filter(s => s.id !== sectorId));
+    if (!isConfigured) return;
+    await supabase.from('tactical_sectors').delete().eq('id', sectorId);
   },
 
+  // --- POIS (PONTOS) NO BANCO DE DADOS ---
   getPOIs: async (operationId: string): Promise<TacticalPOI[]> => {
-    const all = getLocal<TacticalPOI>(STORAGE_POIS);
-    return all.filter(p => p.operation_id === operationId);
-  },
-
-  createPOI: async (poi: Omit<TacticalPOI, 'id' | 'created_at'>): Promise<TacticalPOI> => {
-    const newPOI = {
-        ...poi,
-        id: crypto.randomUUID(),
-        created_at: new Date().toISOString()
-    };
-    const all = getLocal<TacticalPOI>(STORAGE_POIS);
-    all.push(newPOI);
-    setLocal(STORAGE_POIS, all);
-    return newPOI;
-  },
-
-  updatePOI: async (id: string, updates: Partial<TacticalPOI>): Promise<void> => {
-    const all = getLocal<TacticalPOI>(STORAGE_POIS);
-    const idx = all.findIndex(p => p.id === id);
-    if (idx !== -1) {
-        all[idx] = { ...all[idx], ...updates };
-        setLocal(STORAGE_POIS, all);
+    if (!isConfigured) return [];
+    try {
+      const { data, error } = await supabase
+        .from('tactical_pois')
+        .select('*')
+        .eq('operation_id', operationId);
+      if (error) throw error;
+      return data || [];
+    } catch (e) {
+      return getLocal<TacticalPOI>('sysarp_tactical_pois').filter(p => p.operation_id === operationId);
     }
   },
 
-  deletePOI: async (poiId: string): Promise<void> => {
-    const all = getLocal<TacticalPOI>(STORAGE_POIS);
-    setLocal(STORAGE_POIS, all.filter(p => p.id !== poiId));
+  createPOI: async (poi: Omit<TacticalPOI, 'id' | 'created_at'>): Promise<TacticalPOI> => {
+    const { data, error } = await supabase
+      .from('tactical_pois')
+      .insert([poi])
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
   },
 
+  updatePOI: async (id: string, updates: Partial<TacticalPOI>): Promise<void> => {
+    await supabase.from('tactical_pois').update(updates).eq('id', id);
+  },
+
+  deletePOI: async (poiId: string): Promise<void> => {
+    await supabase.from('tactical_pois').delete().eq('id', poiId);
+  },
+
+  // --- DRONES (MANTIDO LOCAL PARA PERFORMANCE EM TEMPO REAL) ---
   getTacticalDrones: async (operationId: string): Promise<TacticalDrone[]> => {
     const all = getLocal<TacticalDrone>(STORAGE_DRONES);
     return all.filter(d => d.operation_id === operationId);
   },
 
   assignDrone: async (assignment: Omit<TacticalDrone, 'id'>): Promise<TacticalDrone> => {
-    const newAssignment = {
-        ...assignment,
-        id: crypto.randomUUID()
-    };
+    const newAssignment = { ...assignment, id: crypto.randomUUID() };
     const all = getLocal<TacticalDrone>(STORAGE_DRONES);
     const filtered = all.filter(d => !(d.operation_id === assignment.operation_id && d.drone_id === assignment.drone_id));
     filtered.push(newAssignment);
@@ -165,53 +177,64 @@ export const tacticalService = {
       setLocal(STORAGE_DRONES, all.filter(d => d.id !== id));
   },
 
+  // --- KML E CAMADAS (LOCAL COM LIMPEZA AUTOMÁTICA) ---
   getKmlLayers: async (operationId: string): Promise<TacticalKmlLayer[]> => {
-    const all = getLocal<TacticalKmlLayer>(STORAGE_KML_LAYERS);
-    return all.filter(l => l.operation_id === operationId);
+    return getLocal<TacticalKmlLayer>('sysarp_tactical_kml').filter(l => l.operation_id === operationId);
   },
 
   saveKmlLayer: async (layer: Omit<TacticalKmlLayer, 'id' | 'created_at'>): Promise<TacticalKmlLayer> => {
-    const newLayer = {
-      ...layer,
-      id: crypto.randomUUID(),
-      created_at: new Date().toISOString()
-    };
-    const all = getLocal<TacticalKmlLayer>(STORAGE_KML_LAYERS);
+    const newLayer = { ...layer, id: crypto.randomUUID(), created_at: new Date().toISOString() };
+    const all = getLocal<TacticalKmlLayer>('sysarp_tactical_kml');
     all.push(newLayer);
-    setLocal(STORAGE_KML_LAYERS, all);
+    setLocal('sysarp_tactical_kml', all);
     return newLayer;
   },
 
   updateKmlLayer: async (id: string, updates: Partial<TacticalKmlLayer>): Promise<void> => {
-    const all = getLocal<TacticalKmlLayer>(STORAGE_KML_LAYERS);
+    const all = getLocal<TacticalKmlLayer>('sysarp_tactical_kml');
     const idx = all.findIndex(l => l.id === id);
     if (idx !== -1) {
       all[idx] = { ...all[idx], ...updates };
-      setLocal(STORAGE_KML_LAYERS, all);
+      setLocal('sysarp_tactical_kml', all);
     }
   },
 
   deleteKmlLayer: async (id: string): Promise<void> => {
-    const all = getLocal<TacticalKmlLayer>(STORAGE_KML_LAYERS);
-    setLocal(STORAGE_KML_LAYERS, all.filter(l => l.id !== id));
+    const all = getLocal<TacticalKmlLayer>('sysarp_tactical_kml');
+    setLocal('sysarp_tactical_kml', all.filter(l => l.id !== id));
   },
 
-  saveMapSnapshot: (operationId: string, base64: string) => {
+  // --- SNAPSHOTS (STORAGE CLOUD) ---
+  saveMapSnapshot: async (operationId: string, base64: string) => {
+      if (!isConfigured) return;
       try {
-        const snapshots = JSON.parse(localStorage.getItem(STORAGE_SNAPSHOTS) || '{}');
-        snapshots[operationId] = base64;
-        localStorage.setItem(STORAGE_SNAPSHOTS, JSON.stringify(snapshots));
+        const res = await fetch(base64);
+        const blob = await res.blob();
+        const file = new File([blob], `${operationId}.jpg`, { type: 'image/jpeg' });
+        
+        const { data, error } = await supabase.storage
+            .from('mission-files')
+            .upload(`snapshots/${operationId}.jpg`, file, { upsert: true });
+
+        if (error) throw error;
+        
+        const { data: { publicUrl } } = supabase.storage.from('mission-files').getPublicUrl(data.path);
+        
+        await supabase.from('operations').update({ 
+          shapes: { ...((await supabase.from('operations').select('shapes').eq('id', operationId).single()).data?.shapes || {}), snapshot_url: publicUrl } 
+        }).eq('id', operationId);
+        
+        // Limpa o snapshot antigo do navegador
+        const localSnaps = JSON.parse(localStorage.getItem('sysarp_tactical_snapshots') || '{}');
+        delete localSnaps[operationId];
+        localStorage.setItem('sysarp_tactical_snapshots', JSON.stringify(localSnaps));
+
       } catch (e) {
-        console.error("Failed to save snapshot", e);
+        console.error("Erro ao persistir snapshot no Storage:", e);
       }
   },
 
   getMapSnapshot: (operationId: string): string | null => {
-      try {
-        const snapshots = JSON.parse(localStorage.getItem(STORAGE_SNAPSHOTS) || '{}');
-        return (snapshots && typeof snapshots === 'object' && snapshots[operationId]) ? String(snapshots[operationId]) : null;
-      } catch {
-        return null;
-      }
+      return null; // As novas versões buscam direto pela URL salva no banco (operations.shapes.snapshot_url)
   }
 };
