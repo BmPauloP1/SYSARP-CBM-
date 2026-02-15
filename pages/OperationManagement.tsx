@@ -4,22 +4,24 @@ import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } 
 import L from "leaflet";
 import "@geoman-io/leaflet-geoman-free";
 import { base44 } from "../services/base44Client";
-import { Operation, Drone, Pilot, MISSION_HIERARCHY, MISSION_COLORS, MISSION_LABELS, ORGANIZATION_CHART } from "../types";
+import { Operation, Drone, Pilot, MISSION_HIERARCHY, MISSION_COLORS, MISSION_LABELS, ORGANIZATION_CHART, MissionType } from "../types";
 import { Button, Input, Select, Badge, Card } from "../components/ui_components";
 import { 
   Plus, Clock, User, X, Radio, Plane, 
   Shield, MapPin, LocateFixed, Users, 
   Share2, Play, Pause, Pencil, CheckCircle, 
-  Crosshair, Loader2, Save, FileText, Navigation, LayoutList, Map as MapIcon
+  Crosshair, Loader2, Save, FileText, Navigation, LayoutList, Map as MapIcon,
+  Sun, Calendar, Zap, Flag, Hexagon, Route,
+  Video
 } from "lucide-react";
 import { useNavigate } from "react-router-dom"; 
 
-const LocationSelectorMap = ({ mode, center, radius, onPositionChange, onElementCreated }: any) => {
+const LocationSelectorMap = ({ mode, center, radius, onPositionChange }: any) => {
     const map = useMap();
     useEffect(() => { setTimeout(() => map.invalidateSize(), 400) }, [map]);
 
     useMapEvents({
-        click(e) { if (mode === 'pc') onPositionChange(e.latlng.lat, e.latlng.lng); }
+        click(e) { onPositionChange(e.latlng.lat, e.latlng.lng); }
     });
 
     useEffect(() => {
@@ -71,6 +73,43 @@ export default function OperationManagement() {
       ]);
       setOperations(ops); setPilots(pils); setDrones(drns);
     } catch(e) {}
+  };
+
+  const handleShare = (op: Operation) => {
+    const pilot = pilots.find(p => p.id === op.pilot_id);
+    const drone = drones.find(d => d.id === op.drone_id);
+    const nature = MISSION_HIERARCHY[op.mission_type as MissionType]?.label || op.mission_type;
+    const startTime = new Date(op.start_time).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
+    const gmapsLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
+
+    const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨
+
+🚁 *Ocorrência:* ${op.name}
+🔢 *Protocolo:* ${op.occurrence_number}
+📋 *Natureza:* ${nature}
+
+👤 *PIC:* ${pilot?.full_name || 'N/A'}
+📞 *Contato:* ${pilot?.phone || 'N/A'}
+🛡️ *Aeronave:* ${drone?.prefix || 'N/A'} (${drone?.model || 'N/A'})
+
+📍 *Coord:* ${op.latitude.toFixed(6)}, ${op.longitude.toFixed(6)}
+🗺️ *Google Maps:* ${gmapsLink}
+
+📏 *Raio:* ${op.radius}m
+✈️ *Altitude:* ${op.flight_altitude}m
+
+🕒 *Início:* ${startTime}
+🏁 *Término Previsto:* ${op.estimated_end_time || '-'}`;
+
+    if (navigator.share) {
+      navigator.share({ title: 'Situação Operacional', text }).catch(() => {
+        navigator.clipboard.writeText(text);
+        alert("Informações copiadas para a área de transferência!");
+      });
+    } else {
+      navigator.clipboard.writeText(text);
+      alert("Informações copiadas para a área de transferência!");
+    }
   };
 
   const handleOpenNewMission = () => {
@@ -196,7 +235,11 @@ export default function OperationManagement() {
                                 <span className="text-[8px] font-black mt-1 uppercase">{isPaused ? 'Retomar' : 'Pausar'}</span>
                              </button>
                              <button onClick={() => { setFormData({...op} as any); setIsMissionModalOpen(true); }} className="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"><Pencil className="w-5 h-5"/><span className="text-[8px] font-black mt-1 uppercase">Editar</span></button>
-                             <button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="col-span-2 flex items-center justify-center gap-3 p-2 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] shadow-lg active:scale-95 transition-transform"><Crosshair className="w-5 h-5 text-red-500 animate-pulse"/> TÁTICO</button>
+                             <button onClick={() => handleShare(op)} className="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 bg-slate-50 text-blue-600 hover:bg-blue-100">
+                                <Share2 className="w-5 h-5"/>
+                                <span className="text-[8px] font-black mt-1 uppercase">Partilhar</span>
+                             </button>
+                             <button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] shadow-lg active:scale-95 transition-transform"><Crosshair className="w-5 h-5 text-red-500 animate-pulse"/> TÁTICO</button>
                           </div>
                           <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-4">
                              <button onClick={() => setControlModal({type: 'cancel', op})} className="h-11 rounded-xl border border-slate-200 text-slate-500 font-black text-[11px] uppercase hover:bg-red-50 hover:text-red-600 transition-all">X Cancelar</button>
@@ -219,93 +262,138 @@ export default function OperationManagement() {
           </div>
       </div>
 
-      {/* FORMULÁRIO SEQUENCIAL 1 A 10 */}
+      {/* FORMULÁRIO SEQUENCIAL 1 A 10 CONFORME SOLICITADO */}
       {isMissionModalOpen && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-0 lg:p-4 animate-fade-in">
               <Card className="w-full lg:max-w-4xl h-full lg:h-[95vh] bg-white shadow-2xl rounded-none lg:rounded-3xl flex flex-col overflow-hidden">
                   <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center shrink-0 bg-slate-900 text-white">
-                      <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3"><Radio className="w-7 h-7 text-red-500 animate-pulse" />{formData.id ? 'Atualizar Missão' : 'Lançar Nova Missão'}</h3>
+                      <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3"><Radio className="w-7 h-7 text-red-500 animate-pulse" /> LANÇAR OPERAÇÃO RPA</h3>
                       <button onClick={() => setIsMissionModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X className="w-7 h-7"/></button>
                   </div>
                   
-                  <form onSubmit={handleSaveMission} className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-8 bg-slate-50 custom-scrollbar">
+                  <form onSubmit={handleSaveMission} className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-6 bg-slate-50 custom-scrollbar">
                       
-                      {/* 1 e 2: Identificação de Unidade */}
-                      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Shield className="w-4 h-4"/> 1 e 2. Identificação da Unidade</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <Select label="1. Comando Regional (CRBM)" value={formData.op_crbm} onChange={e => setFormData({...formData, op_crbm: e.target.value, op_unit: ''})} required>
-                                  <option value="">Selecione o CRBM...</option>
+                      {/* 1. Lotação Operacional */}
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Shield className="w-4 h-4"/> 1. LOTAÇÃO OPERACIONAL</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <Select label="CRBM" value={formData.op_crbm} onChange={e => setFormData({...formData, op_crbm: e.target.value, op_unit: ''})} required>
+                                  <option value="">Selecione...</option>
                                   {Object.keys(ORGANIZATION_CHART).map(c => <option key={c} value={c}>{c}</option>)}
                               </Select>
-                              <Select label="2. Unidade Operacional" value={formData.op_unit} onChange={e => setFormData({...formData, op_unit: e.target.value})} required disabled={!formData.op_crbm}>
-                                  <option value="">Selecione a Unidade...</option>
+                              <Select label="Unidade" value={formData.op_unit} onChange={e => setFormData({...formData, op_unit: e.target.value})} required disabled={!formData.op_crbm}>
+                                  <option value="">Selecione...</option>
                                   {formData.op_crbm && ORGANIZATION_CHART[formData.op_crbm as keyof typeof ORGANIZATION_CHART]?.map((u: string) => <option key={u} value={u}>{u}</option>)}
                               </Select>
                           </div>
                       </div>
 
-                      {/* 3, 4 e 5: Dados da Missão */}
-                      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Navigation className="w-4 h-4"/> 3, 4 e 5. Dados da Ocorrência</h4>
-                          <Input label="3. Título da Ocorrência / Nome Missão" placeholder="Ex: Incêndio em Edificação, Busca na Mata..." value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required />
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <Select label="4. Natureza da Missão" value={formData.mission_type} onChange={e => setFormData({...formData, mission_type: e.target.value as any})} required>
-                                  <option value="">Selecione a Natureza...</option>
+                      {/* 2. Dados da Missão */}
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Zap className="w-4 h-4"/> 2. DADOS DA MISSÃO</h4>
+                          <Input label="Título da Ocorrência" placeholder="Ex: Incêndio Urbano..." value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required />
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <Select label="Natureza" value={formData.mission_type} onChange={e => setFormData({...formData, mission_type: e.target.value as any})} required>
+                                  <option value="">Selecione...</option>
                                   {Object.entries(MISSION_HIERARCHY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                               </Select>
-                              <Select label="5. Subnatureza (Especificação)" value={formData.sub_mission_type} onChange={e => setFormData({...formData, sub_mission_type: e.target.value})}>
-                                  <option value="">Selecione o Detalhe...</option>
+                              <Select label="Subnatureza" value={formData.sub_mission_type} onChange={e => setFormData({...formData, sub_mission_type: e.target.value})}>
+                                  <option value="">Selecione...</option>
                                   {MISSION_HIERARCHY[formData.mission_type as keyof typeof MISSION_HIERARCHY]?.subtypes.map((s: string) => <option key={s} value={s}>{s}</option>)}
                               </Select>
                           </div>
                       </div>
 
-                      {/* 6 e 7: Equipe e Vetor */}
-                      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Users className="w-4 h-4"/> 6 e 7. Equipe e Vetor</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <Select label="6. Piloto em Comando (PIC)" required value={formData.pilot_id} onChange={e => setFormData({...formData, pilot_id: e.target.value})}>
-                                  <option value="">Selecione o Piloto...</option>
+                      {/* 3. Equipe e Aeronave */}
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Users className="w-4 h-4"/> 3. EQUIPE E AERONAVE</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <Select label="Piloto (PIC)" required value={formData.pilot_id} onChange={e => setFormData({...formData, pilot_id: e.target.value})}>
+                                  <option value="">Selecione...</option>
                                   {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
                               </Select>
-                              <Select label="7. Aeronave RPA (Prefixo)" required value={formData.drone_id} onChange={e => setFormData({...formData, drone_id: e.target.value})}>
-                                  <option value="">Selecione a Aeronave...</option>
+                              <Select label="Aeronave (RPA)" required value={formData.drone_id} onChange={e => setFormData({...formData, drone_id: e.target.value})}>
+                                  <option value="">Selecione...</option>
                                   {drones.map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
                               </Select>
                           </div>
+                          <Input label="Observador / Auxiliar" placeholder="Nome do militar de apoio" value={formData.observer_name} onChange={e => setFormData({...formData, observer_name: e.target.value})} />
                       </div>
 
-                      {/* 8 e 9: Localização e Link */}
-                      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><MapPin className="w-4 h-4"/> 8 e 9. Geoprocessamento e Link</h4>
-                          <div className="h-80 rounded-3xl overflow-hidden border border-slate-200 relative shadow-inner">
-                              <label className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur px-3 py-1 rounded-full text-[10px] font-black uppercase shadow-lg border border-slate-200">8. Localização Ponto Zero (PC)</label>
+                      {/* 4. Localização e Mapa Tático */}
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><MapPin className="w-4 h-4"/> 4. LOCALIZAÇÃO E MAPA TÁTICO</h4>
+                          <div className="grid grid-cols-2 gap-4">
+                              <Input label="Latitude PC" value={formData.latitude} type="number" step="any" onChange={e => setFormData({...formData, latitude: Number(e.target.value)})} />
+                              <Input label="Longitude PC" value={formData.longitude} type="number" step="any" onChange={e => setFormData({...formData, longitude: Number(e.target.value)})} />
+                              <Input label="Raio de Voo (m)" value={formData.radius} type="number" onChange={e => setFormData({...formData, radius: Number(e.target.value)})} />
+                              <Input label="Altitude Máx (m)" value={formData.flight_altitude} type="number" onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})} />
+                          </div>
+                          <div className="h-64 rounded-xl overflow-hidden border border-slate-200 relative">
+                              <div className="absolute top-2 left-2 right-2 z-[1000] flex justify-center gap-1">
+                                  <button type="button" className="bg-red-600 text-white px-3 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1"><Navigation className="w-3 h-3"/> PC</button>
+                                  <button type="button" className="bg-white border text-slate-600 px-3 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1"><Hexagon className="w-3 h-3"/> ÁREA</button>
+                                  <button type="button" className="bg-white border text-slate-600 px-3 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1"><Route className="w-3 h-3"/> ROTA</button>
+                                  <button type="button" className="bg-white border text-slate-600 px-3 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1"><Flag className="w-3 h-3"/> PONTO</button>
+                              </div>
                               <MapContainer center={[formData.latitude, formData.longitude]} zoom={14} style={{ height: '100%', width: '100%' }}>
-                                  <LocationSelectorMap mode="pc" center={[formData.latitude, formData.longitude]} radius={formData.radius} onPositionChange={(lat: number, lng: number) => setFormData({...formData, latitude: lat, longitude: lng})} onElementCreated={() => {}}/>
+                                  <LocationSelectorMap center={[formData.latitude, formData.longitude]} radius={formData.radius} onPositionChange={(lat: number, lng: number) => setFormData({...formData, latitude: lat, longitude: lng})}/>
                               </MapContainer>
                           </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                             <Input label="9. Protocolo SARPAS / Link Transmissão" placeholder="BR-202X-XXXXX ou URL RTMP..." value={formData.stream_url} onChange={e => setFormData({...formData, stream_url: e.target.value})} />
-                             <div className="grid grid-cols-2 gap-3">
-                                <Input label="Raio (m)" type="number" value={formData.radius} onChange={e => setFormData({...formData, radius: Number(e.target.value)})} />
-                                <Input label="Alt. Máx (m)" type="number" value={formData.flight_altitude} onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})} />
-                             </div>
+                      </div>
+
+                      {/* 5. Cronograma Operacional */}
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Clock className="w-4 h-4"/> 5. CRONOGRAMA OPERACIONAL</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              <Input label="Data" type="date" value={formData.start_date} onChange={e => setFormData({...formData, start_date: e.target.value})} />
+                              <Input label="Início" type="time" value={formData.start_time} onChange={e => setFormData({...formData, start_time: e.target.value})} />
+                              <Input label="Término Previsto" type="time" value={formData.estimated_end_time} onChange={e => setFormData({...formData, estimated_end_time: e.target.value})} />
                           </div>
                       </div>
 
-                      {/* 10. Relato Operacional */}
-                      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileText className="w-4 h-4"/> 10. Narrativa Operacional</h4>
-                          <textarea className="w-full p-5 border border-slate-200 rounded-3xl text-sm min-h-[200px] outline-none focus:ring-2 focus:ring-red-600 resize-none bg-slate-50 shadow-inner" placeholder="Descreva os objetivos, panorama da ocorrência e resultados parciais ou finais..." value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
+                      {/* 6. Descrição / Notas */}
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileText className="w-4 h-4"/> 6. DESCRIÇÃO / NOTAS OPERACIONAIS</h4>
+                          <textarea className="w-full p-4 border border-slate-200 rounded-xl text-sm min-h-[100px] outline-none focus:ring-2 focus:ring-red-600 resize-none bg-slate-50" placeholder="Relate detalhes, obstáculos or observações importantes da missão..." value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
+                      </div>
+
+                      {/* 7. Link de Transmissão */}
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Video className="w-4 h-4"/> 7. LINK DE TRANSMISSÃO</h4>
+                          <Input placeholder="Link YouTube/RTSP..." value={formData.stream_url} onChange={e => setFormData({...formData, stream_url: e.target.value})} />
+                      </div>
+
+                      {/* 8. Integração SARPAS */}
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Zap className="w-4 h-4"/> 8. INTEGRAÇÃO SARPAS NG (MANUAL)</h4>
+                          <Input label="Protocolo SARPAS" placeholder="Ex: XXXXXX" value={formData.sarpas_protocol} onChange={e => setFormData({...formData, sarpas_protocol: e.target.value})} />
+                      </div>
+
+                      {/* 9. Operação Verão */}
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Sun className="w-4 h-4"/> 9. OPERAÇÃO VERÃO</h4>
+                          <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl cursor-pointer hover:bg-orange-50 transition-colors">
+                              <input type="checkbox" className="w-5 h-5 rounded accent-orange-500" checked={formData.is_summer_op} onChange={e => setFormData({...formData, is_summer_op: e.target.checked})} />
+                              <span className="text-sm font-bold text-slate-700 flex items-center gap-2"><Sun className="w-4 h-4 text-orange-500"/> VINCULAR À OPERAÇÃO VERÃO</span>
+                          </label>
+                      </div>
+
+                      {/* 10. Diário de Bordo */}
+                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calendar className="w-4 h-4"/> 10. DIÁRIO DE BORDO</h4>
+                          <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl cursor-pointer hover:bg-blue-50 transition-colors">
+                              <input type="checkbox" className="w-5 h-5 rounded accent-blue-600" checked={formData.is_multi_day} onChange={e => setFormData({...formData, is_multi_day: e.target.checked})} />
+                              <span className="text-sm font-bold text-slate-700 flex items-center gap-2"><Calendar className="w-4 h-4 text-blue-600"/> ATIVAR MODO MULTIDIAS</span>
+                          </label>
                       </div>
 
                   </form>
                   <div className="p-6 lg:p-8 border-t bg-white flex flex-col md:flex-row gap-4 shrink-0">
-                      <Button variant="outline" onClick={() => setIsMissionModalOpen(false)} className="h-14 font-black uppercase text-xs rounded-2xl flex-1">Cancelar</Button>
-                      <Button onClick={handleSaveMission} disabled={loading} className="flex-[2] h-14 bg-red-700 text-white font-black uppercase text-xs shadow-2xl rounded-2xl flex items-center justify-center gap-3">
+                      <Button variant="outline" onClick={() => setIsMissionModalOpen(false)} className="h-14 font-black uppercase text-xs rounded-xl flex-1">CANCELAR</Button>
+                      <Button onClick={handleSaveMission} disabled={loading} className="flex-[2] h-14 bg-red-700 text-white font-black uppercase text-xs shadow-2xl rounded-xl flex items-center justify-center gap-3">
                           {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                          {formData.id ? 'Salvar Alterações' : 'Confirmar e Lançar Missão'}
+                          INICIAR MISSÃO RPA
                       </Button>
                   </div>
               </Card>

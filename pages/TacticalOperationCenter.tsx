@@ -15,7 +15,7 @@ import {
   Video, ChevronRight, Globe, Camera, 
   Users, Truck, Dog, Heart, AlertTriangle, 
   Layers, Satellite, Activity, LocateFixed, Loader2,
-  FileUp, Ruler
+  FileUp, Ruler, Maximize2, Move
 } from 'lucide-react';
 import SectorsLayer from '../components/maps/tactical/SectorsLayer';
 
@@ -38,6 +38,30 @@ const calculatePolygonArea = (coordinates: any) => {
 const formatArea = (m2: number) => {
     if (m2 >= 10000) return `${(m2 / 10000).toFixed(2)} ha`;
     return `${Math.round(m2).toLocaleString('pt-BR')} m²`;
+};
+
+// Ícone de Drone Tático com Indicador de Live
+const getDroneIcon = (prefix: string, hasStream?: boolean) => {
+    return L.divIcon({
+        className: 'drone-marker-custom',
+        html: `
+            <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px;">
+                ${hasStream ? `
+                <div style="position: absolute; inset: 0; background: rgba(239, 68, 68, 0.4); border-radius: 50%; animate: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;" class="animate-pulse"></div>
+                <div style="position: absolute; top: -5px; right: -5px; background: #ef4444; color: white; font-size: 7px; font-weight: 900; padding: 1px 4px; border-radius: 4px; border: 1.5px solid white; z-index: 50;">LIVE</div>
+                ` : ''}
+                <div style="background-color: #1e3a8a; width: 30px; height: 30px; border: 3px solid white; border-radius: 8px; transform: rotate(45deg); box-shadow: 0 4px 10px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" style="width: 18px; height: 18px; transform: rotate(-45deg);">
+                        <path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" />
+                        <circle cx="4.5" cy="9" r="2" /><circle cx="19.5" cy="9" r="2" />
+                        <circle cx="4.5" cy="15" r="2" /><circle cx="19.5" cy="15" r="2" />
+                    </svg>
+                </div>
+            </div>
+        `,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20]
+    });
 };
 
 const getPoiIcon = (type: string, hasStream?: boolean) => {
@@ -94,6 +118,9 @@ export default function TacticalOperationCenter() {
   const [newItemName, setNewItemName] = useState('');
   const [newItemSubType, setNewItemSubType] = useState('base');
   const [newItemStream, setNewItemStream] = useState('');
+  
+  // Estado para Live PIP (Picture in Picture) Flutuante
+  const [pipStream, setPipStream] = useState<string | null>(null);
 
   useEffect(() => { if (id) loadTacticalData(id); }, [id]);
 
@@ -115,18 +142,21 @@ export default function TacticalOperationCenter() {
           pilot: allPilots.find(p => p.id === td.pilot_id) 
       }));
 
-      // AUTO-SPAWN DO DRONE INICIAL (Garantido no Teatro de Operações)
+      // LÓGICA DE AUTO-SPAWN DO DRONE INICIAL
       if (op.drone_id && !enrichedDrones.some(td => td.drone_id === op.drone_id)) {
+          const mainDrone = allDrones.find(d => d.id === op.drone_id);
+          const mainPilot = allPilots.find(p => p.id === op.pilot_id);
           enrichedDrones.unshift({
-              id: `init-${op.id}`,
+              id: `primary-${op.id}`,
               operation_id: op.id,
               drone_id: op.drone_id,
               pilot_id: op.pilot_id,
               status: 'active',
               current_lat: op.latitude,
               current_lng: op.longitude,
-              drone: allDrones.find(d => d.id === op.drone_id),
-              pilot: allPilots.find(p => p.id === op.pilot_id)
+              drone: mainDrone,
+              pilot: mainPilot,
+              stream_url: op.stream_url // Link de transmissão configurado no formulário
           } as any);
       }
 
@@ -191,14 +221,14 @@ export default function TacticalOperationCenter() {
       const canvas = await html2canvas(mapRef.current, { useCORS: true, allowTaint: true });
       const base64 = canvas.toDataURL('image/jpeg', 0.8);
       await tacticalService.saveMapSnapshot(operation.id, base64);
-      alert("Snapshot tático salvo no sistema!");
+      alert("Snapshot tático salvo!");
     } catch (e) { alert("Erro ao capturar mapa."); }
   };
 
   if (loading || !operation) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white font-black animate-pulse">SINCRONIZANDO TEATRO DE OPERAÇÕES...</div>;
 
   return (
-    <div className="flex flex-col h-screen bg-slate-950 overflow-hidden text-slate-800 font-sans">
+    <div className="flex flex-col h-screen bg-slate-950 overflow-hidden text-slate-800 font-sans relative">
       
       {/* Header Tático Institucional */}
       <div className="h-16 bg-[#7f1d1d] border-b border-red-900/40 flex items-center justify-between px-6 shrink-0 z-[1000] shadow-2xl">
@@ -286,13 +316,13 @@ export default function TacticalOperationCenter() {
                             </h3>
                             <div className="space-y-2">
                                 {tacticalDrones.map((td: any) => (
-                                    <div key={td.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-3">
+                                    <div key={td.id} onClick={() => { setSelectedEntity(td); setEntityType('drone'); setActivePanel('manage'); }} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-3 cursor-pointer hover:bg-slate-100">
                                         <div className="p-2 bg-white rounded-lg shadow-sm"><Activity className="w-4 h-4 text-blue-600"/></div>
                                         <div className="min-w-0">
                                             <p className="text-[10px] font-black uppercase text-slate-700">{td.drone?.prefix}</p>
                                             <p className="text-[9px] text-slate-400 truncate uppercase">{td.pilot?.full_name}</p>
                                         </div>
-                                        <Badge variant="success" className="ml-auto text-[8px]">ONLINE</Badge>
+                                        {td.stream_url ? <Badge className="ml-auto text-[8px] bg-red-600 text-white animate-pulse">LIVE</Badge> : <Badge variant="success" className="ml-auto text-[8px]">ONLINE</Badge>}
                                     </div>
                                 ))}
                             </div>
@@ -314,7 +344,7 @@ export default function TacticalOperationCenter() {
                                           <option value="hazard">Zona de Perigo</option>
                                           <option value="landing_zone">Ponto de Decolagem</option>
                                       </Select>
-                                      <Input label="URL de Transmissão (Ponto)" value={newItemStream} onChange={e => setNewItemStream(e.target.value)} placeholder="RTMP / Youtube / Link Live..." />
+                                      <Input label="URL de Transmissão (Ponto)" value={newItemStream} onChange={e => setNewItemStream(e.target.value)} placeholder="Link Câmera..." />
                                   </>
                               )}
                               <div className="flex gap-3 pt-4">
@@ -327,23 +357,29 @@ export default function TacticalOperationCenter() {
                       <div className="space-y-6 animate-fade-in">
                            <h2 className="text-xs font-black uppercase text-blue-700 flex items-center gap-2"><Settings className="w-4 h-4"/> Gestão do Elemento</h2>
                            <div className="p-5 bg-slate-900 rounded-3xl text-white shadow-xl">
-                               <p className="text-[10px] font-black text-white/40 uppercase mb-1">{entityType === 'sector' ? 'ÁREA' : 'PONTO'}</p>
-                               <h4 className="text-xl font-black uppercase">{(selectedEntity as any).name}</h4>
+                               <p className="text-[10px] font-black text-white/40 uppercase mb-1">{entityType === 'sector' ? 'ÁREA' : entityType === 'drone' ? 'VETOR' : 'PONTO'}</p>
+                               <h4 className="text-xl font-black uppercase">
+                                   {entityType === 'drone' ? (selectedEntity as any).drone?.prefix : (selectedEntity as any).name}
+                               </h4>
                                {entityType === 'sector' && <p className="text-xs text-red-400 font-bold mt-2">Área: {formatArea(calculatePolygonArea(selectedEntity.geojson.coordinates))}</p>}
+                               {entityType === 'drone' && <p className="text-xs text-blue-400 font-bold mt-2">PIC: {selectedEntity.pilot?.full_name}</p>}
+                               
                                {selectedEntity.stream_url && (
                                    <div className="mt-4 p-3 bg-red-600 rounded-2xl flex items-center justify-between">
-                                       <span className="text-[10px] font-black uppercase flex items-center gap-2"><Video className="w-4 h-4"/> Transmissão Local</span>
-                                       <button className="text-[10px] bg-white text-red-700 px-4 py-1.5 rounded-full font-black">ASSISTIR</button>
+                                       <span className="text-[10px] font-black uppercase flex items-center gap-2"><Video className="w-4 h-4"/> Transmissão Ativa</span>
+                                       <button onClick={() => setPipStream(selectedEntity.stream_url)} className="text-[10px] bg-white text-red-700 px-4 py-1.5 rounded-full font-black shadow-lg active:scale-95 transition-transform">ASSISTIR</button>
                                    </div>
                                )}
                            </div>
                            <div className="space-y-3">
                                <Button variant="outline" className="w-full text-[10px] font-black uppercase h-12" onClick={() => setActivePanel(null)}>Voltar ao Menu</Button>
-                               <Button variant="danger" className="w-full text-[10px] font-black uppercase h-12" onClick={async () => {
-                                   if (entityType === 'sector') await tacticalService.deleteSector(selectedEntity.id);
-                                   else await tacticalService.deletePOI(selectedEntity.id);
-                                   setActivePanel(null); loadTacticalData(id!);
-                               }}>Remover do Mapa</Button>
+                               {entityType !== 'drone' && (
+                                   <Button variant="danger" className="w-full text-[10px] font-black uppercase h-12" onClick={async () => {
+                                       if (entityType === 'sector') await tacticalService.deleteSector(selectedEntity.id);
+                                       else await tacticalService.deletePOI(selectedEntity.id);
+                                       setActivePanel(null); loadTacticalData(id!);
+                                   }}>Remover do Mapa</Button>
+                               )}
                            </div>
                       </div>
                   )}
@@ -365,7 +401,33 @@ export default function TacticalOperationCenter() {
           </div>
 
           <div className="flex-1 relative z-0 bg-slate-100" ref={mapRef}>
-              {/* FERRAMENTAS FLUTUANTES */}
+              
+              {/* SISTEMA DE PIP (PICTURE IN PICTURE) FLUTUANTE */}
+              {pipStream && (
+                  <div className="absolute top-24 right-8 w-80 md:w-96 bg-slate-900 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-slate-700 z-[3000] overflow-hidden animate-fade-in flex flex-col ring-8 ring-black/5">
+                      <div className="bg-slate-800 p-3 flex justify-between items-center border-b border-slate-700 cursor-move">
+                          <div className="flex items-center gap-3">
+                              <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div>
+                              <span className="text-[10px] font-black text-white uppercase tracking-widest">Feed de Vídeo Tático</span>
+                          </div>
+                          <div className="flex gap-1">
+                              <button onClick={() => setPipStream(null)} className="p-1.5 hover:bg-white/10 rounded-full text-slate-400 transition-colors"><X className="w-5 h-5"/></button>
+                          </div>
+                      </div>
+                      <div className="aspect-video bg-black relative flex items-center justify-center">
+                          <iframe 
+                            src={pipStream} 
+                            className="w-full h-full border-none"
+                            allow="autoplay; fullscreen"
+                          ></iframe>
+                      </div>
+                      <div className="p-2 bg-slate-800 flex justify-center">
+                          <button className="text-[9px] font-black text-slate-400 uppercase tracking-tighter flex items-center gap-2"><Move className="w-3 h-3"/> Arraste para reposicionar</button>
+                      </div>
+                  </div>
+              )}
+
+              {/* FERRAMENTAS FLUTUANTES TÁTICAS */}
               <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[2000] bg-white/95 backdrop-blur-2xl border border-slate-200 rounded-2xl shadow-2xl flex items-center p-1.5 gap-1.5 ring-8 ring-black/5">
                   <button onClick={() => setCurrentDrawMode(currentDrawMode === 'sector' ? null : 'sector')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'sector' ? 'bg-red-600 text-white shadow-lg' : 'text-red-600 hover:bg-red-50'}`} title="Setorizar Área">
                     <Hexagon className="w-6 h-6"/>
@@ -410,8 +472,11 @@ export default function TacticalOperationCenter() {
                                 <h4 className="font-black text-xs uppercase border-b pb-2 mb-2">{p.name}</h4>
                                 <p className="text-[10px] text-slate-500 mb-3">{p.description || 'Ponto tático operacional.'}</p>
                                 {p.stream_url && (
-                                    <button className="w-full bg-red-600 text-white font-black uppercase text-[9px] py-2 rounded-lg flex items-center justify-center gap-2 animate-pulse">
-                                        <Video className="w-3.5 h-3.5"/> Assistir Câmera
+                                    <button 
+                                        onClick={() => setPipStream(p.stream_url!)}
+                                        className="w-full bg-red-600 text-white font-black uppercase text-[9px] py-2 rounded-lg flex items-center justify-center gap-2 animate-pulse"
+                                    >
+                                        <Video className="w-3.5 h-3.5"/> Abrir Live Tática
                                     </button>
                                 )}
                             </div>
@@ -420,7 +485,28 @@ export default function TacticalOperationCenter() {
                   ))}
 
                   {tacticalDrones.map((td: any) => td.current_lat && (
-                    <Marker key={td.id} position={[td.current_lat, td.current_lng]} icon={L.divIcon({ className: '', html: `<div style="background-color: #3b82f6; width: 24px; height: 24px; border: 3px solid white; border-radius: 8px; transform: rotate(45deg); box-shadow: 0 0 10px rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center;"><div style="transform:rotate(-45deg); color:white; font-size:8px; font-weight:bold;">${td.drone?.prefix.split(' ')[1] || 'V'}</div></div>`, iconSize: [24,24] })} />
+                    <Marker 
+                        key={td.id} 
+                        position={[td.current_lat, td.current_lng]} 
+                        icon={getDroneIcon(td.drone?.prefix || 'RPA', !!td.stream_url)} 
+                        eventHandlers={{ click: () => { setSelectedEntity(td); setEntityType('drone'); setActivePanel('manage'); } }}
+                    >
+                        <Popup>
+                            <div className="p-2 min-w-[180px]">
+                                <p className="text-[9px] font-black text-blue-600 uppercase mb-1">VETOR EM OPERAÇÃO</p>
+                                <h4 className="font-black text-sm uppercase leading-none mb-1">{td.drone?.prefix}</h4>
+                                <p className="text-[10px] text-slate-500 font-bold uppercase">{td.pilot?.full_name}</p>
+                                {td.stream_url && (
+                                    <button 
+                                        onClick={() => setPipStream(td.stream_url!)}
+                                        className="w-full mt-3 bg-red-600 text-white font-black uppercase text-[9px] py-2 rounded-lg flex items-center justify-center gap-2 shadow-lg"
+                                    >
+                                        <Video className="w-3.5 h-3.5"/> Assistir Transmissão
+                                    </button>
+                                )}
+                            </div>
+                        </Popup>
+                    </Marker>
                   ))}
               </MapContainer>
           </div>
