@@ -8,18 +8,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-// Porta padrão para serviços como Render/Railway ou local 8080
-const PORT = parseInt(process.env.PORT) || 8080;
+// Porta dinâmica para produção (Vercel/Render/Railway) ou local 8080
+const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0';
 
-// Configurações do Supabase (Prioriza ENV, usa as suas chaves como fallback de segurança)
-const SB_URL = process.env.VITE_SUPABASE_URL || "https://hcnlrzzwwcbhkxfcolgw.supabase.co";
-const SB_KEY = process.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhjbmxyenp3d2NiaGt4ZmNvbGd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0MjI2MjUsImV4cCI6MjA3OTk5ODYyNX0.bbfDQA8VHebBMizyJGeP1GentnEiEka1nvFdR7fgQwo";
+// Configurações do Supabase fornecidas
+const SB_URL = "https://hcnlrzzwwcbhkxfcolgw.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhjbmxyenp3d2NiaGt4ZmNvbGd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0MjI2MjUsImV4cCI6MjA3OTk5ODYyNX0.bbfDQA8VHebBMizyJGeP1GentnEiEka1nvFdR7fgQwo";
 
-// Middleware
-app.use(express.json({ limit: '10mb' }));
+// Middleware para processar JSON pesado (telemetria em lote)
+app.use(express.json({ limit: '20mb' }));
 
-// Configuração de CORS para permitir requisições do APK e do Frontend
+// Configuração de CORS para permitir que o APK e o Web se comuniquem sem restrições
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
@@ -28,16 +28,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve arquivos estáticos do Vite (se estiver rodando em modo produção unificado)
+// Serve arquivos estáticos do frontend (pasta dist do Vite)
 app.use(express.static(path.join(__dirname, 'dist')));
 
 /**
- * Atualiza o inventário (Ciclos de Bateria) baseado na telemetria do APK
+ * Sincroniza ciclos de vida da bateria no almoxarifado técnico
  */
 async function syncInventory(batteryInfo) {
-  if (!SB_URL || !SB_KEY || !batteryInfo.sn) return;
+  if (!batteryInfo.sn) return;
   try {
-    // Busca o material no almoxarifado pelo Serial Number
     const res = await fetch(`${SB_URL}/rest/v1/materials?serial_number=eq.${batteryInfo.sn}&select=id,type`, {
       headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}` }
     });
@@ -45,10 +44,9 @@ async function syncInventory(batteryInfo) {
     
     if (materials && materials.length > 0 && materials[0].type === 'battery') {
       const matId = materials[0].id;
-      // Calcula saúde baseada em 200 ciclos padrão
       const health = Math.max(0, Math.round(100 - (batteryInfo.cycles / 200 * 100)));
       
-      console.log(`[SYNC] Atualizando bateria SN: ${batteryInfo.sn} para ${batteryInfo.cycles} ciclos.`);
+      console.log(`[SYNC] Bateria detectada: ${batteryInfo.sn} | Ciclos: ${batteryInfo.cycles}`);
       
       await fetch(`${SB_URL}/rest/v1/battery_stats?material_id=eq.${matId}`, {
         method: 'PATCH',
@@ -66,24 +64,24 @@ async function syncInventory(batteryInfo) {
       });
     }
   } catch (e) { 
-    console.error(`[ERROR SYNC] Falha na bateria ${batteryInfo.sn}:`, e.message); 
+    console.error(`[ERROR SYNC] Falha no inventário:`, e.message); 
   }
 }
 
 /**
- * Endpoint de Telemetria (O APK SYSARP Link envia os dados para cá)
+ * Endpoint de Telemetria (Recebe dados do APK SYSARP Link)
  */
 app.post('/api/telemetry/stream', async (req, res) => {
   try {
     const packets = Array.isArray(req.body) ? req.body : [req.body];
-    if (packets.length === 0) return res.status(400).send('Corpo da requisição vazio');
+    if (packets.length === 0) return res.status(400).send('Dados ausentes');
 
     const last = packets[packets.length - 1];
     
-    console.log(`[TELEMETRY] Recebido pacote do drone: ${last.drone_sn || 'N/A'} - Piloto: ${last.pilot_id || 'N/A'}`);
+    console.log(`[LIVE] Drone: ${last.drone_sn} | Alt: ${last.altitude}m | Bat: ${last.battery_percent}%`);
 
-    // Persiste o status em tempo real no Supabase
-    if (last.drone_sn && SB_URL) {
+    // Atualiza tabela live no Supabase
+    if (last.drone_sn) {
       const dbResponse = await fetch(`${SB_URL}/rest/v1/drone_live_status`, {
         method: 'POST',
         headers: { 
@@ -107,10 +105,10 @@ app.post('/api/telemetry/stream', async (req, res) => {
 
       if (!dbResponse.ok) {
         const errorText = await dbResponse.text();
-        console.error(`[DB ERROR] Supabase rejeitou pacote: ${errorText}`);
+        console.error(`[DB ERROR] Falha no Supabase: ${errorText}`);
       }
 
-      // Sincroniza ciclos de bateria com o inventário se houver dados
+      // Sincroniza hardware se houver dados de bateria
       if (last.batteries && last.batteries.length > 0) {
         for (const bat of last.batteries) {
           await syncInventory(bat);
@@ -118,36 +116,33 @@ app.post('/api/telemetry/stream', async (req, res) => {
       }
     }
 
-    res.status(200).json({ success: true, timestamp: new Date().toISOString() });
+    res.status(200).json({ status: 'received', count: packets.length });
   } catch (err) {
     console.error(`[CRITICAL ERROR]`, err.message);
     res.status(500).send(err.message);
   }
 });
 
-// Endpoint de verificação de saúde
+// Rota de saúde para o monitoramento de produção
 app.get('/health', (req, res) => {
   res.status(200).json({ 
     status: 'online', 
-    supabase_connected: !!SB_URL,
-    timestamp: new Date().toISOString()
+    target_supabase: SB_URL,
+    uptime: process.uptime()
   });
 });
 
-// Fallback para o SPA (Single Page Application)
+// Fallback para o React (SPA)
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 app.listen(PORT, HOST, () => {
   console.log(`
-  🚁 SYSARP TELEMETRY SERVER
-  ---------------------------
-  Status: Ativo e escutando
-  Porta: ${PORT}
-  Host: ${HOST}
-  Supabase Target: ${SB_URL}
-  Endpoint: http://${HOST}:${PORT}/api/telemetry/stream
-  ---------------------------
+  🚁 SYSARP BACKEND - PRODUÇÃO
+  --------------------------------------------------
+  Endpoint Telemetria: https://sysarp-cbm.vercel.app/api/telemetry/stream
+  Destino Supabase: ${SB_URL}
+  --------------------------------------------------
   `);
 });
