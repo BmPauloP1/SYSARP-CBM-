@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:background="#F8FAFC">
+
+    <ImageView
+        android:layout_width="120dp"
+        android:layout_height="120dp"
+        android:layout_gravity="center"
+        android:src="@android:drawable/ic_menu_compass"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="SYSARP MOBILE LINK"
+        android:textAlignment="center"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:textColor="#1E293B"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/txtStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Aguardando Inicialização..."
+        android:textAlignment="center"
+        android:textSize="14sp"
+        android:textColor="#64748B"
+        android:layout_marginBottom="32dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="URL do Servidor CCO"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:textColor="#475569" />
+
+    <EditText
+        android:id="@+id/editServerUrl"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="https://seu-sistema.vercel.app"
+        android:inputType="textUri"
+        android:layout_marginBottom="16dp"
+        android:background="@android:drawable/editbox_background_normal"
+        android:padding="12dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Identificador do Piloto (ID)"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:textColor="#475569" />
+
+    <EditText
+        android:id="@+id/editPilotId"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="ID do Piloto no Sistema"
+        android:inputType="text"
+        android:layout_marginBottom="32dp"
+        android:background="@android:drawable/editbox_background_normal"
+        android:padding="12dp" />
+
+    <Button
+        android:id="@+id/btnToggleService"
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:text="INICIAR TELEMETRIA"
+        android:backgroundTint="#B91C1C"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="Nota: Mantenha este app aberto em segundo plano durante o voo."
+        android:textAlignment="center"
+        android:textSize="10sp"
+        android:textColor="#94A3B8" />
+
+</LinearLayout>

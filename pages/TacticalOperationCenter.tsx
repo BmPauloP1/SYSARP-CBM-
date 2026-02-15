@@ -60,7 +60,7 @@ const getPoiIcon = (type: string, hasStream?: boolean) => {
         case 'ground_team': color = '#2563eb'; iconSvg = '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'; break;
         case 'vehicle': color = '#dc2626'; iconSvg = '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M9 18h6"/><path d="M19 18h2a1 1 0 0 0 1-1v-5l-3-4h-5"/>'; break;
         case 'k9': color = '#78350f'; iconSvg = '<path d="M10 5.172l.596.596a2 2 0 0 0 2.828 0L14 5.172M20 21l-2-6M6 21l2-6M12 21v-6M4 4l3 3M20 4l-3 3M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z"/>'; break;
-        case 'footprint': color = '#4b5563'; iconSvg = '<path d="M4 16v-2.382a2 2 0 0 1 1.106-1.789l5.788-2.894A2 2 0 0 1 12 8.146V6M16 21v-2.382a2 2 0 0 1 1.106-1.789l2.788-1.394A2 2 0 0 1 21 13.646V11.5M12 21v-2.382a2 2 0 0 1 1.106-1.789l1.788-0.894A2 2 0 0 1 16 15.146V13M8 21v-2.382a2 2 0 0 1 1.106-1.789l2.788-1.394A2 2 0 0 1 13 13.646V11.5"/>'; break;
+        case 'footprint': color = '#4b5563'; iconSvg = '<path d="M4 16v-2.382a2 2 0 0 1 1.106-1.789l5.788-2.894A2 2 0 0 1 12 8.146V6M16 21v-2.382a2 2 0 0 1 1.106-1.789l2.788-1.394A2 2 0 0 1 13 13.646V11.5M12 21v-2.382a2 2 0 0 1 1.106-1.789l1.788-0.894A2 2 0 0 1 16 15.146V13M8 21v-2.382a2 2 0 0 1 1.106-1.789l2.788-1.394A2 2 0 0 1 13 13.646V11.5"/>'; break;
         case 'object': color = '#0891b2'; iconSvg = '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>'; break;
         default: iconSvg = '<circle cx="12" cy="12" r="10"/>';
     }
@@ -319,7 +319,8 @@ export default function TacticalOperationCenter() {
     <div className="flex flex-col h-screen bg-slate-950 overflow-hidden text-slate-800 font-sans">
       
       {/* Sistema PiP Flutuante - Pode ter múltiplas janelas */}
-      {Object.values(activePiPs).map((pip) => (
+      {/* Fix: Explicitly type 'pip' to avoid 'unknown' type errors when accessing 'id' and 'name' */}
+      {Object.values(activePiPs).map((pip: { id: string, name: string, url: string }) => (
           <FloatingPiP key={pip.id} stream={pip} onClose={() => handleTogglePiP(pip.id, pip.name)} />
       ))}
       
@@ -523,7 +524,7 @@ export default function TacticalOperationCenter() {
                                 else await tacticalService.removeDroneFromOp((selectedEntity as any).id);
                              }
                              else if (entityType === 'sector') await tacticalService.deleteSector((selectedEntity as any).id);
-                             else await tacticalService.deletePOI((selectedEntity as any).id);
+                             else if (entityType === 'poi') await tacticalService.deletePOI((selectedEntity as any).id);
                              setActivePanel(null); loadTacticalData(id!);
                           }}>Desmobilizar Recurso</Button>
                       </div>
@@ -572,9 +573,13 @@ export default function TacticalOperationCenter() {
                   {/* Vetores RPA */}
                   {/* Fix: Added explicit type to td in map callback to avoid potential 'unknown' type errors */}
                   {tacticalDrones.map((td: TacticalDrone) => td.current_lat && (
+                      /* 
+                         Fix for TypeScript error on line 578: DragEndEvent does not contain mouse event properties 
+                         Changing event type from L.LeafletMouseEvent to any to satisfy the DragEndEventHandlerFn signature
+                      */
                       <Marker key={td.id} position={[td.current_lat, td.current_lng]} icon={createTacticalDroneIcon(td)} draggable={true} eventHandlers={{ 
                           click: () => { setSelectedEntity(td); setEntityType('drone'); setActivePanel('manage'); }, 
-                          dragend: async (e: L.LeafletMouseEvent) => { 
+                          dragend: async (e: any) => { 
                               const pos = e.target.getLatLng(); 
                               await tacticalService.updateDroneStatus(td.id, { current_lat: pos.lat, current_lng: pos.lng }); 
                           } 

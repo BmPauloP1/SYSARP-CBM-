@@ -1,0 +1,19 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    // PREFER_SETTINGS permite que o buildscript declare seus repositórios sem gerar erro fatal
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+        // Repositório necessário para o SDK da DJI
+        maven { url 'https://maven.google.com' }
+    }
+}
+rootProject.name = "SYSARP Link"
+include ':app'

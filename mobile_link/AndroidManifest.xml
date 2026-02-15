@@ -19,7 +19,7 @@
         <!-- DJI SDK APP KEY - OBRIGATÓRIO -->
         <meta-data
             android:name="com.dji.sdk.API_KEY"
-            android:value="INSIRA_SUA_CHAVE_AQUI" />
+            android:value="ecbff499937275f3f14024e6" />
 
         <activity
             android:name=".MainActivity"
