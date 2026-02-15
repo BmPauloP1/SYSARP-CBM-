@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, useMap } from 'react-leaflet';
@@ -15,11 +14,27 @@ import {
   Video, ChevronRight, Globe, Camera, 
   Users, Truck, Dog, Heart, AlertTriangle, 
   Layers, Satellite, Activity, LocateFixed, Loader2,
-  FileUp, Ruler, Maximize2, Move
+  FileUp, Ruler, Maximize2, Move, Shield
 } from 'lucide-react';
 import SectorsLayer from '../components/maps/tactical/SectorsLayer';
 
-const PHONETIC = ['ALFA', 'BRAVO', 'CHARLIE', 'DELTA', 'ECHO', 'FOXTROT', 'GOLF', 'HOTEL', 'INDIA', 'JULIETT', 'KILO', 'LIMA', 'MIKE', 'NOVEMBER', 'OSCAR', 'PAPA', 'QUEBEC', 'ROMEO', 'SIERRA', 'TANGO', 'UNIFORM', 'VICTOR', 'WHISKEY', 'X-RAY', 'YANKEE', 'ZULU'];
+// NATO Phonetic Alphabet for naming sectors
+const PHONETIC = [
+  'ALFA', 'BRAVO', 'CHARLIE', 'DELTA', 'ECHO', 'FOXTROT', 'GOLF', 'HOTEL',
+  'INDIA', 'JULIETT', 'KILO', 'LIMA', 'MIKE', 'NOVEMBER', 'OSCAR', 'PAPA',
+  'QUEBEC', 'ROMEO', 'SIERRA', 'TANGO', 'UNIFORM', 'VICTOR', 'WHISKEY',
+  'X-RAY', 'YANKEE', 'ZULU'
+];
+
+// Utilitário para conversão de URL de Live (Necessário para evitar bloqueio do YouTube)
+const extractVideoData = (url: string) => {
+  if (!url) return null;
+  const liveMatch = url.match(/youtube\.com\/live\/([^?&/]{11})/);
+  if (liveMatch) return `https://www.youtube.com/embed/${liveMatch[1]}?autoplay=1&rel=0`;
+  const youtubeMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+  if (youtubeMatch) return `https://www.youtube.com/embed/${youtubeMatch[1]}?autoplay=1&rel=0`;
+  return url; // Fallback para URLs diretas/RTSP se suportado pelo navegador
+};
 
 const calculatePolygonArea = (coordinates: any) => {
     if (!coordinates || !Array.isArray(coordinates) || coordinates.length === 0) return 0;
@@ -139,7 +154,10 @@ export default function TacticalOperationCenter() {
       const enrichedDrones = tDrones.map((td: TacticalDrone) => ({ 
           ...td, 
           drone: allDrones.find(d => d.id === td.drone_id), 
-          pilot: allPilots.find(p => p.id === td.pilot_id) 
+          pilot: allPilots.find(p => p.id === td.pilot_id),
+          flight_altitude: td.flight_altitude || op.flight_altitude || 60,
+          radius: td.radius || op.radius || 200,
+          observer_name: op.observer_name // Integrando equipe de solo
       }));
 
       // LÓGICA DE AUTO-SPAWN DO DRONE INICIAL
@@ -156,7 +174,10 @@ export default function TacticalOperationCenter() {
               current_lng: op.longitude,
               drone: mainDrone,
               pilot: mainPilot,
-              stream_url: op.stream_url // Link de transmissão configurado no formulário
+              flight_altitude: op.flight_altitude || 60,
+              radius: op.radius || 200,
+              observer_name: op.observer_name,
+              stream_url: op.stream_url 
           } as any);
       }
 
@@ -182,6 +203,7 @@ export default function TacticalOperationCenter() {
     setEntityType(type); 
     setTempGeometry(geojson); 
     setCurrentDrawMode(null);
+    // Fixed Error: PHONETIC was not defined. Added phonetic alphabet at top of file.
     if (type === 'sector') setNewItemName(PHONETIC[sectors.length % PHONETIC.length]);
     else setNewItemName(`Ponto ${pois.length + 1}`);
     setActivePanel('create');
@@ -361,13 +383,24 @@ export default function TacticalOperationCenter() {
                                <h4 className="text-xl font-black uppercase">
                                    {entityType === 'drone' ? (selectedEntity as any).drone?.prefix : (selectedEntity as any).name}
                                </h4>
+                               
                                {entityType === 'sector' && <p className="text-xs text-red-400 font-bold mt-2">Área: {formatArea(calculatePolygonArea(selectedEntity.geojson.coordinates))}</p>}
-                               {entityType === 'drone' && <p className="text-xs text-blue-400 font-bold mt-2">PIC: {selectedEntity.pilot?.full_name}</p>}
+                               
+                               {entityType === 'drone' && (
+                                   <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+                                       <div className="flex justify-between items-center"><span className="text-[9px] text-white/50 uppercase font-black">Piloto (PIC)</span><span className="text-xs font-bold uppercase">{selectedEntity.pilot?.full_name}</span></div>
+                                       {selectedEntity.observer_name && (
+                                           <div className="flex justify-between items-center"><span className="text-[9px] text-white/50 uppercase font-black">Equipe</span><span className="text-xs font-bold uppercase">{selectedEntity.observer_name}</span></div>
+                                       )}
+                                       <div className="flex justify-between items-center"><span className="text-[9px] text-white/50 uppercase font-black">Altitude Alvo</span><span className="text-xs font-bold">{selectedEntity.flight_altitude}m AGL</span></div>
+                                       <div className="flex justify-between items-center"><span className="text-[9px] text-white/50 uppercase font-black">Raio Atuação</span><span className="text-xs font-bold">{selectedEntity.radius}m</span></div>
+                                   </div>
+                               )}
                                
                                {selectedEntity.stream_url && (
                                    <div className="mt-4 p-3 bg-red-600 rounded-2xl flex items-center justify-between">
                                        <span className="text-[10px] font-black uppercase flex items-center gap-2"><Video className="w-4 h-4"/> Transmissão Ativa</span>
-                                       <button onClick={() => setPipStream(selectedEntity.stream_url)} className="text-[10px] bg-white text-red-700 px-4 py-1.5 rounded-full font-black shadow-lg active:scale-95 transition-transform">ASSISTIR</button>
+                                       <button onClick={() => setPipStream(extractVideoData(selectedEntity.stream_url))} className="text-[10px] bg-white text-red-700 px-4 py-1.5 rounded-full font-black shadow-lg active:scale-95 transition-transform">ASSISTIR</button>
                                    </div>
                                )}
                            </div>
@@ -418,11 +451,12 @@ export default function TacticalOperationCenter() {
                           <iframe 
                             src={pipStream} 
                             className="w-full h-full border-none"
-                            allow="autoplay; fullscreen"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            allowFullScreen
                           ></iframe>
                       </div>
                       <div className="p-2 bg-slate-800 flex justify-center">
-                          <button className="text-[9px] font-black text-slate-400 uppercase tracking-tighter flex items-center gap-2"><Move className="w-3 h-3"/> Arraste para reposicionar</button>
+                          <button className="text-[9px] font-black text-slate-400 uppercase tracking-tighter flex items-center gap-2"><Move className="w-3 h-3"/> Reposicionável</button>
                       </div>
                   </div>
               )}
@@ -473,7 +507,7 @@ export default function TacticalOperationCenter() {
                                 <p className="text-[10px] text-slate-500 mb-3">{p.description || 'Ponto tático operacional.'}</p>
                                 {p.stream_url && (
                                     <button 
-                                        onClick={() => setPipStream(p.stream_url!)}
+                                        onClick={() => setPipStream(extractVideoData(p.stream_url!))}
                                         className="w-full bg-red-600 text-white font-black uppercase text-[9px] py-2 rounded-lg flex items-center justify-center gap-2 animate-pulse"
                                     >
                                         <Video className="w-3.5 h-3.5"/> Abrir Live Tática
@@ -492,16 +526,45 @@ export default function TacticalOperationCenter() {
                         eventHandlers={{ click: () => { setSelectedEntity(td); setEntityType('drone'); setActivePanel('manage'); } }}
                     >
                         <Popup>
-                            <div className="p-2 min-w-[180px]">
-                                <p className="text-[9px] font-black text-blue-600 uppercase mb-1">VETOR EM OPERAÇÃO</p>
-                                <h4 className="font-black text-sm uppercase leading-none mb-1">{td.drone?.prefix}</h4>
-                                <p className="text-[10px] text-slate-500 font-bold uppercase">{td.pilot?.full_name}</p>
+                            <div className="p-3 min-w-[220px] font-sans">
+                                <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
+                                    <span className="text-[9px] font-black text-blue-600 uppercase">Monitoramento em Tempo Real</span>
+                                    {td.stream_url && <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div>}
+                                </div>
+                                <h4 className="font-black text-sm uppercase leading-none mb-1 text-slate-800">{td.drone?.prefix}</h4>
+                                <p className="text-[10px] text-slate-500 font-bold uppercase mb-3">{td.drone?.model}</p>
+                                
+                                <div className="space-y-1.5 mb-4">
+                                    <div className="flex items-center gap-2 text-xs">
+                                        <Users className="w-3.5 h-3.5 text-slate-400" />
+                                        <span className="text-slate-500 font-medium">PIC:</span>
+                                        <span className="font-black text-slate-700 uppercase">{td.pilot?.full_name}</span>
+                                    </div>
+                                    {td.observer_name && (
+                                        <div className="flex items-center gap-2 text-xs">
+                                            <Shield className="w-3.5 h-3.5 text-slate-400" />
+                                            <span className="text-slate-500 font-medium">Equipe:</span>
+                                            <span className="font-black text-slate-700 uppercase">{td.observer_name}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex items-center gap-2 text-xs">
+                                        <Activity className="w-3.5 h-3.5 text-blue-500" />
+                                        <span className="text-slate-500 font-medium">Altura:</span>
+                                        <span className="font-black text-slate-800">{td.flight_altitude}m AGL</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-xs">
+                                        <Ruler className="w-3.5 h-3.5 text-orange-500" />
+                                        <span className="text-slate-500 font-medium">Raio:</span>
+                                        <span className="font-black text-slate-800">{td.radius}m</span>
+                                    </div>
+                                </div>
+
                                 {td.stream_url && (
                                     <button 
-                                        onClick={() => setPipStream(td.stream_url!)}
-                                        className="w-full mt-3 bg-red-600 text-white font-black uppercase text-[9px] py-2 rounded-lg flex items-center justify-center gap-2 shadow-lg"
+                                        onClick={() => setPipStream(extractVideoData(td.stream_url!))}
+                                        className="w-full bg-red-600 text-white font-black uppercase text-[9px] py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"
                                     >
-                                        <Video className="w-3.5 h-3.5"/> Assistir Transmissão
+                                        <Video className="w-3.5 h-3.5"/> Abrir Live Cam
                                     </button>
                                 )}
                             </div>

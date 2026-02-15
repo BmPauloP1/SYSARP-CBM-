@@ -152,7 +152,14 @@ export default function OperationManagement() {
       if (!op) return;
       setLoading(true);
       try {
-          if (controlModal.type === 'pause') await base44.entities.Operation.update(op.id, { is_paused: true });
+          if (controlModal.type === 'pause') {
+              const currentLogs = op.pause_logs || [];
+              await base44.entities.Operation.update(op.id, { 
+                  is_paused: true,
+                  last_pause_start: new Date().toISOString(),
+                  pause_logs: [...currentLogs, { start: new Date().toISOString(), reason: actionsTaken }]
+              });
+          }
           else if (controlModal.type === 'cancel') {
               await base44.entities.Operation.update(op.id, { status: 'cancelled' });
               if (op.drone_id) await base44.entities.Drone.update(op.drone_id, { status: 'available' });
@@ -164,7 +171,9 @@ export default function OperationManagement() {
               await base44.entities.Operation.update(op.id, { status: 'completed', flight_hours: decimalHours, actions_taken: actionsTaken, end_time: new Date().toISOString() });
               if (op.drone_id) await base44.entities.Drone.update(op.drone_id, { status: 'available' });
           }
-          setControlModal({type: null, op: null}); loadData();
+          setControlModal({type: null, op: null}); 
+          setActionsTaken('');
+          loadData();
       } catch(e) {} finally { setLoading(false); }
   };
 
@@ -261,6 +270,81 @@ export default function OperationManagement() {
               )}
           </div>
       </div>
+
+      {/* MODAL DE CONTROLE DE OPERAÇÃO (PAUSA/CANCELAR/ENCERRAR) */}
+      {controlModal.type && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[3000] flex items-center justify-center p-4 animate-fade-in">
+              <Card className="w-full max-w-md bg-white shadow-2xl rounded-3xl overflow-hidden border-t-8 border-red-600">
+                  <div className="p-8">
+                      <div className="flex items-center gap-4 mb-6">
+                          <div className="p-4 bg-red-50 rounded-2xl text-red-600">
+                              {controlModal.type === 'pause' ? <Pause className="w-7 h-7" /> : 
+                               controlModal.type === 'cancel' ? <X className="w-7 h-7" /> : <CheckCircle className="w-7 h-7" />}
+                          </div>
+                          <div>
+                              <h3 className="text-xl font-black uppercase tracking-tight text-slate-800">
+                                  {controlModal.type === 'pause' ? 'Pausar Operação' : 
+                                   controlModal.type === 'cancel' ? 'Cancelar Missão' : 'Encerrar Missão'}
+                              </h3>
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Confirmação de Ação Tática</p>
+                          </div>
+                      </div>
+
+                      <form onSubmit={handleAction} className="space-y-5">
+                          {controlModal.type === 'pause' && (
+                              <div className="space-y-2">
+                                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Motivo da Interrupção</label>
+                                  <textarea 
+                                      required 
+                                      className="w-full p-4 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-red-600 outline-none h-32 resize-none bg-slate-50"
+                                      placeholder="Descreva o motivo (ex: Troca de bateria, mau tempo, solicitação do solicitante...)"
+                                      value={actionsTaken}
+                                      onChange={e => setActionsTaken(e.target.value)}
+                                  />
+                              </div>
+                          )}
+                          
+                          {controlModal.type === 'end' && (
+                              <div className="space-y-4">
+                                  <div className="grid grid-cols-2 gap-3">
+                                      <Input label="Horas de Voo" value={flightDurationStr} onChange={e => setFlightDurationStr(e.target.value)} placeholder="00:00" />
+                                      <div className="space-y-1">
+                                          <label className="text-xs font-bold text-slate-500">Status</label>
+                                          <div className="h-10 flex items-center px-4 bg-green-50 text-green-700 font-bold rounded-lg border border-green-200 text-xs">CONCLUÍDO</div>
+                                      </div>
+                                  </div>
+                                  <div className="space-y-2">
+                                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Ações Tomadas / Relato Final</label>
+                                      <textarea 
+                                          required 
+                                          className="w-full p-4 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-red-600 outline-none h-32 resize-none bg-slate-50"
+                                          placeholder="Resuma as atividades executadas..."
+                                          value={actionsTaken}
+                                          onChange={e => setActionsTaken(e.target.value)}
+                                      />
+                                  </div>
+                              </div>
+                          )}
+
+                          {controlModal.type === 'cancel' && (
+                              <div className="p-5 bg-red-50 rounded-2xl border border-red-100 mb-2">
+                                  <p className="text-sm text-red-800 font-bold leading-relaxed">
+                                      Atenção: Ao cancelar, a missão será movida para o histórico com status "Cancelado" e o vetor será liberado imediatamente.
+                                  </p>
+                              </div>
+                          )}
+
+                          <div className="flex gap-3 pt-2">
+                              <Button type="button" variant="outline" className="flex-1 font-black uppercase text-[10px] h-14 rounded-2xl" onClick={() => setControlModal({type: null, op: null})}>VOLTAR</Button>
+                              <Button type="submit" disabled={loading} className="flex-[2] bg-red-700 hover:bg-red-800 text-white font-black uppercase text-[10px] h-14 rounded-2xl shadow-xl shadow-red-100">
+                                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'CONFIRMAR AÇÃO'}
+                              </Button>
+                          </div>
+                      </form>
+                  </div>
+              </Card>
+          </div>
+      )}
 
       {/* FORMULÁRIO SEQUENCIAL 1 A 10 CONFORME SOLICITADO */}
       {isMissionModalOpen && (
