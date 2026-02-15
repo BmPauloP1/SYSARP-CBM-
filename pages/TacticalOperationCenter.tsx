@@ -115,7 +115,7 @@ export default function TacticalOperationCenter() {
           pilot: allPilots.find(p => p.id === td.pilot_id) 
       }));
 
-      // AUTO-SPAWN DO DRONE INICIAL
+      // AUTO-SPAWN DO DRONE INICIAL (Garantido no Teatro de Operações)
       if (op.drone_id && !enrichedDrones.some(td => td.drone_id === op.drone_id)) {
           enrichedDrones.unshift({
               id: `init-${op.id}`,
