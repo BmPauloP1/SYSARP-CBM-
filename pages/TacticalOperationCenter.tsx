@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, useMap } from 'react-leaflet';
@@ -33,7 +34,7 @@ const extractVideoData = (url: string) => {
   if (liveMatch) return `https://www.youtube.com/embed/${liveMatch[1]}?autoplay=1&rel=0`;
   const youtubeMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
   if (youtubeMatch) return `https://www.youtube.com/embed/${youtubeMatch[1]}?autoplay=1&rel=0`;
-  return url; // Fallback para URLs diretas/RTSP se suportado pelo navegador
+  return url; 
 };
 
 const calculatePolygonArea = (coordinates: any) => {
@@ -134,10 +135,46 @@ export default function TacticalOperationCenter() {
   const [newItemSubType, setNewItemSubType] = useState('base');
   const [newItemStream, setNewItemStream] = useState('');
   
-  // Estado para Live PIP (Picture in Picture) Flutuante
+  // Estado para Live PIP (Picture in Picture) Flutuante e Arrastável
   const [pipStream, setPipStream] = useState<string | null>(null);
+  const [pipPos, setPipPos] = useState({ x: window.innerWidth - 420, y: 100 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
 
   useEffect(() => { if (id) loadTacticalData(id); }, [id]);
+
+  // Lógica de Arrastar Janela PIP
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      setPipPos({
+        x: e.clientX - dragOffset.current.x,
+        y: e.clientY - dragOffset.current.y
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    dragOffset.current = {
+      x: e.clientX - pipPos.x,
+      y: e.clientY - pipPos.y
+    };
+  };
 
   const loadTacticalData = async (opId: string) => {
     try {
@@ -157,10 +194,9 @@ export default function TacticalOperationCenter() {
           pilot: allPilots.find(p => p.id === td.pilot_id),
           flight_altitude: td.flight_altitude || op.flight_altitude || 60,
           radius: td.radius || op.radius || 200,
-          observer_name: op.observer_name // Integrando equipe de solo
+          observer_name: op.observer_name
       }));
 
-      // LÓGICA DE AUTO-SPAWN DO DRONE INICIAL
       if (op.drone_id && !enrichedDrones.some(td => td.drone_id === op.drone_id)) {
           const mainDrone = allDrones.find(d => d.id === op.drone_id);
           const mainPilot = allPilots.find(p => p.id === op.pilot_id);
@@ -203,7 +239,6 @@ export default function TacticalOperationCenter() {
     setEntityType(type); 
     setTempGeometry(geojson); 
     setCurrentDrawMode(null);
-    // Fixed Error: PHONETIC was not defined. Added phonetic alphabet at top of file.
     if (type === 'sector') setNewItemName(PHONETIC[sectors.length % PHONETIC.length]);
     else setNewItemName(`Ponto ${pois.length + 1}`);
     setActivePanel('create');
@@ -435,16 +470,30 @@ export default function TacticalOperationCenter() {
 
           <div className="flex-1 relative z-0 bg-slate-100" ref={mapRef}>
               
-              {/* SISTEMA DE PIP (PICTURE IN PICTURE) FLUTUANTE */}
+              {/* SISTEMA DE PIP (PICTURE IN PICTURE) FLUTUANTE E ARRASTÁVEL */}
               {pipStream && (
-                  <div className="absolute top-24 right-8 w-80 md:w-96 bg-slate-900 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-slate-700 z-[3000] overflow-hidden animate-fade-in flex flex-col ring-8 ring-black/5">
-                      <div className="bg-slate-800 p-3 flex justify-between items-center border-b border-slate-700 cursor-move">
+                  <div 
+                    className="absolute bg-slate-900 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-slate-700 z-[3000] overflow-hidden animate-fade-in flex flex-col ring-8 ring-black/5"
+                    style={{ 
+                        left: pipPos.x, 
+                        top: pipPos.y, 
+                        width: window.innerWidth < 768 ? '320px' : '384px',
+                        cursor: isDragging ? 'grabbing' : 'default'
+                    }}
+                  >
+                      {/* Overlay para permitir arraste sobre o iframe */}
+                      {isDragging && <div className="absolute inset-0 z-50 bg-transparent" />}
+
+                      <div 
+                        onMouseDown={handleDragStart}
+                        className="bg-slate-800 p-3 flex justify-between items-center border-b border-slate-700 cursor-grab active:cursor-grabbing select-none"
+                      >
                           <div className="flex items-center gap-3">
                               <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div>
                               <span className="text-[10px] font-black text-white uppercase tracking-widest">Feed de Vídeo Tático</span>
                           </div>
                           <div className="flex gap-1">
-                              <button onClick={() => setPipStream(null)} className="p-1.5 hover:bg-white/10 rounded-full text-slate-400 transition-colors"><X className="w-5 h-5"/></button>
+                              <button onMouseDown={(e) => e.stopPropagation()} onClick={() => setPipStream(null)} className="p-1.5 hover:bg-white/10 rounded-full text-slate-400 transition-colors"><X className="w-5 h-5"/></button>
                           </div>
                       </div>
                       <div className="aspect-video bg-black relative flex items-center justify-center">
@@ -455,8 +504,8 @@ export default function TacticalOperationCenter() {
                             allowFullScreen
                           ></iframe>
                       </div>
-                      <div className="p-2 bg-slate-800 flex justify-center">
-                          <button className="text-[9px] font-black text-slate-400 uppercase tracking-tighter flex items-center gap-2"><Move className="w-3 h-3"/> Reposicionável</button>
+                      <div className="p-2 bg-slate-800 flex justify-center pointer-events-none">
+                          <button className="text-[9px] font-black text-slate-400 uppercase tracking-tighter flex items-center gap-2"><Move className="w-3 h-3"/> Livre Movimentação</button>
                       </div>
                   </div>
               )}
