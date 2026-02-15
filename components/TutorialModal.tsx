@@ -67,7 +67,7 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
             <h3 className="text-lg font-bold text-slate-800 border-b pb-2">Gestão de Missões Operacionais</h3>
             <section className="space-y-2">
               <h4 className="text-sm font-black text-red-700 uppercase flex items-center gap-2"><Zap className="w-4 h-4"/> Como lançar uma ocorrência</h4>
-              <p className="text-xs">Acesse <strong>Operações</strong> > <strong>Nova Missão</strong>. Preencha os 10 itens obrigatórios do formulário sequencial. Localize o Ponto Zero (PC) para spawn imediato do vetor no mapa tático.</p>
+              <p className="text-xs">Acesse <strong>Operações</strong> &gt; <strong>Nova Missão</strong>. Preencha os 10 itens obrigatórios do formulário sequencial. Localize o Ponto Zero (PC) para spawn imediato do vetor no mapa tático.</p>
             </section>
           </div>
         );
@@ -79,7 +79,7 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
             <div className="grid grid-cols-1 gap-4">
               <div className="flex gap-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
                 <div className="p-2 bg-white rounded-lg shadow-sm text-red-600"><LayoutGrid className="w-5 h-5"/></div>
-                <div className="text-xs"><strong>Desenho de Perímetros:</strong> Setorize áreas de busca em tempo real com cálculo automático de área ($m^2$/ha).</div>
+                <div className="text-xs"><strong>Desenho de Perímetros:</strong> Setorize áreas de busca em tempo real com cálculo automático de área (m²/ha).</div>
               </div>
               <div className="flex gap-4 p-3 bg-slate-50 rounded-xl border border-slate-200">
                 <div className="p-2 bg-white rounded-lg shadow-sm text-blue-600"><Globe className="w-5 h-5"/></div>
