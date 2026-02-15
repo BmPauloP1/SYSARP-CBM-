@@ -22,6 +22,17 @@ const getCustomIcon = (color: string) => {
   return iconCache[color];
 };
 
+const MapResizer = () => {
+    const map = useMap();
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            map.invalidateSize();
+        }, 400);
+        return () => clearTimeout(timer);
+    }, [map]);
+    return null;
+};
+
 const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
   const map = useMap();
   useEffect(() => {
@@ -103,6 +114,7 @@ export default function Dashboard() {
         {/* Mapa Dash */}
         <div className={`flex-1 relative z-0 ${dashboardView === 'panel' ? 'hidden lg:block' : 'block h-full'}`}>
            <MapContainer center={[-25.25, -52.0]} zoom={7} style={{ height: '100%', width: '100%' }}>
+              <MapResizer />
               <MapController activeOps={activeOps} />
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
               {activeOps.map(op => (

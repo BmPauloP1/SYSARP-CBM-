@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "@geoman-io/leaflet-geoman-free";
@@ -15,6 +14,16 @@ import {
   Video
 } from "lucide-react";
 import { useNavigate } from "react-router-dom"; 
+
+// Componente para garantir que o mapa preencha o container corretamente
+const MapResizer = () => {
+    const map = useMap();
+    useEffect(() => {
+        const timer = setTimeout(() => { map.invalidateSize(); }, 400);
+        return () => clearTimeout(timer);
+    }, [map]);
+    return null;
+};
 
 const LocationSelectorMap = ({ mode, center, radius, onPositionChange }: any) => {
     const map = useMap();
@@ -52,6 +61,9 @@ export default function OperationManagement() {
   const [controlModal, setControlModal] = useState<{type: 'pause' | 'cancel' | 'end' | null, op: Operation | null}>({type: null, op: null});
   const [flightDurationStr, setFlightDurationStr] = useState("00:00");
   const [actionsTaken, setActionsTaken] = useState('');
+  
+  // Ref para o mapa da modal para flyTo
+  const modalMapRef = useRef<L.Map | null>(null);
 
   const [formData, setFormData] = useState({ 
     id: '', name: '', occurrence_number: '', mission_type: 'diverse' as any, sub_mission_type: '', pilot_id: '', observer_name: '', drone_id: '', 
@@ -73,6 +85,22 @@ export default function OperationManagement() {
       ]);
       setOperations(ops); setPilots(pils); setDrones(drns);
     } catch(e) {}
+  };
+
+  const handleLocateMeInModal = () => {
+      if (!navigator.geolocation) {
+          alert("Seu dispositivo não suporta geolocalização.");
+          return;
+      }
+      navigator.geolocation.getCurrentPosition((pos) => {
+          const { latitude, longitude } = pos.coords;
+          setFormData(prev => ({ ...prev, latitude, longitude }));
+          if (modalMapRef.current) {
+              modalMapRef.current.flyTo([latitude, longitude], 17, { duration: 1.5 });
+          }
+      }, () => {
+          alert("Erro ao obter localização. Verifique as permissões de GPS.");
+      }, { enableHighAccuracy: true });
   };
 
   const handleShare = (op: Operation) => {
@@ -188,6 +216,7 @@ export default function OperationManagement() {
 
       <div className={`flex-1 relative z-0 ${mobileView === 'list' ? 'hidden lg:block' : 'block h-full'}`}>
           <MapContainer center={[-24.8, -51.5]} zoom={7} style={{ height: '100%', width: '100%' }}>
+              <MapResizer />
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
               {operations.filter(o => o.status === 'active').map(op => (
                   <Marker key={op.id} position={[op.latitude, op.longitude]} icon={L.divIcon({ className: 'op-marker', html: `<div style="background-color: ${MISSION_COLORS[op.mission_type]}; width: 14px; height: 14px; border-radius: 50%; border: 2.5px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.4);"></div>`, iconSize: [14, 14] })}>
@@ -271,7 +300,7 @@ export default function OperationManagement() {
           </div>
       </div>
 
-      {/* MODAL DE CONTROLE DE OPERAÇÃO (PAUSA/CANCELAR/ENCERRAR) */}
+      {/* MODAL DE CONTROLE DE OPERAÇÃO */}
       {controlModal.type && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[3000] flex items-center justify-center p-4 animate-fade-in">
               <Card className="w-full max-w-md bg-white shadow-2xl rounded-3xl overflow-hidden border-t-8 border-red-600">
@@ -346,7 +375,7 @@ export default function OperationManagement() {
           </div>
       )}
 
-      {/* FORMULÁRIO SEQUENCIAL 1 A 10 CONFORME SOLICITADO */}
+      {/* FORMULÁRIO SEQUENCIAL 1 A 10 */}
       {isMissionModalOpen && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-0 lg:p-4 animate-fade-in">
               <Card className="w-full lg:max-w-4xl h-full lg:h-[95vh] bg-white shadow-2xl rounded-none lg:rounded-3xl flex flex-col overflow-hidden">
@@ -414,13 +443,29 @@ export default function OperationManagement() {
                               <Input label="Altitude Máx (m)" value={formData.flight_altitude} type="number" onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})} />
                           </div>
                           <div className="h-64 rounded-xl overflow-hidden border border-slate-200 relative">
+                              {/* Botão flutuante de GPS (Target Icon) */}
+                              <button 
+                                type="button"
+                                onClick={handleLocateMeInModal}
+                                className="absolute bottom-4 right-4 z-[1000] bg-blue-600 text-white w-12 h-12 flex items-center justify-center rounded-2xl shadow-2xl hover:bg-blue-700 active:scale-95 transition-all ring-4 ring-white"
+                                title="Centralizar em Mim"
+                              >
+                                <LocateFixed className="w-6 h-6" />
+                              </button>
+
                               <div className="absolute top-2 left-2 right-2 z-[1000] flex justify-center gap-1">
                                   <button type="button" className="bg-red-600 text-white px-3 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1"><Navigation className="w-3 h-3"/> PC</button>
                                   <button type="button" className="bg-white border text-slate-600 px-3 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1"><Hexagon className="w-3 h-3"/> ÁREA</button>
                                   <button type="button" className="bg-white border text-slate-600 px-3 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1"><Route className="w-3 h-3"/> ROTA</button>
                                   <button type="button" className="bg-white border text-slate-600 px-3 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1"><Flag className="w-3 h-3"/> PONTO</button>
                               </div>
-                              <MapContainer center={[formData.latitude, formData.longitude]} zoom={14} style={{ height: '100%', width: '100%' }}>
+                              <MapContainer 
+                                center={[formData.latitude, formData.longitude]} 
+                                zoom={14} 
+                                style={{ height: '100%', width: '100%' }}
+                                ref={map => { if(map) modalMapRef.current = map; }}
+                              >
+                                  <MapResizer />
                                   <LocationSelectorMap center={[formData.latitude, formData.longitude]} radius={formData.radius} onPositionChange={(lat: number, lng: number) => setFormData({...formData, latitude: lat, longitude: lng})}/>
                               </MapContainer>
                           </div>

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, useMap } from 'react-leaflet';
@@ -35,6 +34,18 @@ const extractVideoData = (url: string) => {
   const youtubeMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
   if (youtubeMatch) return `https://www.youtube.com/embed/${youtubeMatch[1]}?autoplay=1&rel=0`;
   return url; 
+};
+
+// Componente para garantir carregamento correto do mapa
+const MapResizer = () => {
+    const map = useMap();
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            map.invalidateSize();
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [map]);
+    return null;
 };
 
 const calculatePolygonArea = (coordinates: any) => {
@@ -116,6 +127,8 @@ export default function TacticalOperationCenter() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const mapRef = useRef<HTMLDivElement>(null); 
+  const mainMapRef = useRef<L.Map | null>(null);
+
   const [operation, setOperation] = useState<Operation | null>(null);
   const [sectors, setSectors] = useState<TacticalSector[]>([]);
   const [pois, setPois] = useState<TacticalPOI[]>([]);
@@ -220,6 +233,21 @@ export default function TacticalOperationCenter() {
       setOperation(op); setSectors(sects); setPois(points); setTacticalDrones(enrichedDrones as any);
       setDrones(allDrones); setPilots(allPilots);
     } catch (e) { console.error(e); } finally { setLoading(false); }
+  };
+
+  const handleLocatePilot = () => {
+    if (!navigator.geolocation) {
+      alert("Seu navegador não suporta geolocalização.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition((pos) => {
+        const { latitude, longitude } = pos.coords;
+        if (mainMapRef.current) {
+            mainMapRef.current.flyTo([latitude, longitude], 18, { duration: 1.5 });
+        }
+    }, () => {
+        alert("Não foi possível obter sua localização.");
+    }, { enableHighAccuracy: true });
   };
 
   const operationalSummary = useMemo(() => {
@@ -524,18 +552,24 @@ export default function TacticalOperationCenter() {
               </div>
 
               <div className="absolute bottom-10 right-6 z-[1000] flex flex-col gap-3">
-                  <button onClick={() => setMapType(mapType === 'street' ? 'satellite' : 'street')} className="bg-white text-slate-700 w-14 h-14 flex items-center justify-center rounded-2xl shadow-2xl border border-slate-200 hover:bg-slate-50">
+                  <button onClick={() => setMapType(mapType === 'street' ? 'satellite' : 'street')} className="bg-white text-slate-700 w-14 h-14 flex items-center justify-center rounded-2xl shadow-2xl border border-slate-200 hover:bg-slate-50" title="Alternar Mapa">
                     {mapType === 'street' ? <Layers className="w-6 h-6" /> : <Satellite className="w-6 h-6" />}
                   </button>
-                  <button onClick={handleCaptureSnapshot} className="bg-white text-slate-700 w-14 h-14 flex items-center justify-center rounded-2xl shadow-2xl border border-slate-200 hover:bg-slate-50">
+                  <button onClick={handleCaptureSnapshot} className="bg-white text-slate-700 w-14 h-14 flex items-center justify-center rounded-2xl shadow-2xl border border-slate-200 hover:bg-slate-50" title="Capturar Snapshot">
                     <Camera className="w-6 h-6" />
                   </button>
-                  <button onClick={() => {}} className="bg-white text-blue-600 w-14 h-14 flex items-center justify-center rounded-2xl shadow-2xl border border-slate-200 hover:bg-slate-50">
+                  <button onClick={handleLocatePilot} className="bg-white text-blue-600 w-14 h-14 flex items-center justify-center rounded-2xl shadow-2xl border border-slate-200 hover:bg-slate-50 animate-pulse" title="Centralizar em Mim">
                     <LocateFixed className="w-6 h-6" />
                   </button>
               </div>
 
-              <MapContainer center={[operation.latitude, operation.longitude]} zoom={17} style={{ height: '100%', width: '100%' }}>
+              <MapContainer 
+                  center={[operation.latitude, operation.longitude]} 
+                  zoom={17} 
+                  style={{ height: '100%', width: '100%' }}
+                  ref={(map) => { if (map) mainMapRef.current = map; }}
+              >
+                  <MapResizer />
                   <MapDrawingBridge drawMode={currentDrawMode} />
                   <TileLayer url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} />
                   <SectorsLayer onCreated={handleDrawCreated} />
@@ -623,6 +657,13 @@ export default function TacticalOperationCenter() {
               </MapContainer>
           </div>
       </div>
+
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .leaflet-container { border-radius: inherit; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+      `}</style>
     </div>
   );
 }
