@@ -1,27 +1,15 @@
+
 import React, { useEffect, useState, useCallback, memo, useRef, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, MISSION_COLORS, ConflictNotification, Maintenance } from "../types";
 import { Badge, Button, Card } from "../components/ui_components";
-import { Radio, Video, Map as MapIcon, Shield, Check, User, Plane, Building2, Navigation, Clock, History, Crosshair, Share2, UserCheck, AlertTriangle, Play } from "lucide-react";
+import { Radio, Video, Map as MapIcon, Shield, Check, User, Plane, Clock, Share2, LayoutList } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { OperationalInfoTicker } from "../components/OperationalInfoTicker";
 
-// Fix Leaflet icons
-const icon = L.icon({
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-});
-
-// CACHE FOR ICONS to prevent '_leaflet_pos' undefined errors during re-renders
 const iconCache: Record<string, L.DivIcon> = {};
-
 const getCustomIcon = (color: string) => {
   if (!iconCache[color]) {
     iconCache[color] = L.divIcon({
@@ -34,444 +22,152 @@ const getCustomIcon = (color: string) => {
   return iconCache[color];
 };
 
-const isValidCoord = (lat: any, lng: any) => {
-  const nLat = Number(lat);
-  const nLng = Number(lng);
-  return !isNaN(nLat) && !isNaN(nLng) && nLat !== 0 && nLng !== 0;
-};
-
 const MapController = memo(({ activeOps }: { activeOps: Operation[] }) => {
   const map = useMap();
-
   useEffect(() => {
     if (!map) return;
-
-    // Force resize with safety check
-    const timer = setTimeout(() => { 
-        if (map && map.getContainer()) {
-            map.invalidateSize(); 
-        }
-    }, 250);
-
-    const validOps = activeOps.filter(op => isValidCoord(op.latitude, op.longitude));
-    
+    const timer = setTimeout(() => { if (map.getContainer()) map.invalidateSize(); }, 300);
+    const validOps = activeOps.filter(op => op.latitude && op.longitude);
     if (validOps.length > 0) {
-      // Focus on operations
       const bounds = L.latLngBounds(validOps.map(op => [Number(op.latitude), Number(op.longitude)]));
-      if (bounds.isValid()) {
-          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15, animate: true });
-      }
-    } else {
-      // No operations: Focus on User Location
-      map.locate({ setView: true, maxZoom: 14, enableHighAccuracy: true });
-      
-      map.on('locationerror', () => {
-         if (map && map.getContainer()) {
-             // Fallback to central Paraná
-             map.setView([-24.5, -51.0], 7); 
-         }
-      });
+      if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
     }
-
     return () => clearTimeout(timer);
   }, [map, activeOps]);
-
   return null;
 });
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const [activeOps, setActiveOps] = useState<Operation[]>([]);
-  const [recentOps, setRecentOps] = useState<Operation[]>([]);
-  const [maintenanceAlerts, setMaintenanceAlerts] = useState<Maintenance[]>([]);
-  const [conflictAlerts, setConflictAlerts] = useState<ConflictNotification[]>([]);
   const [liveStreams, setLiveStreams] = useState<Operation[]>([]);
   const [drones, setDrones] = useState<Drone[]>([]);
   const [pilots, setPilots] = useState<Pilot[]>([]);
-  const [pendingPilotsCount, setPendingPilotsCount] = useState(0);
-  const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
-  
-  const [totalOpsCount, setTotalOpsCount] = useState(0);
   const [totalFlightHours, setTotalFlightHours] = useState(0);
-  
-  const isMounted = useRef(true);
+  const [dashboardView, setDashboardView] = useState<'map' | 'panel'>('map'); 
 
   const loadData = useCallback(async () => {
     try {
-      const [ops, maints, drn, pils, me] = await Promise.all([
+      const [ops, drn, pils, me] = await Promise.all([
         base44.entities.Operation.list('-start_time'),
-        base44.entities.Maintenance.filter(m => m.status !== 'completed'),
         base44.entities.Drone.list(),
         base44.entities.Pilot.list(),
         base44.auth.me()
       ]);
-
-      if (!isMounted.current) return;
-
       const active = ops.filter(o => o.status === 'active');
-      const pendingCount = pils.filter(p => p.status === 'pending').length;
-      const totalHours = drn.reduce((acc, d) => acc + (d.total_flight_hours || 0), 0);
-
-      setCurrentUser(me);
       setActiveOps(active);
-      setRecentOps(ops.filter(o => o.status !== 'active').slice(0, 5));
-      setMaintenanceAlerts(maints);
       setLiveStreams(active.filter(o => o.stream_url));
       setDrones(drn);
       setPilots(pils);
-      setPendingPilotsCount(pendingCount);
-      
-      setTotalOpsCount(ops.length);
-      setTotalFlightHours(totalHours);
-
-      if (me) {
-          const conflicts = await base44.entities.ConflictNotification.filter({ target_pilot_id: me.id, acknowledged: false });
-          if(isMounted.current) setConflictAlerts(conflicts);
-      }
-    } catch (e: any) {
-      console.warn("Dashboard load error:", e.message);
-    }
+      setTotalFlightHours(drn.reduce((acc, d) => acc + (d.total_flight_hours || 0), 0));
+    } catch (e: any) {}
   }, []);
 
   useEffect(() => {
-    isMounted.current = true;
     loadData();
     const interval = setInterval(loadData, 30000);
-    return () => { 
-        isMounted.current = false;
-        clearInterval(interval);
-    };
+    return () => clearInterval(interval);
   }, [loadData]);
 
-  const handleShareOp = async (op: Operation) => {
-      const pilot = pilots.find(p => p.id === op.pilot_id);
-      const drone = drones.find(d => d.id === op.drone_id);
-      const startTime = new Date(op.start_time);
-      const endTime = op.estimated_end_time || 'Não definido';
-      const mapsLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
-
-      let text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨\n\n`;
-      text += `🚁 *Ocorrência:* ${op.name.toUpperCase()}\n`;
-      text += `🔢 *Protocolo:* ${op.occurrence_number}\n`;
-      text += `📋 *Natureza:* ${MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type}\n\n`;
-      text += `👤 *PIC:* ${pilot?.full_name || 'N/A'}\n`;
-      text += `📞 *Contato:* ${pilot?.phone || 'N/A'}\n`;
-      text += `🛡️ *Aeronave:* ${drone ? `${drone.prefix} (${drone.model})` : 'N/A'}\n\n`;
-      text += `📍 *Coord:* ${op.latitude.toFixed(6)}, ${op.longitude.toFixed(6)}\n`;
-      text += `🗺️ *Google Maps:* ${mapsLink}\n\n`;
-      text += `📏 *Raio:* ${op.radius}m\n`;
-      text += `✈️ *Altitude:* ${op.flight_altitude || 60}m\n\n`;
-      text += `🕒 *Início:* ${startTime.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}\n`;
-      text += `🏁 *Término Previsto:* ${endTime}`;
-
-      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-  };
-
-  const mapMarkers = useMemo(() => {
-    return activeOps.map(op => {
-      if (!isValidCoord(op.latitude, op.longitude)) return null;
-
-      const pilot = pilots.find(p => p.id === op.pilot_id);
-      const drone = drones.find(d => d.id === op.drone_id);
-      const opColor = MISSION_COLORS[op.mission_type] || '#ef4444';
-
-      return (
-          <Marker 
-            key={`active-op-${op.id}`} 
-            position={[Number(op.latitude), Number(op.longitude)]} 
-            icon={getCustomIcon(opColor)}
-          >
-            <Popup>
-              <div className="min-w-[280px] p-1 font-sans">
-                <h3 className="font-bold text-slate-900 text-base uppercase leading-tight border-b pb-2 mb-2">{op.name}</h3>
-                <p className="text-[10px] text-slate-400 font-mono mb-2">#{op.occurrence_number}</p>
-                
-                <div className="mb-4">
-                   <span className="bg-red-50 text-red-700 px-3 py-1 rounded-full text-xs font-bold border border-red-100">
-                      {MISSION_HIERARCHY[op.mission_type]?.label}
-                   </span>
-                </div>
-
-                <div className="bg-slate-50 p-4 rounded-xl space-y-2.5 border border-slate-100">
-                   <div className="flex items-center gap-3 text-sm text-slate-600">
-                      <User className="w-4 h-4 text-slate-400" />
-                      <div>
-                         <span className="font-bold text-slate-800">Piloto:</span> {pilot?.full_name || 'N/A'}
-                      </div>
-                   </div>
-                   <div className="flex items-center gap-3 text-sm text-slate-600">
-                      <Plane className="w-4 h-4 text-slate-400" />
-                      <div>
-                         <span className="font-bold text-slate-800">RPA:</span> {drone ? `${drone.prefix} - ${drone.model}` : 'N/A'}
-                      </div>
-                   </div>
-                   <div className="flex items-start gap-3 text-sm text-slate-600">
-                      <Building2 className="w-4 h-4 text-slate-400 mt-0.5" />
-                      <div className="flex flex-col">
-                         <div className="flex items-center gap-1">
-                            <span className="font-bold text-slate-800">Área/Unidade:</span>
-                            <span className="text-slate-700">{drone?.unit || 'N/A'}</span>
-                         </div>
-                         <span className="text-[10px] text-slate-400 mt-0.5">{drone?.crbm}</span>
-                      </div>
-                   </div>
-                </div>
-                
-                <div className="mt-3 flex items-center justify-between text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
-                   <span className="flex items-center gap-1"><Clock className="w-3" /> {new Date(op.start_time).toLocaleTimeString()}</span>
-                   <span className="flex items-center gap-1"><Navigation className="w-3" /> Raio: {op.radius}m</span>
-                </div>
-                
-                <div className="mt-3 pt-3 border-t border-slate-100 flex gap-2">
-                    <Button 
-                        size="sm" 
-                        className="flex-1 h-9 text-[10px] font-bold uppercase bg-red-700 hover:bg-red-800 shadow-lg"
-                        onClick={() => navigate(`/operations/${op.id}/gerenciar`)}
-                    >
-                        <Crosshair className="w-3.5 h-3.5 mr-1.5" />
-                        CCO TÁTICO
-                    </Button>
-                </div>
-              </div>
-            </Popup>
-          </Marker>
-        );
-    });
-  }, [activeOps, pilots, drones, navigate]);
-
   return (
-    <div className="flex flex-col h-full bg-white lg:overflow-hidden overflow-y-auto">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm z-10 flex-shrink-0">
-        <div>
-          <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <Radio className="w-5 h-5 text-red-600 animate-pulse" />
-            CCO - SYSARP
-          </h1>
-        </div>
-        <div className="flex gap-3">
-           <div className="px-4 py-2 bg-red-50 text-red-700 rounded-lg border border-red-100 flex items-center gap-2">
-              <span className="font-bold text-sm">{activeOps.length} Ops Ativas</span>
-           </div>
-        </div>
+    <div className="flex flex-col h-full bg-white overflow-hidden">
+      
+      {/* Operational Ticker - Otimizado para Mobile */}
+      <div className="hidden lg:block shrink-0">
+        <OperationalInfoTicker 
+          totalOps={0} activeOpsCount={activeOps.length}
+          pilotsCount={pilots.length} dronesCount={drones.length}
+          totalFlightHours={totalFlightHours} activeTransmissions={liveStreams.length}
+          alertsCount={0}
+        />
       </div>
 
-      {/* OPERATIONAL TICKER PANEL */}
-      <OperationalInfoTicker 
-        totalOps={totalOpsCount}
-        activeOpsCount={activeOps.length}
-        pilotsCount={pilots.length}
-        dronesCount={drones.length}
-        totalFlightHours={totalFlightHours}
-        activeTransmissions={liveStreams.length}
-        alertsCount={maintenanceAlerts.length + conflictAlerts.length}
-      />
+      {/* Header Mobile com Tabs */}
+      <div className="lg:hidden flex bg-white border-b border-slate-200 shrink-0">
+          <button 
+            onClick={() => setDashboardView('map')} 
+            className={`flex-1 py-4 flex items-center justify-center gap-2 text-xs font-black uppercase transition-all ${dashboardView === 'map' ? 'text-red-700 border-b-2 border-red-700 bg-slate-50' : 'text-slate-400'}`}
+          >
+              <MapIcon className="w-4 h-4" /> Mapa
+          </button>
+          <button 
+            onClick={() => setDashboardView('panel')} 
+            className={`flex-1 py-4 flex items-center justify-center gap-2 text-xs font-black uppercase transition-all ${dashboardView === 'panel' ? 'text-red-700 border-b-2 border-red-700 bg-slate-50' : 'text-slate-400'}`}
+          >
+              <LayoutList className="w-4 h-4" /> Operações
+          </button>
+      </div>
 
-      <div className="flex flex-col lg:flex-row flex-1 lg:overflow-hidden relative min-h-0">
-        <div className="w-full lg:flex-1 h-[65vh] lg:h-full relative border-r border-slate-200 shadow-inner z-0 flex-shrink-0">
-           <MapContainer center={[-25.2521, -52.0215]} zoom={7} style={{ height: '100%', width: '100%' }}>
+      <div className="flex-1 flex flex-col lg:flex-row relative min-h-0">
+        
+        {/* Mapa Dash */}
+        <div className={`flex-1 relative z-0 ${dashboardView === 'panel' ? 'hidden lg:block' : 'block h-full'}`}>
+           <MapContainer center={[-25.25, -52.0]} zoom={7} style={{ height: '100%', width: '100%' }}>
               <MapController activeOps={activeOps} />
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              {mapMarkers}
+              {activeOps.map(op => (
+                <Marker key={op.id} position={[op.latitude, op.longitude]} icon={getCustomIcon(MISSION_COLORS[op.mission_type])}>
+                  <Popup>
+                    <div className="p-2 min-w-[200px]">
+                      <h4 className="font-bold text-sm uppercase">{op.name}</h4>
+                      <div className="mt-2 flex flex-col gap-1 text-[10px] uppercase font-bold text-slate-500">
+                         <span><User className="w-3 h-3 inline mr-1"/> {pilots.find(p => p.id === op.pilot_id)?.full_name.split(' ')[0]}</span>
+                         <span><Plane className="w-3 h-3 inline mr-1"/> {drones.find(d => d.id === op.drone_id)?.prefix}</span>
+                      </div>
+                      <Button size="sm" className="w-full mt-3 h-8 text-[9px] font-black" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>ACESSAR CCO</Button>
+                    </div>
+                  </Popup>
+                </Marker>
+              ))}
            </MapContainer>
         </div>
 
-        <div className="w-full lg:w-96 h-auto lg:h-full bg-white flex flex-col lg:overflow-hidden border-t lg:border-t-0 lg:border-l border-slate-200 z-10 flex-shrink-0 shadow-xl lg:shadow-none">
-          <div className="p-4 bg-white border-b border-slate-200 font-bold text-slate-800 flex items-center gap-2 shadow-sm flex-shrink-0">
-            <Shield className="w-5 h-5 text-red-700" />
-            Painel de Controle
+        {/* Lateral Info */}
+        <div className={`w-full lg:w-96 bg-white flex flex-col border-t lg:border-t-0 lg:border-l border-slate-200 shrink-0 ${dashboardView === 'map' ? 'hidden lg:flex' : 'flex h-full'}`}>
+          <div className="p-4 bg-white border-b border-slate-200 font-black text-slate-800 flex items-center justify-between shadow-sm shrink-0">
+            <div className="flex items-center gap-2"><Shield className="w-5 h-5 text-red-700" /> Operações Ativas</div>
+            <Badge variant="danger" className="text-[10px]">{activeOps.length}</Badge>
           </div>
           
-          <div className="flex-1 lg:overflow-y-auto p-4 space-y-4">
-            
-            {/* ALERTA ADMIN DE CADASTROS */}
-            {currentUser?.role === 'admin' && pendingPilotsCount > 0 && (
-              <Card className="p-4 bg-amber-600 text-white border-none shadow-lg animate-pulse border-l-4 border-l-amber-400">
-                <div className="flex items-center justify-between">
-                   <div className="flex items-center gap-3">
-                      <div className="p-2 bg-white/20 rounded-lg">
-                         <UserCheck className="w-6 h-6" />
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 lg:pb-4 custom-scrollbar">
+            {activeOps.length === 0 ? (
+                <div className="py-20 text-center text-xs text-slate-400 font-bold uppercase italic">Sem aeronaves em voo</div>
+            ) : (
+                activeOps.map(op => (
+                   <Card key={op.id} className="p-4 hover:bg-slate-50 transition-all border border-slate-100 shadow-md group cursor-pointer" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>
+                      <div className="flex justify-between items-start mb-2">
+                         <span className="text-[9px] font-black text-red-600 uppercase flex items-center gap-1.5 animate-pulse">
+                            <div className="w-2 h-2 rounded-full bg-red-600"></div> LIVE
+                         </span>
+                         <Badge className="bg-slate-100 text-slate-600 text-[8px] uppercase">{MISSION_HIERARCHY[op.mission_type].label.split('. ')[1]}</Badge>
                       </div>
-                      <div>
-                         <h3 className="font-bold text-sm">Validações Pendentes</h3>
-                         <p className="text-[10px] text-amber-100">{pendingPilotsCount} novos pilotos aguardando acesso.</p>
+                      <h4 className="font-black text-slate-800 text-sm leading-tight uppercase group-hover:text-red-700">{op.name}</h4>
+                      <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center">
+                         <span className="text-[10px] text-slate-400 font-bold uppercase"><Clock className="w-3 h-3 inline mr-1" /> {new Date(op.start_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                         <button className="text-[9px] font-black text-white bg-slate-900 px-3 py-1.5 rounded-lg shadow-lg">DETALHES</button>
                       </div>
-                   </div>
-                   <Button 
-                      size="sm" 
-                      className="bg-white text-amber-700 hover:bg-amber-50 h-8 text-[10px] font-bold"
-                      onClick={() => navigate('/pilots')}
-                   >
-                      VALIDAR
-                   </Button>
-                </div>
-              </Card>
+                   </Card>
+                ))
             )}
-
-            {/* SEÇÃO PRINCIPAL: OPERAÇÕES EM ANDAMENTO */}
-            <div className="bg-white rounded-xl shadow-md border border-red-100 overflow-hidden ring-1 ring-red-50">
-              <div className="bg-gradient-to-r from-red-700 to-red-600 px-4 py-3 flex justify-between items-center">
-                <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
-                  <Radio className="w-4 h-4 animate-pulse" /> Operações Ativas
-                </h3>
-                <div className="bg-red-800 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">{activeOps.length}</div>
-              </div>
-              <div className="max-h-[350px] overflow-y-auto custom-scrollbar p-0">
-                {activeOps.length === 0 ? (
-                   <div className="p-8 text-center flex flex-col items-center">
-                      <div className="bg-slate-50 p-3 rounded-full mb-3 border border-slate-100"><Check className="w-6 h-6 text-slate-300" /></div>
-                      <p className="text-xs text-slate-400 font-bold uppercase tracking-wide">Sem operações no momento</p>
-                   </div>
-                ) : (
-                   <div className="divide-y divide-slate-100">
-                      {activeOps.map(op => {
-                         const pilot = pilots.find(p => p.id === op.pilot_id);
-                         return (
-                           <div key={op.id} className="p-3 hover:bg-red-50/30 transition-colors group relative cursor-pointer" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>
-                              <div className="absolute left-0 top-3 bottom-3 w-1 bg-red-600 rounded-r opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                              <div className="flex justify-between items-start mb-1.5 pl-2">
-                                 <span className="text-[9px] font-black text-red-600 uppercase tracking-wider flex items-center gap-1.5 bg-red-50 px-2 py-0.5 rounded-full border border-red-100">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse shadow-sm"></span>
-                                    Em Andamento
-                                 </span>
-                                 <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                                    <button onClick={(e) => { e.stopPropagation(); handleShareOp(op); }} className="text-slate-300 hover:text-green-600 transition-colors bg-white hover:bg-green-50 p-1.5 rounded border border-transparent hover:border-green-100"><Share2 className="w-3.5 h-3.5" /></button>
-                                 </div>
-                              </div>
-                              <div className="pl-2">
-                                  <h4 className="font-bold text-slate-800 text-sm leading-tight mb-1 truncate pr-2">{op.name}</h4>
-                                  <div className="flex items-center gap-2 text-[10px] text-slate-500 mb-2.5">
-                                     <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-mono border border-slate-200">#{op.occurrence_number.split('ARP').pop()}</span>
-                                     <span>•</span>
-                                     <span className="truncate max-w-[120px]">{MISSION_HIERARCHY[op.mission_type]?.label}</span>
-                                  </div>
-                                  
-                                  <div className="mb-2" onClick={e => e.stopPropagation()}>
-                                      <button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="w-full bg-red-50 hover:bg-red-100 text-red-700 text-[9px] font-bold uppercase py-1.5 rounded border border-red-100 flex items-center justify-center gap-1 transition-colors">
-                                          <Crosshair className="w-3 h-3" /> ACESSAR CCO TÁTICO
-                                      </button>
-                                  </div>
-
-                                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
-                                     <div className="flex items-center gap-1.5 min-w-0">
-                                        <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center text-[9px] font-bold text-slate-600 shrink-0">
-                                           {pilot?.full_name?.[0]}
-                                        </div>
-                                        <div className="flex flex-col min-w-0">
-                                            <span className="text-[9px] text-slate-400 font-bold uppercase leading-none">PIC</span>
-                                            <span className="text-[10px] text-slate-700 font-bold truncate leading-none mt-0.5">{pilot?.full_name?.split(' ')[0] || 'N/A'}</span>
-                                        </div>
-                                     </div>
-                                     <div className="flex items-center gap-1.5 min-w-0 justify-end">
-                                        <div className="flex flex-col min-w-0 text-right">
-                                            <span className="text-[9px] text-slate-400 font-bold uppercase leading-none">Início</span>
-                                            <span className="text-[10px] font-mono text-slate-700 font-bold leading-none mt-0.5">
-                                                {new Date(op.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                            </span>
-                                        </div>
-                                        <div className="w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
-                                           <Clock className="w-3 h-3 m-3" />
-                                        </div>
-                                     </div>
-                                  </div>
-                              </div>
-                           </div>
-                         );
-                      })}
-                   </div>
-                )}
-              </div>
-            </div>
-
-            {/* TRANSMISSÕES AO VIVO */}
-            <div className="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
-                <div className="bg-[#1e293b] px-4 py-3 flex justify-between items-center">
-                  <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
-                    <Video className="w-4 h-4 text-white" /> Transmissões
-                  </h3>
-                </div>
-                <div className="p-4 flex items-center justify-center min-h-[80px]">
-                  {liveStreams.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic">Nenhuma transmissão ativa.</p>
-                  ) : (
-                    <div className="w-full space-y-2">
+            
+            {liveStreams.length > 0 && (
+                <div className="mt-8">
+                   <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                      <Video className="w-3.5 h-3.5 text-red-600"/> Links de Transmissão
+                   </h5>
+                   <div className="space-y-2">
                       {liveStreams.map(op => (
-                        <div key={op.id} className="p-3 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer flex items-center justify-between rounded-lg border border-slate-100" onClick={() => navigate('/transmissions')}>
-                           <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-black rounded-md flex items-center justify-center border border-slate-700 shadow-sm">
-                                 <Play className="w-3 h-3 text-white" />
-                              </div>
-                              <div className="min-w-0">
-                                 <p className="text-xs font-bold text-slate-800 truncate">{op.name}</p>
-                                 <p className="text-[10px] text-slate-500 uppercase">Live Cam</p>
-                              </div>
-                           </div>
-                           <div className="text-[9px] font-bold text-red-600 bg-red-50 px-2 py-1 rounded border border-red-100 uppercase animate-pulse">
-                              No Ar
-                           </div>
-                        </div>
+                         <div key={op.id} className="p-3 bg-slate-900 rounded-xl flex items-center justify-between border border-slate-800 shadow-lg">
+                            <div className="min-w-0 flex-1">
+                               <p className="text-white text-[10px] font-black uppercase truncate">{op.name}</p>
+                               <p className="text-red-500 text-[8px] font-bold animate-pulse uppercase">Câmera Ativa</p>
+                            </div>
+                            <button onClick={() => navigate('/transmissions')} className="p-2 bg-red-600 text-white rounded-lg ml-3"><Video className="w-4 h-4"/></button>
+                         </div>
                       ))}
-                    </div>
-                  )}
+                   </div>
                 </div>
-            </div>
-
-            {/* TRÁFEGO AÉREO */}
-            <div className="bg-white rounded-xl shadow-md border border-green-100 overflow-hidden">
-                <div className="bg-green-600 px-4 py-3 flex justify-between items-center">
-                  <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
-                    <Shield className="w-4 h-4" /> Tráfego Aéreo
-                  </h3>
-                </div>
-                <div className="p-4">
-                  {conflictAlerts.length === 0 ? (
-                    <div className="bg-green-50 border border-green-100 text-green-700 text-xs font-bold text-center py-3 rounded-lg">
-                        Sem conflitos de espaço aéreo.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {conflictAlerts.map(conflict => (
-                        <div key={conflict.id} className="bg-white p-3 rounded-lg border-l-4 border-red-500 shadow-sm text-xs relative overflow-hidden">
-                          <div className="absolute top-0 right-0 p-1 opacity-10"><AlertTriangle className="w-12 h-12 text-red-600"/></div>
-                          <p className="font-bold text-red-700 uppercase mb-1">Conflito Detectado</p>
-                          <p className="font-bold text-slate-800">{conflict.new_op_name}</p>
-                          <p className="text-slate-600 mt-1">Piloto: {conflict.new_pilot_name}</p>
-                          <p className="text-slate-500 mt-0.5">Alt: {conflict.new_op_altitude}m | Raio: {conflict.new_op_radius}m</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-            </div>
-
-            {/* HISTÓRICO RECENTE */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden opacity-90 hover:opacity-100 transition-opacity">
-              <div className="bg-slate-100 px-4 py-2 border-b border-slate-200">
-                <h3 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-                  <History className="w-3 h-3" /> Histórico Recente
-                </h3>
-              </div>
-              <div className="p-2 space-y-1">
-                {recentOps.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic text-center py-2">Sem histórico recente.</p>
-                ) : (
-                    recentOps.map(op => (
-                       <div key={op.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg transition-colors border border-transparent hover:border-slate-100">
-                          <div className="min-w-0 flex-1">
-                             <p className="text-xs font-bold text-slate-700 truncate">{op.name}</p>
-                             <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[9px] text-slate-400 font-mono bg-slate-100 px-1 rounded">#{op.occurrence_number.split('ARP').pop()}</span>
-                                <span className={`text-[9px] font-bold px-1.5 rounded-full ${op.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                    {op.status === 'completed' ? 'CONCLUÍDA' : 'CANCELADA'}
-                                </span>
-                             </div>
-                          </div>
-                       </div>
-                    ))
-                )}
-              </div>
-            </div>
-
+            )}
           </div>
         </div>
       </div>

@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Radio, Activity, 
   BarChart3, Shield, LogOut, Menu, X, ChevronDown, Plane, 
-  Database, ShieldAlert, Settings, HelpCircle, Info
+  HelpCircle, Info, Home
 } from 'lucide-react';
 import { base44 } from '../services/base44Client';
 import { Pilot, SYSARP_LOGO } from '../types';
@@ -88,14 +88,22 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
     return false;
   };
 
+  const closeSidebar = () => setIsSidebarOpen(false);
+
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden font-sans text-slate-800">
-      {/* Sidebar Mobile Overlay */}
-      {isSidebarOpen && <div className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm" onClick={() => setIsSidebarOpen(false)} />}
+      
+      {/* Sidebar Overlay para Mobile */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 z-[100] lg:hidden backdrop-blur-sm" 
+          onClick={closeSidebar} 
+        />
+      )}
 
-      <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-[#7f1d1d] text-white transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} flex flex-col shadow-2xl`}>
+      {/* Sidebar Lateral */}
+      <aside className={`fixed inset-y-0 left-0 z-[110] w-72 bg-[#7f1d1d] text-white transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} flex flex-col shadow-2xl`}>
         
-        {/* Logo Section */}
         <div className="p-8 flex items-center gap-4 shrink-0">
           <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center border border-white/20 shadow-inner">
             <img src={SYSARP_LOGO} className="w-10 h-10 object-contain" alt="Logo" />
@@ -106,11 +114,9 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
           </div>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-4 py-2 space-y-2 custom-scrollbar">
+        <nav className="flex-1 overflow-y-auto px-4 py-2 space-y-2 custom-scrollbar pb-20 lg:pb-4">
           {navItems.map((item, idx) => {
             if (item.adminOnly && user?.role !== 'admin') return null;
-            
             const isActive = checkActive(item);
             
             return (
@@ -118,7 +124,7 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
                 <Link 
                   to={item.subItems ? (location.pathname.startsWith(item.url) ? item.subItems[0].url : item.url) : item.url} 
                   className={`flex items-center justify-between px-5 py-4 rounded-2xl transition-all duration-200 ${isActive ? 'bg-white text-[#7f1d1d] shadow-xl scale-[1.02]' : 'text-red-100 hover:bg-white/10'}`}
-                  onClick={() => !item.subItems && setIsSidebarOpen(false)}
+                  onClick={() => !item.subItems && closeSidebar()}
                 >
                   <div className="flex items-center gap-4">
                     <item.icon className={`w-6 h-6 ${isActive ? 'text-[#7f1d1d]' : 'text-red-200'}`} />
@@ -137,7 +143,7 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
                         <Link 
                           key={sub.url} 
                           to={sub.url} 
-                          onClick={() => setIsSidebarOpen(false)}
+                          onClick={closeSidebar}
                           className={`flex items-center gap-3 px-6 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${isSubActive ? 'bg-white/10 text-white' : 'text-red-300/80 hover:text-white hover:translate-x-1'}`}
                         >
                           <span className={`w-1.5 h-1.5 rounded-full ${isSubActive ? 'bg-red-400' : 'bg-red-900/50'}`}></span>
@@ -151,10 +157,9 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
             );
           })}
 
-          {/* Complementary Access */}
           <div className="pt-4 border-t border-red-900/30 space-y-1">
             <button 
-              onClick={() => { setIsTutorialOpen(true); setIsSidebarOpen(false); }}
+              onClick={() => { setIsTutorialOpen(true); closeSidebar(); }}
               className="flex items-center gap-4 w-full px-5 py-4 rounded-2xl text-red-200 hover:bg-white/10 transition-all text-[11px] font-black uppercase tracking-widest"
             >
               <HelpCircle className="w-6 h-6 text-yellow-400" /> 
@@ -162,7 +167,7 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
             </button>
             
             <button 
-              onClick={() => { setIsAboutOpen(true); setIsSidebarOpen(false); }}
+              onClick={() => { setIsAboutOpen(true); closeSidebar(); }}
               className="flex items-center gap-4 w-full px-5 py-4 rounded-2xl text-red-200 hover:bg-white/10 transition-all text-[11px] font-black uppercase tracking-widest"
             >
               <Info className="w-6 h-6 text-blue-300" /> 
@@ -171,8 +176,7 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
           </div>
         </nav>
 
-        {/* Footer: Profile & Logout */}
-        <div className="p-4 bg-black/10 border-t border-red-900/30 shrink-0">
+        <div className="p-4 bg-black/10 border-t border-red-900/30 shrink-0 hidden lg:block">
           {user && (
             <div className="flex items-center gap-4 p-4 bg-white/5 rounded-[2rem] border border-white/5 mb-4 shadow-inner">
               <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-[#7f1d1d] font-black text-lg shadow-xl border-2 border-red-900/20">
@@ -196,7 +200,8 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
       </aside>
 
       <main className="flex-1 flex flex-col overflow-hidden relative bg-white">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:hidden shrink-0 z-50 shadow-sm">
+        {/* Header Mobile */}
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 z-50 lg:hidden">
            <div className="flex items-center gap-3">
               <img src={SYSARP_LOGO} className="w-8 h-8 object-contain" alt="Logo" />
               <h2 className="font-black text-[#7f1d1d] tracking-tighter text-xl uppercase leading-none">SYSARP</h2>
@@ -209,12 +214,32 @@ export default function Layout({ children }: { children?: React.ReactNode }) {
            </button>
         </header>
         
-        <div className="flex-1 relative overflow-hidden">
+        <div className="flex-1 relative overflow-hidden pb-16 lg:pb-0">
           {children}
         </div>
+
+        {/* Barra de Navegação Inferior - Mobile Only */}
+        <nav className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-200 flex items-center justify-around z-[120] lg:hidden shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
+          <Link to="/" className={`flex flex-col items-center gap-1 ${location.pathname === '/' ? 'text-red-700' : 'text-slate-400'}`}>
+            <Home className="w-5 h-5" />
+            <span className="text-[9px] font-black uppercase">Início</span>
+          </Link>
+          <Link to="/operations" className={`flex flex-col items-center gap-1 ${location.pathname.startsWith('/operations') ? 'text-red-700' : 'text-slate-400'}`}>
+            <Radio className="w-5 h-5" />
+            <span className="text-[9px] font-black uppercase">Missões</span>
+          </Link>
+          <Link to="/drones" className={`flex flex-col items-center gap-1 ${location.pathname.startsWith('/drones') ? 'text-red-700' : 'text-slate-400'}`}>
+            <Plane className="w-5 h-5" />
+            <span className="text-[9px] font-black uppercase">Frota</span>
+          </Link>
+          <Link to="/transmissions" className={`flex flex-col items-center gap-1 ${location.pathname.startsWith('/transmissions') ? 'text-red-700' : 'text-slate-400'}`}>
+            <Activity className="w-5 h-5" />
+            <span className="text-[9px] font-black uppercase">Live</span>
+          </Link>
+        </nav>
       </main>
 
-      {/* Overlays */}
+      {/* Modais de Informação */}
       <TutorialModal isOpen={isTutorialOpen} onClose={() => setIsTutorialOpen(false)} />
       <AboutModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
     </div>

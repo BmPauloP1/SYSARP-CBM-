@@ -1,31 +1,26 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, Circle, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import "@geoman-io/leaflet-geoman-free";
 import html2canvas from 'html2canvas'; 
 import { base44 } from '../services/base44Client';
-import { supabase } from '../services/supabase';
-import { tacticalService, TacticalSector, TacticalDrone, TacticalPOI, TacticalKmlLayer } from '../services/tacticalService';
-import { Operation, Drone, Pilot, MISSION_COLORS, MISSION_HIERARCHY } from '../types';
+import { tacticalService, TacticalSector, TacticalDrone, TacticalPOI } from '../services/tacticalService';
+import { Operation, Drone, Pilot, MISSION_COLORS } from '../types';
 import { Card, Button, Input, Select, Badge } from '../components/ui_components';
 import { 
-  ArrowLeft, Radio, Plus, Trash2, Crosshair, Hexagon, Flag, 
-  MapPin, Settings, X, Save, Eye, EyeOff, Move, Navigation,
-  AlertTriangle, ShieldAlert, Target, Video, ListFilter, History, Zap, 
-  Map as MapIcon, Globe, ChevronRight, ChevronLeft, Maximize, Minimize, MousePointer2,
-  Users, Truck, Dog, UserCheck, Ruler, LayoutDashboard, Camera, CheckCircle, Loader2, Layers, Satellite, FileUp, Files,
-  Footprints, Package, GripHorizontal, Activity, Wifi, Gauge, Thermometer, Wind, Battery, Plane, Heart, AlertOctagon, Search
+  ArrowLeft, Plus, Trash2, Hexagon, Flag, 
+  MapPin, Settings, X, Navigation,
+  Video, ChevronRight, Globe, Camera, 
+  Users, Truck, Dog, Heart, AlertTriangle, 
+  Layers, Satellite, Activity, LocateFixed, Loader2,
+  FileUp, Ruler
 } from 'lucide-react';
 import SectorsLayer from '../components/maps/tactical/SectorsLayer';
 
 const PHONETIC = ['ALFA', 'BRAVO', 'CHARLIE', 'DELTA', 'ECHO', 'FOXTROT', 'GOLF', 'HOTEL', 'INDIA', 'JULIETT', 'KILO', 'LIMA', 'MIKE', 'NOVEMBER', 'OSCAR', 'PAPA', 'QUEBEC', 'ROMEO', 'SIERRA', 'TANGO', 'UNIFORM', 'VICTOR', 'WHISKEY', 'X-RAY', 'YANKEE', 'ZULU'];
-const TACTICAL_COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#f97316', '#14b8a6', '#6366f1'];
 
-const poiIconCache: Record<string, L.DivIcon> = {};
-const droneIconCache: Record<string, L.DivIcon> = {};
-
-// Utilitários de Cálculo de Área
 const calculatePolygonArea = (coordinates: any) => {
     if (!coordinates || !Array.isArray(coordinates) || coordinates.length === 0) return 0;
     try {
@@ -45,14 +40,8 @@ const formatArea = (m2: number) => {
     return `${Math.round(m2).toLocaleString('pt-BR')} m²`;
 };
 
-// Ícones de POI com alerta visual de transmissão
 const getPoiIcon = (type: string, hasStream?: boolean) => {
-    const cacheKey = `${type}-${hasStream}`;
-    if (poiIconCache[cacheKey]) return poiIconCache[cacheKey];
-    
-    let color = '#64748b';
-    let iconSvg = '';
-
+    let color = '#64748b'; let iconSvg = '';
     switch(type) {
         case 'base': color = '#b91c1c'; iconSvg = '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'; break;
         case 'victim': color = '#ef4444'; iconSvg = '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>'; break;
@@ -60,125 +49,24 @@ const getPoiIcon = (type: string, hasStream?: boolean) => {
         case 'ground_team': color = '#2563eb'; iconSvg = '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'; break;
         case 'vehicle': color = '#dc2626'; iconSvg = '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M9 18h6"/><path d="M19 18h2a1 1 0 0 0 1-1v-5l-3-4h-5"/>'; break;
         case 'k9': color = '#78350f'; iconSvg = '<path d="M10 5.172l.596.596a2 2 0 0 0 2.828 0L14 5.172M20 21l-2-6M6 21l2-6M12 21v-6M4 4l3 3M20 4l-3 3M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z"/>'; break;
-        case 'footprint': color = '#4b5563'; iconSvg = '<path d="M4 16v-2.382a2 2 0 0 1 1.106-1.789l5.788-2.894A2 2 0 0 1 12 8.146V6M16 21v-2.382a2 2 0 0 1 1.106-1.789l2.788-1.394A2 2 0 0 1 13 13.646V11.5M12 21v-2.382a2 2 0 0 1 1.106-1.789l1.788-0.894A2 2 0 0 1 16 15.146V13M8 21v-2.382a2 2 0 0 1 1.106-1.789l2.788-1.394A2 2 0 0 1 13 13.646V11.5"/>'; break;
-        case 'object': color = '#0891b2'; iconSvg = '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>'; break;
         default: iconSvg = '<circle cx="12" cy="12" r="10"/>';
     }
-
-    const icon = L.divIcon({ 
+    return L.divIcon({ 
         className: 'custom-poi-marker', 
-        html: `<div style="position: relative; background-color: ${color}; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border: 2.5px solid white;">
-            ${hasStream ? `<div style="position: absolute; top: -12px; background: #ef4444; border-radius: 50%; width: 12px; height: 12px; border: 2px solid white;" class="animate-pulse shadow-lg"></div>` : ''}
-            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px;">${iconSvg}</svg>
-        </div>`, 
-        iconSize: [38, 38], 
-        iconAnchor: [19, 19] 
+        html: `<div style="position: relative; background-color: ${color}; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0,0,0,0.4); border: 2px solid white;">${hasStream ? `<div style="position: absolute; top: -8px; background: #ef4444; border-radius: 50%; width: 10px; height: 10px; border: 1.5px solid white;" class="animate-pulse"></div>` : ''}<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" style="width: 16px; height: 16px;">${iconSvg}</svg></div>`, 
+        iconSize: [32, 32], 
+        iconAnchor: [16, 16] 
     });
-    poiIconCache[cacheKey] = icon;
-    return icon;
 };
 
-// Ícone para Drones com Telemetria e Alerta de Live
-const createTacticalDroneIcon = (td: any) => {
-    const pilotName = td.pilot?.full_name?.split(' ')[0] || td.pilot_id || 'PIC';
-    const alt = Math.round(td.altitude || td.flight_altitude || 60);
-    const bat = td.battery_percent || td.battery || td.battery_level || 100;
-    const isMain = td.id?.startsWith('main-op-drone');
-    const color = isMain ? '#ef4444' : (td.drone_sn ? '#2563eb' : '#10b981');
-    const hasStream = !!td.stream_url;
-    
-    const cacheKey = `${pilotName}-${alt}-${bat}-${hasStream}-${color}-${isMain}`;
-    if (droneIconCache[cacheKey]) return droneIconCache[cacheKey];
-
-    const icon = L.divIcon({ 
-        className: 'drone-tactical-marker', 
-        html: `<div style="display: flex; flex-direction: column; align-items: center; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.4)); position: relative;">
-            ${hasStream ? `<div style="position: absolute; top: -15px; background: #ef4444; border-radius: 50%; width: 12px; height: 12px; border: 2px solid white; z-index: 10;" class="animate-pulse shadow-lg"></div>` : ''}
-            <div style="background: #0f172a; color: white; font-size: 9px; font-weight: 900; padding: 2px 8px; border-radius: 4px; margin-bottom: 4px; border: 1.5px solid rgba(255,255,255,0.4); white-space: nowrap; text-transform: uppercase; letter-spacing: -0.2px;">
-                ${pilotName}${isMain ? ' (PRINCIPAL)' : ''}
-            </div>
-            <div style="background-color: ${color}; width: 40px; height: 40px; border: 3px solid white; border-radius: 10px; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; transition: all 0.3s ease;">
-                <div style="transform: rotate(-45deg);">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 22px; height: 22px;">
-                        <path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-                    </svg>
-                </div>
-            </div>
-            <div style="background: white; color: #1e293b; font-size: 9px; font-weight: 900; padding: 3px 6px; border-radius: 4px; margin-top: 5px; border: 1px solid #cbd5e1; white-space: nowrap; display: flex; gap: 6px; box-shadow: 0 4px 6px rgba(0,0,0,0.15);">
-                <span style="color: #2563eb;">${alt}M</span>
-                <span style="${bat < 20 ? 'color: #ef4444;' : 'color: #16a34a;'}">${bat}%</span>
-            </div>
-        </div>`, 
-        iconSize: [110, 110], 
-        iconAnchor: [55, 55] 
-    });
-    droneIconCache[cacheKey] = icon;
-    return icon;
-};
-
-// Componente de Janela Flutuante Arrastável para Mosaico de Vídeo
-const FloatingPiP: React.FC<{ stream: { id: string, name: string, url: string }, onClose: () => void }> = ({ stream, onClose }) => {
-    const [pos, setPos] = useState({ x: 20 + (Math.random() * 60), y: 120 + (Math.random() * 60) });
-    const draggingRef = useRef(false);
-    const startRef = useRef({ x: 0, y: 0 });
-    const [isMinimized, setIsMinimized] = useState(false);
-
-    const handleMouseDown = (e: React.MouseEvent) => {
-        draggingRef.current = true;
-        startRef.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-        if (!draggingRef.current) return;
-        setPos({ x: e.clientX - startRef.current.x, y: e.clientY - startRef.current.y });
-    };
-
-    const handleMouseUp = () => {
-        draggingRef.current = false;
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    return (
-        <div className="fixed z-[9000] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col group animate-fade-in ring-1 ring-white/10" style={{ left: pos.x, top: pos.y, width: isMinimized ? 180 : 340 }}>
-            <div className="h-9 bg-slate-800 flex items-center justify-between px-3 cursor-move border-b border-slate-700 shrink-0" onMouseDown={handleMouseDown}>
-                <div className="flex items-center gap-2 overflow-hidden">
-                    <Video className="w-3.5 h-3.5 text-red-500 shrink-0 animate-pulse" />
-                    <span className="text-[10px] font-black text-slate-300 uppercase truncate">{stream.name}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                    <button onClick={() => setIsMinimized(!isMinimized)} className="p-1.5 hover:bg-white/10 rounded transition-colors"><Minimize className="w-3 h-3 text-slate-400" /></button>
-                    <button onClick={onClose} className="p-1.5 hover:bg-red-600 rounded text-slate-400 hover:text-white transition-colors"><X className="w-4 h-4" /></button>
-                </div>
-            </div>
-            {!isMinimized && (
-                <div className="aspect-video bg-black relative">
-                    <iframe src={stream.url.replace('watch?v=', 'embed/')} className="w-full h-full pointer-events-auto" frameBorder="0" allowFullScreen />
-                </div>
-            )}
-        </div>
-    );
-};
-
-const MapController = ({ center, isCreating, onMapReady }: { center: [number, number], isCreating: boolean, onMapReady: (map: L.Map) => void }) => {
-    const map = useMap();
-    useEffect(() => {
-        onMapReady(map);
-        map.setView(center, map.getZoom());
-    }, [center, map, onMapReady]);
-    return null;
-};
-
-const MapDrawingBridge = ({ drawMode, setDrawMode }: { drawMode: string | null, setDrawMode: (mode: string | null) => void }) => {
+const MapDrawingBridge = ({ drawMode }: { drawMode: string | null }) => {
     const map = useMap();
     useEffect(() => {
         if (!map || !(map as any).pm) return;
         const pm = (map as any).pm;
         pm.disableDraw();
-        if (drawMode === 'sector') pm.enableDraw('Polygon', { snappable: true, cursorMarker: true, pathOptions: { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.2 } });
-        else if (drawMode === 'route') pm.enableDraw('Line', { snappable: true, cursorMarker: true, pathOptions: { color: '#f59e0b', weight: 4, dashArray: '5, 10' } });
+        if (drawMode === 'sector') pm.enableDraw('Polygon', { snappable: true, cursorMarker: true });
+        else if (drawMode === 'route') pm.enableDraw('Line', { snappable: true, cursorMarker: true });
         else if (drawMode === 'poi') pm.enableDraw('Marker', { snappable: true, cursorMarker: true });
     }, [drawMode, map]);
     return null;
@@ -188,36 +76,24 @@ export default function TacticalOperationCenter() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const mapRef = useRef<HTMLDivElement>(null); 
-  const leafletMapRef = useRef<L.Map | null>(null);
-  
   const [operation, setOperation] = useState<Operation | null>(null);
   const [sectors, setSectors] = useState<TacticalSector[]>([]);
   const [pois, setPois] = useState<TacticalPOI[]>([]);
   const [tacticalDrones, setTacticalDrones] = useState<TacticalDrone[]>([]);
-  const [kmlLayers, setKmlLayers] = useState<TacticalKmlLayer[]>([]);
-  
   const [drones, setDrones] = useState<Drone[]>([]);
   const [pilots, setPilots] = useState<Pilot[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [activeTab, setActiveTab] = useState<'resources' | 'kml'>('resources');
+  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 1024);
+  const [activeTab, setActiveTab] = useState<'resources' | 'layers'>('resources');
   const [activePanel, setActivePanel] = useState<'create' | 'manage' | null>(null);
-  
-  const [selectedEntity, setSelectedEntity] = useState<any>(null); 
   const [entityType, setEntityType] = useState<'sector' | 'poi' | 'drone' | null>(null);
+  const [selectedEntity, setSelectedEntity] = useState<any>(null); 
   const [mapType, setMapType] = useState<'street' | 'satellite'>('street');
   const [currentDrawMode, setCurrentDrawMode] = useState<string | null>(null);
   const [tempGeometry, setTempGeometry] = useState<any>(null); 
-  const [activePiPs, setActivePiPs] = useState<Record<string, { id: string, name: string, url: string }>>({});
-  
-  // Formulários
-  const [assignDroneId, setAssignDroneId] = useState("");
-  const [assignPilotId, setAssignPilotId] = useState("");
-  const [assignStreamUrl, setAssignStreamUrl] = useState("");
   const [newItemName, setNewItemName] = useState('');
-  const [newItemColor, setNewItemColor] = useState('#3b82f6');
-  const [newItemSubType, setNewItemSubType] = useState('ground_team');
-  const [newItemStreamUrl, setNewItemStreamUrl] = useState('');
+  const [newItemSubType, setNewItemSubType] = useState('base');
+  const [newItemStream, setNewItemStream] = useState('');
 
   useEffect(() => { if (id) loadTacticalData(id); }, [id]);
 
@@ -233,357 +109,318 @@ export default function TacticalOperationCenter() {
       ]);
       if (!op) { navigate('/operations'); return; }
       
-      // Explicitly typed td to resolve unknown property errors
-      const enrichedDrones = tDrones.map((td: TacticalDrone) => ({
-        ...td,
-        drone: allDrones.find(d => d.id === td.drone_id),
-        pilot: allPilots.find(p => p.id === td.pilot_id)
+      const enrichedDrones = tDrones.map((td: TacticalDrone) => ({ 
+          ...td, 
+          drone: allDrones.find(d => d.id === td.drone_id), 
+          pilot: allPilots.find(p => p.id === td.pilot_id) 
       }));
 
-      // Auto-lançamento do Drone Principal (Se houver drone_id na operação e não estiver já no tático)
-      // Explicitly typed td in some calls to resolve potential unknown errors
-      if (op.drone_id && !enrichedDrones.some((td: any) => td.drone_id === op.drone_id)) {
-          const mainDrone = allDrones.find(d => d.id === op.drone_id);
-          const mainPilot = allPilots.find(p => p.id === op.pilot_id);
+      // AUTO-SPAWN DO DRONE INICIAL
+      if (op.drone_id && !enrichedDrones.some(td => td.drone_id === op.drone_id)) {
           enrichedDrones.unshift({
-              id: `main-op-drone-${op.id}`,
-              operation_id: opId,
+              id: `init-${op.id}`,
+              operation_id: op.id,
               drone_id: op.drone_id,
               pilot_id: op.pilot_id,
               status: 'active',
               current_lat: op.latitude,
               current_lng: op.longitude,
-              stream_url: op.stream_url,
-              drone: mainDrone,
-              pilot: mainPilot
+              drone: allDrones.find(d => d.id === op.drone_id),
+              pilot: allPilots.find(p => p.id === op.pilot_id)
           } as any);
       }
 
       setOperation(op); setSectors(sects); setPois(points); setTacticalDrones(enrichedDrones as any);
       setDrones(allDrones); setPilots(allPilots);
-      setKmlLayers(tacticalService.getKmlLayers(opId));
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
   const operationalSummary = useMemo(() => {
-    const totalDrones = tacticalDrones.length;
     const totalAreaM2 = sectors.filter(s => s.geojson?.coordinates).reduce((acc, s) => acc + calculatePolygonArea(s.geojson.coordinates), 0);
-    const k9Count = pois.filter(p => p.type === 'k9').length;
-    const victimCount = pois.filter(p => p.type === 'victim').length;
-    const teamCount = pois.filter(p => p.type === 'ground_team').length;
-    return { totalAreaM2, drones: totalDrones, sectors: sectors.length, pois: pois.length, k9: k9Count, victims: victimCount, teams: teamCount };
+    return { 
+        totalAreaM2, 
+        drones: tacticalDrones.length, 
+        victims: pois.filter(p => p.type === 'victim').length, 
+        teams: pois.filter(p => p.type === 'ground_team').length,
+        vehicles: pois.filter(p => p.type === 'vehicle').length
+    };
   }, [sectors, pois, tacticalDrones]);
-
-  const handleTogglePiP = (id: string, name: string, url?: string) => {
-      setActivePiPs(prev => {
-          const newPiPs = { ...prev };
-          if (newPiPs[id]) delete newPiPs[id];
-          else if (url) newPiPs[id] = { id, name, url };
-          return newPiPs;
-      });
-  };
-
-  const handleCaptureSnapshot = async () => {
-    if (!mapRef.current || !id) return;
-    try {
-        const canvas = await html2canvas(mapRef.current, { 
-            useCORS: true, allowTaint: true,
-            ignoreElements: (el) => el.classList.contains('leaflet-control-container')
-        });
-        const base64 = canvas.toDataURL('image/jpeg', 0.8);
-        await tacticalService.saveMapSnapshot(id, base64);
-        alert("Panorama Tático Capturado com Sucesso!");
-    } catch (e) { console.error(e); }
-  };
-
-  const handleKmlUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file || !id) return;
-      const newLayer: TacticalKmlLayer = { id: crypto.randomUUID(), operation_id: id, name: file.name, geojson: null, visible: true, color: '#6366f1' };
-      tacticalService.saveKmlLayer(id, newLayer);
-      loadTacticalData(id);
-      alert(`Camada "${file.name}" importada para o sistema.`);
-  };
 
   const handleDrawCreated = (e: any) => {
     const geojson = e.layer.toGeoJSON(); 
     let type: 'poi' | 'sector' = e.layerType === 'marker' ? 'poi' : 'sector';
-    setEntityType(type); setTempGeometry(geojson); setCurrentDrawMode(null);
+    setEntityType(type); 
+    setTempGeometry(geojson); 
+    setCurrentDrawMode(null);
     if (type === 'sector') setNewItemName(PHONETIC[sectors.length % PHONETIC.length]);
+    else setNewItemName(`Ponto ${pois.length + 1}`);
     setActivePanel('create');
+    setSidebarOpen(true);
   };
 
-  if (loading || !operation) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white font-black animate-pulse">ESTABELECENDO LINK CCO...</div>;
+  const handleSaveElement = async () => {
+      if (!id || !tempGeometry) return;
+      try {
+          if (entityType === 'poi') {
+              const [lng, lat] = tempGeometry.geometry.coordinates;
+              await tacticalService.createPOI({ 
+                  operation_id: id, 
+                  name: newItemName, 
+                  type: newItemSubType as any, 
+                  lat, lng, 
+                  stream_url: newItemStream 
+              });
+          } else {
+              await tacticalService.createSector({ 
+                  operation_id: id, 
+                  name: newItemName, 
+                  type: 'sector', 
+                  color: '#ef4444', 
+                  geojson: tempGeometry.geometry 
+              });
+          }
+          setActivePanel(null);
+          setNewItemStream('');
+          loadTacticalData(id);
+      } catch(e) { alert("Erro ao salvar elemento."); }
+  };
+
+  const handleCaptureSnapshot = async () => {
+    if (!mapRef.current || !operation) return;
+    try {
+      const canvas = await html2canvas(mapRef.current, { useCORS: true, allowTaint: true });
+      const base64 = canvas.toDataURL('image/jpeg', 0.8);
+      await tacticalService.saveMapSnapshot(operation.id, base64);
+      alert("Snapshot tático salvo no sistema!");
+    } catch (e) { alert("Erro ao capturar mapa."); }
+  };
+
+  if (loading || !operation) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white font-black animate-pulse">SINCRONIZANDO TEATRO DE OPERAÇÕES...</div>;
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 overflow-hidden text-slate-800 font-sans">
       
-      {/* Sistema PiP Flutuante - Pode ter múltiplas janelas */}
-      {/* Fix: Explicitly type 'pip' to avoid 'unknown' type errors when accessing 'id' and 'name' */}
-      {Object.values(activePiPs).map((pip: { id: string, name: string, url: string }) => (
-          <FloatingPiP key={pip.id} stream={pip} onClose={() => handleTogglePiP(pip.id, pip.name)} />
-      ))}
-      
-      {/* Top Header */}
-      <div className="h-14 bg-[#7f1d1d] border-b border-red-900/40 flex items-center justify-between px-4 shrink-0 z-[1000] shadow-2xl">
-        <div className="flex items-center gap-3 text-white">
-          <Button variant="outline" onClick={() => navigate('/operations')} className="h-9 w-9 p-0 border-white/20 bg-white/10 text-white rounded-full"><ArrowLeft className="w-4 h-4" /></Button>
-          <div className="min-w-0">
-            <h1 className="text-sm font-black uppercase tracking-tighter leading-none">{operation.name}</h1>
-            <p className="text-[10px] text-red-200 opacity-60 font-bold uppercase mt-0.5 tracking-widest">CCO TÁTICO • #{operation.occurrence_number}</p>
+      {/* Header Tático Institucional */}
+      <div className="h-16 bg-[#7f1d1d] border-b border-red-900/40 flex items-center justify-between px-6 shrink-0 z-[1000] shadow-2xl">
+        <div className="flex items-center gap-4 text-white">
+          <button onClick={() => navigate('/operations')} className="h-10 w-10 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-all border border-white/20">
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div>
+            <h1 className="text-sm md:text-base font-black uppercase tracking-tight truncate max-w-[200px] md:max-w-none">{operation.name}</h1>
+            <p className="text-[10px] text-red-200 opacity-60 font-bold uppercase tracking-widest">CCO TÁTICO • CBMPR • #{operation.occurrence_number}</p>
           </div>
         </div>
-        <div className="flex gap-2">
-            <Button onClick={() => setSidebarOpen(!sidebarOpen)} className="h-9 px-4 text-[10px] font-black uppercase bg-white text-red-700 shadow-lg border-none hover:bg-slate-100 transition-all">{sidebarOpen ? 'OCULTAR CONTROLES' : 'EXIBIR CONTROLES'}</Button>
+        <div className="flex items-center gap-3">
+            <Button onClick={() => setSidebarOpen(!sidebarOpen)} className="bg-white text-red-700 h-10 px-6 font-black text-xs uppercase shadow-xl border-none">
+                {sidebarOpen ? 'FECHAR PAINEL' : 'CONTROLES'}
+            </Button>
         </div>
       </div>
 
       <div className="flex-1 flex overflow-hidden relative">
-          {/* Sidebar de Controle */}
-          <div className={`${sidebarOpen ? 'w-80' : 'w-0'} bg-white border-r border-slate-200 flex flex-col shadow-[10px_0_30px_rgba(0,0,0,0.1)] z-[500] transition-all duration-300 overflow-hidden shrink-0`}>
-              <div className="flex bg-slate-100 p-1.5 m-3 rounded-xl shrink-0 border border-slate-200 shadow-inner">
-                  <button onClick={() => { setActiveTab('resources'); setActivePanel(null); }} className={`flex-1 py-2.5 text-[10px] font-black uppercase rounded-lg transition-all ${activeTab === 'resources' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>Recursos</button>
-                  <button onClick={() => { setActiveTab('kml'); setActivePanel(null); }} className={`flex-1 py-2.5 text-[10px] font-black uppercase rounded-lg transition-all ${activeTab === 'kml' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>Camadas KML</button>
+          {/* BARRA LATERAL TÁTICA */}
+          <div className={`${sidebarOpen ? 'w-full lg:w-96' : 'w-0'} bg-white border-r border-slate-200 flex flex-col shadow-2xl z-[500] transition-all duration-300 overflow-hidden shrink-0`}>
+              
+              <div className="flex bg-slate-100 p-1.5 m-4 rounded-2xl shrink-0 border border-slate-200">
+                  <button onClick={() => setActiveTab('resources')} className={`flex-1 py-3 text-[11px] font-black uppercase rounded-xl transition-all ${activeTab === 'resources' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500'}`}>Recursos</button>
+                  <button onClick={() => setActiveTab('layers')} className={`flex-1 py-3 text-[11px] font-black uppercase rounded-xl transition-all ${activeTab === 'layers' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500'}`}>Camadas</button>
               </div>
 
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4">
-                  
-                  {/* CONTEÚDO PRINCIPAL (TABS) */}
-                  {!activePanel && (
-                      <div className="animate-fade-in space-y-4">
-                          {activeTab === 'resources' ? (
-                            <>
-                                {/* Resumo Operacional */}
-                                <div className="bg-slate-900 p-4 rounded-2xl text-white space-y-3 shadow-xl ring-1 ring-white/10">
-                                    <h3 className="text-[10px] font-black text-white/40 uppercase tracking-widest flex items-center gap-2 border-b border-white/5 pb-2"><LayoutDashboard className="w-3.5 h-3.5"/> Consciência Situacional</h3>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <div className="bg-white/5 p-2.5 rounded-xl border border-white/5"><p className="text-[8px] font-bold text-white/40 uppercase">Área Coberta</p><p className="text-sm font-black text-blue-400">{formatArea(operationalSummary.totalAreaM2)}</p></div>
-                                        <div className="bg-white/5 p-2.5 rounded-xl border border-white/5"><p className="text-[8px] font-bold text-white/40 uppercase">Vetores RPA</p><p className="text-sm font-black text-red-500">{operationalSummary.drones}</p></div>
-                                        <div className="bg-white/5 p-2.5 rounded-xl border border-white/5"><p className="text-[8px] font-bold text-white/40 uppercase">Equipes Solo</p><p className="text-sm font-black text-indigo-400">{operationalSummary.teams}</p></div>
-                                        <div className="bg-white/5 p-2.5 rounded-xl border border-white/5"><p className="text-[8px] font-bold text-white/40 uppercase">Vítimas</p><p className="text-sm font-black text-green-400">{operationalSummary.victims}</p></div>
-                                    </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
+                  {!activePanel ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                            <Card className="p-4 bg-slate-900 text-white border-none shadow-lg">
+                                <p className="text-[9px] font-black text-white/40 uppercase mb-1">Área Atuação</p>
+                                <h4 className="text-lg font-black">{formatArea(operationalSummary.totalAreaM2)}</h4>
+                            </Card>
+                            <Card className="p-4 bg-slate-900 text-white border-none shadow-lg">
+                                <p className="text-[9px] font-black text-white/40 uppercase mb-1">Vetores RPA</p>
+                                <h4 className="text-lg font-black">{operationalSummary.drones} Ativos</h4>
+                            </Card>
+                            <Card className="p-4 bg-red-50 border-red-100 shadow-sm col-span-2 flex justify-between items-center">
+                                <div className="flex gap-4">
+                                    <div><p className="text-[9px] font-black text-red-400 uppercase">Equipes</p><p className="text-lg font-black text-red-700">{operationalSummary.teams}</p></div>
+                                    <div className="w-px h-8 bg-red-200 self-center"></div>
+                                    <div><p className="text-[9px] font-black text-red-400 uppercase">Vítimas</p><p className="text-lg font-black text-red-700">{operationalSummary.victims}</p></div>
                                 </div>
+                                <Activity className="w-6 h-6 text-red-300 animate-pulse" />
+                            </Card>
+                        </div>
 
-                                {/* Despacho Rápido */}
-                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3 shadow-sm">
-                                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Zap className="w-3.5 h-3.5"/> Ativar Recurso</h3>
-                                    <Select className="h-9 text-[11px]" value={assignDroneId} onChange={e => setAssignDroneId(e.target.value)}>
-                                        <option value="">Selecionar Drone...</option>
-                                        {drones.map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
-                                    </Select>
-                                    <Select className="h-9 text-[11px]" value={assignPilotId} onChange={e => setAssignPilotId(e.target.value)}>
-                                        <option value="">Piloto em Comando...</option>
-                                        {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-                                    </Select>
-                                    <Button onClick={async () => {
-                                        await tacticalService.assignDrone({ operation_id: id!, drone_id: assignDroneId, pilot_id: assignPilotId, status: 'active', current_lat: operation.latitude, current_lng: operation.longitude, stream_url: assignStreamUrl });
-                                        setAssignDroneId(""); setAssignPilotId(""); setAssignStreamUrl(""); loadTacticalData(id!);
-                                    }} className="w-full bg-red-600 hover:bg-red-700 text-white font-black uppercase h-9 text-[10px] shadow-md border-none">Lançar no Mapa</Button>
-                                </div>
-
-                                {/* Listagem de Recursos Ativos */}
-                                <div className="space-y-2">
-                                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Elementos em Campo</h4>
-                                    {/* Fix: Added explicit type to td in map callback to avoid 'unknown' type property access errors (line 321 in user's report) */}
-                                    {tacticalDrones.map((td: TacticalDrone) => (
-                                        <div key={td.id} onClick={() => { setSelectedEntity(td); setEntityType('drone'); setActivePanel('manage'); }} className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between cursor-pointer hover:bg-slate-50 shadow-sm transition-all hover:translate-x-1">
-                                            <div className="flex items-center gap-3">
-                                                <div className={`p-2 rounded-lg text-white ${td.id.includes('main') ? 'bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.3)]' : 'bg-blue-600'}`}><Plane className="w-4 h-4"/></div>
-                                                <div className="min-w-0">
-                                                    <p className="text-xs font-black text-slate-800 leading-none truncate">{td.drone?.prefix}</p>
-                                                    <p className="text-[9px] text-slate-400 font-bold uppercase mt-1 truncate">{td.pilot?.full_name?.split(' ')[0]}</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                {td.stream_url && <Video className="w-4 h-4 text-red-500 animate-pulse" />}
-                                                <ChevronRight className="w-4 h-4 text-slate-300"/>
-                                            </div>
+                        <div className="space-y-4">
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1">
+                                <MapPin className="w-3.5 h-3.5" /> Objetivos e Pontos
+                            </h3>
+                            <div className="space-y-2">
+                                {sectors.map(s => (
+                                    <div key={s.id} onClick={() => { setSelectedEntity(s); setEntityType('sector'); setActivePanel('manage'); }} className="p-4 bg-white border border-slate-200 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors shadow-sm">
+                                        <div className="flex items-center gap-4">
+                                            <div className="p-2 rounded-xl" style={{ backgroundColor: s.color + '20', color: s.color }}><Hexagon className="w-5 h-5"/></div>
+                                            <div><p className="text-xs font-black uppercase text-slate-800">{s.name}</p><p className="text-[9px] text-slate-400 font-bold">{formatArea(calculatePolygonArea(s.geojson.coordinates))}</p></div>
                                         </div>
-                                    ))}
-                                    {/* Fix: Added explicit type to p in map callback to avoid 'unknown' type property access errors */}
-                                    {pois.map((p: TacticalPOI) => (
-                                        <div key={p.id} onClick={() => { setSelectedEntity(p); setEntityType('poi'); setActivePanel('manage'); }} className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between cursor-pointer hover:bg-slate-50 shadow-sm transition-all hover:translate-x-1">
-                                            <div className="flex items-center gap-3">
-                                                <div className="p-2 bg-slate-100 rounded-lg text-slate-500"><MapPin className="w-4 h-4"/></div>
-                                                <span className="text-xs font-bold text-slate-700 uppercase truncate max-w-[120px]">{p.name}</span>
+                                        <ChevronRight className="w-4 h-4 text-slate-300"/>
+                                    </div>
+                                ))}
+                                {pois.map(p => (
+                                    <div key={p.id} onClick={() => { setSelectedEntity(p); setEntityType('poi'); setActivePanel('manage'); }} className="p-4 bg-white border border-slate-200 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors shadow-sm">
+                                        <div className="flex items-center gap-4">
+                                            <div className="p-2 rounded-full bg-slate-100 text-slate-600">
+                                                {p.type === 'victim' ? <Heart className="w-5 h-5 text-red-600"/> : p.type === 'ground_team' ? <Users className="w-5 h-5 text-blue-600"/> : p.type === 'vehicle' ? <Truck className="w-5 h-5 text-red-600"/> : p.type === 'k9' ? <Dog className="w-5 h-5 text-amber-900"/> : <MapPin className="w-5 h-5"/>}
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                {p.stream_url && <Video className="w-4 h-4 text-red-500 animate-pulse" />}
-                                                <ChevronRight className="w-4 h-4 text-slate-300"/>
-                                            </div>
+                                            <div><p className="text-xs font-black uppercase text-slate-800">{p.name}</p><p className="text-[9px] text-slate-400 font-bold uppercase">{p.type}</p></div>
                                         </div>
-                                    ))}
-                                </div>
-                            </>
-                          ) : (
-                            <div className="space-y-4 animate-fade-in p-1">
-                                <div className="p-10 border-2 border-dashed border-slate-300 rounded-2xl bg-slate-50 flex flex-col items-center justify-center text-center hover:bg-slate-100 transition-colors cursor-pointer relative group shadow-inner">
-                                    <input type="file" accept=".kml,.kmz,.geojson" onChange={handleKmlUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                                    <Globe className="w-12 h-12 text-slate-300 mb-3 group-hover:text-red-500 transition-colors" />
-                                    <p className="text-xs font-black text-slate-500 uppercase tracking-tighter">Clique ou Arraste KML/KMZ</p>
-                                    <p className="text-[10px] text-slate-400 mt-1 uppercase">Padrão Google Earth</p>
-                                </div>
-                                
-                                {kmlLayers.length > 0 ? (
-                                    <div className="space-y-2 pt-2">
-                                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Camadas Carregadas</h4>
-                                        {/* Fix: Added explicit type to l in map callback to avoid 'unknown' type property access errors (line 321 in user's report) */}
-                                        {kmlLayers.map((l: TacticalKmlLayer) => (
-                                            <div key={l.id} className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between shadow-sm">
-                                                <div className="flex items-center gap-3 min-w-0">
-                                                    <Files className="w-4 h-4 text-indigo-500 shrink-0" />
-                                                    <span className="text-xs font-bold text-slate-700 truncate">{l.name}</span>
-                                                </div>
-                                                <button className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 transition-colors"><Eye className="w-4 h-4" /></button>
-                                            </div>
-                                        ))}
+                                        <div className="flex items-center gap-3">
+                                            {p.stream_url && <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div>}
+                                            <ChevronRight className="w-4 h-4 text-slate-300"/>
+                                        </div>
                                     </div>
-                                ) : (
-                                    <div className="p-8 text-center bg-white border border-slate-200 rounded-2xl border-dashed">
-                                        <p className="text-xs text-slate-400 font-bold uppercase">Nenhum arquivo externo vinculado.</p>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="space-y-4 pt-4 border-t border-slate-100">
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1">
+                                <Activity className="w-3.5 h-3.5" /> Ativos em Tempo Real
+                            </h3>
+                            <div className="space-y-2">
+                                {tacticalDrones.map((td: any) => (
+                                    <div key={td.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-3">
+                                        <div className="p-2 bg-white rounded-lg shadow-sm"><Activity className="w-4 h-4 text-blue-600"/></div>
+                                        <div className="min-w-0">
+                                            <p className="text-[10px] font-black uppercase text-slate-700">{td.drone?.prefix}</p>
+                                            <p className="text-[9px] text-slate-400 truncate uppercase">{td.pilot?.full_name}</p>
+                                        </div>
+                                        <Badge variant="success" className="ml-auto text-[8px]">ONLINE</Badge>
                                     </div>
-                                )}
+                                ))}
                             </div>
-                          )}
-                      </div>
-                  )}
-
-                  {/* PAINEL DE CRIAÇÃO */}
-                  {activePanel === 'create' && (
-                      <div className="animate-fade-in space-y-5 px-1">
-                          <div className="flex justify-between items-center border-b border-slate-100 pb-3"><h2 className="text-xs font-black uppercase text-red-700">Novo Elemento</h2><button onClick={() => setActivePanel(null)} className="p-1 hover:bg-slate-100 rounded-full"><X className="w-5 h-5 text-slate-400"/></button></div>
-                          <Input label="Identificação" value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="Ex: Equipe Alfa..." className="h-10" />
-                          {entityType === 'poi' ? (
-                            <div className="space-y-4">
-                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Simbologia de Campo</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {[
-                                        {id: 'ground_team', label: 'Equipe Solo', icon: Users},
-                                        {id: 'victim', label: 'Vítima', icon: Heart},
-                                        {id: 'vehicle', label: 'Viatura', icon: Truck},
-                                        {id: 'k9', label: 'Equipe K9', icon: Dog},
-                                        {id: 'hazard', label: 'Perigo', icon: AlertOctagon},
-                                        {id: 'object', label: 'Vestígio', icon: Footprints},
-                                        {id: 'interest', label: 'Ponto Zero', icon: MapPin}
-                                    ].map(type => (
-                                        <button key={type.id} onClick={() => setNewItemSubType(type.id)} className={`flex items-center gap-2 p-3 rounded-xl border text-[10px] font-bold uppercase transition-all ${newItemSubType === type.id ? 'bg-red-50 border-red-600 text-red-700 shadow-md ring-1 ring-red-600/20' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
-                                            <type.icon className="w-3.5 h-3.5" /> {type.label}
-                                        </button>
-                                    ))}
-                                </div>
-                                <Input label="Link de Transmissão (Opcional)" value={newItemStreamUrl} onChange={e => setNewItemStreamUrl(e.target.value)} placeholder="Bodycam / Drone / IP..." className="h-10" />
-                            </div>
-                          ) : (
-                            <div className="space-y-3">
-                                <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Cor do Setor</label>
-                                <div className="flex flex-wrap gap-2">
-                                    {TACTICAL_COLORS.map(c => <button key={c} onClick={() => setNewItemColor(c)} className={`w-9 h-9 rounded-full border-4 transition-all ${newItemColor === c ? 'border-slate-900 scale-110 shadow-lg' : 'border-transparent opacity-60'}`} style={{ backgroundColor: c }} />)}
-                                </div>
-                            </div>
-                          )}
-                          <Button className="w-full bg-red-700 text-white font-black uppercase h-12 shadow-xl border-none mt-4" onClick={async () => {
-                             if (entityType === 'poi') {
-                               const [lng, lat] = tempGeometry.geometry.coordinates;
-                               await tacticalService.createPOI({ operation_id: id!, name: newItemName || 'Recurso de Campo', type: newItemSubType as any, lat, lng, stream_url: newItemStreamUrl });
-                             } else {
-                               await tacticalService.createSector({ operation_id: id!, name: newItemName, type: 'sector', color: newItemColor, geojson: tempGeometry.geometry });
-                             }
-                             setActivePanel(null); setNewItemStreamUrl(''); loadTacticalData(id!);
-                          }}>Salvar no Mapa</Button>
-                      </div>
-                  )}
-
-                  {/* PAINEL DE GESTÃO */}
-                  {activePanel === 'manage' && selectedEntity && (
-                      <div className="animate-fade-in space-y-5 px-1">
-                          <div className="flex justify-between items-center border-b border-slate-100 pb-3"><h2 className="text-xs font-black uppercase text-blue-700">Gerenciar Recurso</h2><button onClick={() => setActivePanel(null)} className="p-1 hover:bg-slate-100 rounded-full"><X className="w-5 h-5 text-slate-400"/></button></div>
-                          <div className="p-4 bg-slate-900 rounded-2xl text-white shadow-xl ring-1 ring-white/10">
-                              <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Identificador</p>
-                              <h4 className="text-lg font-black uppercase truncate">{(selectedEntity as any).name || (selectedEntity as any).drone?.prefix}</h4>
-                              <p className="text-[10px] text-white/60 font-bold uppercase mt-1 opacity-80">{entityType === 'drone' ? (selectedEntity as any).pilot?.full_name : 'Recurso Tático de Solo'}</p>
-                          </div>
-                          
-                          <div className="space-y-4 p-4 bg-slate-50 border border-slate-200 rounded-2xl shadow-inner">
-                              <Input label="Link de Transmissão" value={(selectedEntity as any).stream_url || ''} onChange={e => setSelectedEntity({...(selectedEntity as any), stream_url: e.target.value})} className="bg-white h-10" />
-                              <div className="flex flex-col gap-2">
-                                  <Button className="w-full bg-blue-600 text-white text-[10px] font-black uppercase h-10 shadow-md border-none" onClick={async () => {
-                                      if (entityType === 'drone') await tacticalService.updateDroneStatus((selectedEntity as any).id, { stream_url: (selectedEntity as any).stream_url });
-                                      else await tacticalService.updatePOI((selectedEntity as any).id, { stream_url: (selectedEntity as any).stream_url });
-                                      alert("Transmissão Sincronizada!"); loadTacticalData(id!);
-                                  }}>Atualizar Live</Button>
-                                  {(selectedEntity as any).stream_url && (
-                                    <Button variant="outline" className="w-full h-10 text-[10px] font-black uppercase border-red-200 text-red-600 bg-white" onClick={() => handleTogglePiP((selectedEntity as any).id, (selectedEntity as any).name || (selectedEntity as any).drone?.prefix || 'RPA', (selectedEntity as any).stream_url)}>Alternar PiP</Button>
-                                  )}
+                        </div>
+                      </>
+                  ) : activePanel === 'create' ? (
+                      <div className="space-y-6 animate-fade-in">
+                          <h2 className="text-xs font-black uppercase text-red-700 flex items-center gap-2"><Plus className="w-4 h-4"/> Novo Recurso Tático</h2>
+                          <div className="space-y-4">
+                              <Input label="Identificação / Nome" value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="Ex: SETOR ALFA..." />
+                              {entityType === 'poi' && (
+                                  <>
+                                      <Select label="Natureza do Ponto" value={newItemSubType} onChange={e => setNewItemSubType(e.target.value)}>
+                                          <option value="base">Posto de Comando (Base)</option>
+                                          <option value="victim">Vítima Avistada</option>
+                                          <option value="ground_team">Equipe de Solo</option>
+                                          <option value="vehicle">Viatura BM</option>
+                                          <option value="k9">Binômio (K9)</option>
+                                          <option value="hazard">Zona de Perigo</option>
+                                          <option value="landing_zone">Ponto de Decolagem</option>
+                                      </Select>
+                                      <Input label="URL de Transmissão (Ponto)" value={newItemStream} onChange={e => setNewItemStream(e.target.value)} placeholder="RTMP / Youtube / Link Live..." />
+                                  </>
+                              )}
+                              <div className="flex gap-3 pt-4">
+                                  <Button variant="outline" className="flex-1" onClick={() => setActivePanel(null)}>Cancelar</Button>
+                                  <Button className="flex-1 bg-red-700 text-white font-black uppercase" onClick={handleSaveElement}>Salvar Elemento</Button>
                               </div>
                           </div>
+                      </div>
+                  ) : (
+                      <div className="space-y-6 animate-fade-in">
+                           <h2 className="text-xs font-black uppercase text-blue-700 flex items-center gap-2"><Settings className="w-4 h-4"/> Gestão do Elemento</h2>
+                           <div className="p-5 bg-slate-900 rounded-3xl text-white shadow-xl">
+                               <p className="text-[10px] font-black text-white/40 uppercase mb-1">{entityType === 'sector' ? 'ÁREA' : 'PONTO'}</p>
+                               <h4 className="text-xl font-black uppercase">{(selectedEntity as any).name}</h4>
+                               {entityType === 'sector' && <p className="text-xs text-red-400 font-bold mt-2">Área: {formatArea(calculatePolygonArea(selectedEntity.geojson.coordinates))}</p>}
+                               {selectedEntity.stream_url && (
+                                   <div className="mt-4 p-3 bg-red-600 rounded-2xl flex items-center justify-between">
+                                       <span className="text-[10px] font-black uppercase flex items-center gap-2"><Video className="w-4 h-4"/> Transmissão Local</span>
+                                       <button className="text-[10px] bg-white text-red-700 px-4 py-1.5 rounded-full font-black">ASSISTIR</button>
+                                   </div>
+                               )}
+                           </div>
+                           <div className="space-y-3">
+                               <Button variant="outline" className="w-full text-[10px] font-black uppercase h-12" onClick={() => setActivePanel(null)}>Voltar ao Menu</Button>
+                               <Button variant="danger" className="w-full text-[10px] font-black uppercase h-12" onClick={async () => {
+                                   if (entityType === 'sector') await tacticalService.deleteSector(selectedEntity.id);
+                                   else await tacticalService.deletePOI(selectedEntity.id);
+                                   setActivePanel(null); loadTacticalData(id!);
+                               }}>Remover do Mapa</Button>
+                           </div>
+                      </div>
+                  )}
 
-                          <Button variant="danger" className="w-full h-12 text-[10px] font-black uppercase shadow-lg border-none" onClick={async () => {
-                             if (!confirm("Remover este recurso permanentemente?")) return;
-                             if (entityType === 'drone') {
-                                if ((selectedEntity as any).id.includes('main')) alert("O drone principal não pode ser removido aqui. Encerre a missão no painel de missões.");
-                                else await tacticalService.removeDroneFromOp((selectedEntity as any).id);
-                             }
-                             else if (entityType === 'sector') await tacticalService.deleteSector((selectedEntity as any).id);
-                             else if (entityType === 'poi') await tacticalService.deletePOI((selectedEntity as any).id);
-                             setActivePanel(null); loadTacticalData(id!);
-                          }}>Desmobilizar Recurso</Button>
+                  {activeTab === 'layers' && !activePanel && (
+                      <div className="space-y-6 animate-fade-in">
+                          <div className="p-6 bg-blue-50 border-2 border-dashed border-blue-200 rounded-3xl text-center">
+                              <Globe className="w-10 h-10 text-blue-400 mx-auto mb-3" />
+                              <h4 className="text-sm font-black text-blue-900 uppercase">Importar Camadas</h4>
+                              <p className="text-[10px] text-blue-600 font-bold mt-2">Suporte a arquivos .KML e .KMZ</p>
+                              <label className="mt-4 inline-block">
+                                  <input type="file" className="hidden" accept=".kml,.kmz" />
+                                  <div className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase shadow-lg cursor-pointer hover:bg-blue-700">Fazer Upload</div>
+                              </label>
+                          </div>
                       </div>
                   )}
               </div>
           </div>
 
-          {/* Área do Mapa */}
           <div className="flex-1 relative z-0 bg-slate-100" ref={mapRef}>
-              <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[2000] bg-white/95 backdrop-blur-xl border border-slate-200 rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.15)] flex items-center p-2 gap-1 ring-4 ring-black/5">
-                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'sector' ? null : 'sector')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'sector' ? 'bg-blue-600 text-white shadow-lg scale-105' : 'text-blue-600 hover:bg-blue-50'}`} title="Setorizar Área"><Hexagon className="w-6 h-6"/></button>
-                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'route' ? null : 'route')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'route' ? 'bg-orange-600 text-white shadow-lg scale-105' : 'text-orange-600 hover:bg-orange-50'}`} title="Traçar Rota GPS"><Navigation className="w-6 h-6"/></button>
-                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'poi' ? null : 'poi')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'poi' ? 'bg-red-600 text-white shadow-lg scale-105' : 'text-red-600 hover:bg-red-50'}`} title="Marcar Recurso/Vítima"><Flag className="w-6 h-6"/></button>
-              </div>
-              
-              <div className="absolute top-1/2 right-4 -translate-y-1/2 z-[2000] flex flex-col gap-2">
-                  <button onClick={() => setMapType(prev => prev === 'street' ? 'satellite' : 'street')} className="bg-white text-slate-700 w-12 h-12 flex items-center justify-center rounded-2xl shadow-xl border border-slate-200 hover:bg-slate-50 transition-all">{mapType === 'street' ? <Layers className="w-6 h-6" /> : <Satellite className="w-6 h-6" />}</button>
-                  <button onClick={handleCaptureSnapshot} className="bg-white text-slate-700 w-12 h-12 flex items-center justify-center rounded-2xl shadow-xl border border-slate-200 hover:bg-slate-50 transition-all"><Camera className="w-6 h-6" /></button>
+              {/* FERRAMENTAS FLUTUANTES */}
+              <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[2000] bg-white/95 backdrop-blur-2xl border border-slate-200 rounded-2xl shadow-2xl flex items-center p-1.5 gap-1.5 ring-8 ring-black/5">
+                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'sector' ? null : 'sector')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'sector' ? 'bg-red-600 text-white shadow-lg' : 'text-red-600 hover:bg-red-50'}`} title="Setorizar Área">
+                    <Hexagon className="w-6 h-6"/>
+                  </button>
+                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'route' ? null : 'route')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'route' ? 'bg-orange-600 text-white shadow-lg' : 'text-orange-600 hover:bg-orange-50'}`} title="Traçar Rota">
+                    <Navigation className="w-6 h-6"/>
+                  </button>
+                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'poi' ? null : 'poi')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'poi' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-600 hover:bg-blue-50'}`} title="Novo Ponto">
+                    <Flag className="w-6 h-6"/>
+                  </button>
               </div>
 
-              <MapContainer center={[operation.latitude, operation.longitude]} zoom={17} style={{ height: '100%', width: '100%', background: 'transparent' }} preferCanvas={true}>
-                  <MapController center={[operation.latitude, operation.longitude]} isCreating={!!tempGeometry} onMapReady={(map) => { leafletMapRef.current = map; }} />
-                  <MapDrawingBridge drawMode={currentDrawMode} setDrawMode={setCurrentDrawMode} />
-                  <TileLayer url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} crossOrigin="anonymous" />
+              <div className="absolute bottom-10 right-6 z-[1000] flex flex-col gap-3">
+                  <button onClick={() => setMapType(mapType === 'street' ? 'satellite' : 'street')} className="bg-white text-slate-700 w-14 h-14 flex items-center justify-center rounded-2xl shadow-2xl border border-slate-200 hover:bg-slate-50">
+                    {mapType === 'street' ? <Layers className="w-6 h-6" /> : <Satellite className="w-6 h-6" />}
+                  </button>
+                  <button onClick={handleCaptureSnapshot} className="bg-white text-slate-700 w-14 h-14 flex items-center justify-center rounded-2xl shadow-2xl border border-slate-200 hover:bg-slate-50">
+                    <Camera className="w-6 h-6" />
+                  </button>
+                  <button onClick={() => {}} className="bg-white text-blue-600 w-14 h-14 flex items-center justify-center rounded-2xl shadow-2xl border border-slate-200 hover:bg-slate-50">
+                    <LocateFixed className="w-6 h-6" />
+                  </button>
+              </div>
+
+              <MapContainer center={[operation.latitude, operation.longitude]} zoom={17} style={{ height: '100%', width: '100%' }}>
+                  <MapDrawingBridge drawMode={currentDrawMode} />
+                  <TileLayer url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} />
                   <SectorsLayer onCreated={handleDrawCreated} />
                   
-                  {/* Perímetros e Trilhas */}
-                  {/* Fix: Added explicit type to s in map callback to avoid potential 'unknown' type errors */}
-                  {sectors.map((s: TacticalSector) => (
-                      s.type === 'route' ? 
-                        <Polyline key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 0) as any} pathOptions={{ color: s.color, weight: 6, dashArray: '8, 12' }} eventHandlers={{ click: () => { setSelectedEntity(s); setEntityType('sector'); setActivePanel('manage'); } }} />
-                      : <Polygon key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 1) as any} pathOptions={{ color: s.color, fillOpacity: 0.25, weight: 3 }} eventHandlers={{ click: () => { setSelectedEntity(s); setEntityType('sector'); setActivePanel('manage'); } }} />
+                  {sectors.map((s: any) => (
+                    s.type === 'route' ? (
+                      <Polyline key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 0) as any} pathOptions={{ color: s.color, weight: 6, dashArray: '5, 10' }} />
+                    ) : (
+                      <Polygon key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 1) as any} pathOptions={{ color: s.color, fillOpacity: 0.2, weight: 2 }} />
+                    )
                   ))}
 
-                  {/* Recursos de Solo e Pontos Críticos */}
-                  {/* Fix: Added explicit type to p in map callback to avoid potential 'unknown' type errors */}
-                  {pois.map((p: TacticalPOI) => (
-                      <Marker key={p.id} position={[p.lat, p.lng]} icon={getPoiIcon(p.type, !!p.stream_url)} eventHandlers={{ 
-                          click: () => { 
-                              setSelectedEntity(p); setEntityType('poi'); setActivePanel('manage'); 
-                              if(p.stream_url) handleTogglePiP(p.id, p.name, p.stream_url);
-                          } 
-                      }} />
+                  {pois.map((p: any) => (
+                    <Marker key={p.id} position={[p.lat, p.lng]} icon={getPoiIcon(p.type, !!p.stream_url)} eventHandlers={{ click: () => { setSelectedEntity(p); setEntityType('poi'); setActivePanel('manage'); } }}>
+                        <Popup>
+                            <div className="p-2 min-w-[200px]">
+                                <h4 className="font-black text-xs uppercase border-b pb-2 mb-2">{p.name}</h4>
+                                <p className="text-[10px] text-slate-500 mb-3">{p.description || 'Ponto tático operacional.'}</p>
+                                {p.stream_url && (
+                                    <button className="w-full bg-red-600 text-white font-black uppercase text-[9px] py-2 rounded-lg flex items-center justify-center gap-2 animate-pulse">
+                                        <Video className="w-3.5 h-3.5"/> Assistir Câmera
+                                    </button>
+                                )}
+                            </div>
+                        </Popup>
+                    </Marker>
                   ))}
-                  
-                  {/* Vetores RPA */}
-                  {/* Fix: Added explicit type to td in map callback to avoid potential 'unknown' type errors */}
-                  {tacticalDrones.map((td: TacticalDrone) => td.current_lat && (
-                      /* 
-                         Fix for TypeScript error on line 578: DragEndEvent does not contain mouse event properties 
-                         Changing event type from L.LeafletMouseEvent to any to satisfy the DragEndEventHandlerFn signature
-                      */
-                      <Marker key={td.id} position={[td.current_lat, td.current_lng]} icon={createTacticalDroneIcon(td)} draggable={true} eventHandlers={{ 
-                          click: () => { setSelectedEntity(td); setEntityType('drone'); setActivePanel('manage'); }, 
-                          dragend: async (e: any) => { 
-                              const pos = e.target.getLatLng(); 
-                              await tacticalService.updateDroneStatus(td.id, { current_lat: pos.lat, current_lng: pos.lng }); 
-                          } 
-                      }} />
+
+                  {tacticalDrones.map((td: any) => td.current_lat && (
+                    <Marker key={td.id} position={[td.current_lat, td.current_lng]} icon={L.divIcon({ className: '', html: `<div style="background-color: #3b82f6; width: 24px; height: 24px; border: 3px solid white; border-radius: 8px; transform: rotate(45deg); box-shadow: 0 0 10px rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center;"><div style="transform:rotate(-45deg); color:white; font-size:8px; font-weight:bold;">${td.drone?.prefix.split(' ')[1] || 'V'}</div></div>`, iconSize: [24,24] })} />
                   ))}
               </MapContainer>
           </div>
