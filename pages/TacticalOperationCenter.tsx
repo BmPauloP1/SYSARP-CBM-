@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, useMap, GeoJSON } from 'react-leaflet';
 import L from 'leaflet';
 import "@geoman-io/leaflet-geoman-free";
 import html2canvas from 'html2canvas'; 
 import { base44 } from '../services/base44Client';
-import { tacticalService, TacticalSector, TacticalDrone, TacticalPOI } from '../services/tacticalService';
+import { tacticalService, TacticalSector, TacticalDrone, TacticalPOI, TacticalKmlLayer } from '../services/tacticalService';
 import { Operation, Drone, Pilot, MISSION_COLORS } from '../types';
 import { Card, Button, Input, Select, Badge } from '../components/ui_components';
 import { 
@@ -14,7 +14,7 @@ import {
   Video, ChevronRight, Globe, Camera, 
   Users, Truck, Dog, Heart, AlertTriangle, 
   Layers, Satellite, Activity, LocateFixed, Loader2,
-  FileUp, Ruler, Maximize2, Move, Shield
+  FileUp, Ruler, Maximize2, Move, Shield, Save, Database, Copy, Eye, EyeOff, UploadCloud, FileType
 } from 'lucide-react';
 import SectorsLayer from '../components/maps/tactical/SectorsLayer';
 
@@ -26,7 +26,18 @@ const PHONETIC = [
   'X-RAY', 'YANKEE', 'ZULU'
 ];
 
-// Utilitário para conversão de URL de Live (Necessário para evitar bloqueio do YouTube)
+// Paleta de Cores Táticas para Vetores e Setores
+const TACTICAL_PALETTE = [
+  '#2563eb', // Blue
+  '#059669', // Emerald
+  '#7c3aed', // Violet
+  '#ea580c', // Orange
+  '#db2777', // Pink
+  '#0891b2', // Cyan
+  '#b91c1c', // Red
+  '#4b5563'  // Gray
+];
+
 const extractVideoData = (url: string) => {
   if (!url) return null;
   const liveMatch = url.match(/youtube\.com\/live\/([^?&/]{11})/);
@@ -36,13 +47,58 @@ const extractVideoData = (url: string) => {
   return url; 
 };
 
-// Componente para garantir carregamento correto do mapa
+// Parser básico de KML para GeoJSON (Suporta Point, LineString, Polygon)
+const parseKmlToGeoJson = (kmlText: string) => {
+    try {
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(kmlText, "text/xml");
+        const features: any[] = [];
+
+        const extractCoords = (coordStr: string) => {
+            return coordStr.trim().split(/\s+/).map(pair => {
+                const [lng, lat] = pair.split(',').map(Number);
+                return [lng, lat];
+            });
+        };
+
+        // Polygons
+        const polygons = xml.getElementsByTagName("Polygon");
+        for (let i = 0; i < polygons.length; i++) {
+            const coords = polygons[i].getElementsByTagName("coordinates")[0]?.textContent;
+            if (coords) {
+                features.push({
+                    type: "Feature",
+                    geometry: { type: "Polygon", coordinates: [extractCoords(coords)] },
+                    properties: { name: "Área KML" }
+                });
+            }
+        }
+
+        // LineStrings
+        const lines = xml.getElementsByTagName("LineString");
+        for (let i = 0; i < lines.length; i++) {
+            const coords = lines[i].getElementsByTagName("coordinates")[0]?.textContent;
+            if (coords) {
+                features.push({
+                    type: "Feature",
+                    geometry: { type: "LineString", coordinates: extractCoords(coords) },
+                    properties: { name: "Linha KML" }
+                });
+            }
+        }
+
+        if (features.length === 0) return null;
+        return { type: "FeatureCollection", features };
+    } catch (e) {
+        console.error("KML Parse Error:", e);
+        return null;
+    }
+};
+
 const MapResizer = () => {
     const map = useMap();
     useEffect(() => {
-        const timer = setTimeout(() => {
-            map.invalidateSize();
-        }, 500);
+        const timer = setTimeout(() => { map.invalidateSize(); }, 500);
         return () => clearTimeout(timer);
     }, [map]);
     return null;
@@ -67,18 +123,17 @@ const formatArea = (m2: number) => {
     return `${Math.round(m2).toLocaleString('pt-BR')} m²`;
 };
 
-// Ícone de Drone Tático com Indicador de Live
-const getDroneIcon = (prefix: string, hasStream?: boolean) => {
+const getDroneIcon = (color: string, hasStream?: boolean) => {
     return L.divIcon({
         className: 'drone-marker-custom',
         html: `
-            <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px;">
+            <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; cursor: grab;">
                 ${hasStream ? `
-                <div style="position: absolute; inset: 0; background: rgba(239, 68, 68, 0.4); border-radius: 50%; animate: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;" class="animate-pulse"></div>
+                <div style="position: absolute; inset: 0; background: rgba(239, 68, 68, 0.4); border-radius: 50%; animate: pulse 1.5s infinite;" class="animate-pulse"></div>
                 <div style="position: absolute; top: -5px; right: -5px; background: #ef4444; color: white; font-size: 7px; font-weight: 900; padding: 1px 4px; border-radius: 4px; border: 1.5px solid white; z-index: 50;">LIVE</div>
                 ` : ''}
-                <div style="background-color: #1e3a8a; width: 30px; height: 30px; border: 3px solid white; border-radius: 8px; transform: rotate(45deg); box-shadow: 0 4px 10px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" style="width: 18px; height: 18px; transform: rotate(-45deg);">
+                <div style="background-color: ${color}; width: 32px; height: 32px; border: 3px solid white; border-radius: 8px; transform: rotate(45deg); box-shadow: 0 6px 12px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 20px; height: 20px; transform: rotate(-45deg);">
                         <path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" />
                         <circle cx="4.5" cy="9" r="2" /><circle cx="19.5" cy="9" r="2" />
                         <circle cx="4.5" cy="15" r="2" /><circle cx="19.5" cy="15" r="2" />
@@ -86,8 +141,8 @@ const getDroneIcon = (prefix: string, hasStream?: boolean) => {
                 </div>
             </div>
         `,
-        iconSize: [40, 40],
-        iconAnchor: [20, 20]
+        iconSize: [42, 42],
+        iconAnchor: [21, 21]
     });
 };
 
@@ -132,6 +187,7 @@ export default function TacticalOperationCenter() {
   const [operation, setOperation] = useState<Operation | null>(null);
   const [sectors, setSectors] = useState<TacticalSector[]>([]);
   const [pois, setPois] = useState<TacticalPOI[]>([]);
+  const [kmlLayers, setKmlLayers] = useState<TacticalKmlLayer[]>([]);
   const [tacticalDrones, setTacticalDrones] = useState<TacticalDrone[]>([]);
   const [drones, setDrones] = useState<Drone[]>([]);
   const [pilots, setPilots] = useState<Pilot[]>([]);
@@ -147,34 +203,33 @@ export default function TacticalOperationCenter() {
   const [newItemName, setNewItemName] = useState('');
   const [newItemSubType, setNewItemSubType] = useState('base');
   const [newItemStream, setNewItemStream] = useState('');
+  const [sqlError, setSqlError] = useState<string | null>(null);
   
-  // Estado para Live PIP (Picture in Picture) Flutuante e Arrastável
+  const [selectedDroneId, setSelectedDroneId] = useState('');
+  const [selectedPilotId, setSelectedPilotId] = useState('');
+
   const [pipStream, setPipStream] = useState<string | null>(null);
   const [pipPos, setPipPos] = useState({ x: window.innerWidth - 420, y: 100 });
   const [isDragging, setIsDragging] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
 
-  useEffect(() => { if (id) loadTacticalData(id); }, [id]);
+  useEffect(() => { 
+      if (id) {
+          loadTacticalData(id); 
+          setKmlLayers(tacticalService.getKmlLayers(id));
+      }
+  }, [id]);
 
-  // Lógica de Arrastar Janela PIP
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
-      setPipPos({
-        x: e.clientX - dragOffset.current.x,
-        y: e.clientY - dragOffset.current.y
-      });
+      setPipPos({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
     };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-
+    const handleMouseUp = () => { setIsDragging(false); };
     if (isDragging) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
     }
-
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
@@ -183,10 +238,7 @@ export default function TacticalOperationCenter() {
 
   const handleDragStart = (e: React.MouseEvent) => {
     setIsDragging(true);
-    dragOffset.current = {
-      x: e.clientX - pipPos.x,
-      y: e.clientY - pipPos.y
-    };
+    dragOffset.current = { x: e.clientX - pipPos.x, y: e.clientY - pipPos.y };
   };
 
   const loadTacticalData = async (opId: string) => {
@@ -201,13 +253,14 @@ export default function TacticalOperationCenter() {
       ]);
       if (!op) { navigate('/operations'); return; }
       
-      const enrichedDrones = tDrones.map((td: TacticalDrone) => ({ 
+      const enrichedDrones = tDrones.map((td: TacticalDrone, idx: number) => ({ 
           ...td, 
           drone: allDrones.find(d => d.id === td.drone_id), 
           pilot: allPilots.find(p => p.id === td.pilot_id),
           flight_altitude: td.flight_altitude || op.flight_altitude || 60,
           radius: td.radius || op.radius || 200,
-          observer_name: op.observer_name
+          observer_name: op.observer_name,
+          color: TACTICAL_PALETTE[(idx + 1) % TACTICAL_PALETTE.length]
       }));
 
       if (op.drone_id && !enrichedDrones.some(td => td.drone_id === op.drone_id)) {
@@ -226,51 +279,89 @@ export default function TacticalOperationCenter() {
               flight_altitude: op.flight_altitude || 60,
               radius: op.radius || 200,
               observer_name: op.observer_name,
-              stream_url: op.stream_url 
+              stream_url: op.stream_url,
+              color: TACTICAL_PALETTE[0]
           } as any);
       }
 
       setOperation(op); setSectors(sects); setPois(points); setTacticalDrones(enrichedDrones as any);
       setDrones(allDrones); setPilots(allPilots);
-    } catch (e) { console.error(e); } finally { setLoading(false); }
+    } catch (e: any) { 
+        console.error(e);
+        if (e.code === 'PGRST205') handleSchemaError();
+    } finally { setLoading(false); }
+  };
+
+  const handleSchemaError = () => {
+    setSqlError(`
+CREATE TABLE IF NOT EXISTS public.tactical_drones (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    operation_id uuid REFERENCES public.operations(id) ON DELETE CASCADE,
+    drone_id uuid REFERENCES public.drones(id) ON DELETE CASCADE,
+    pilot_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+    status text DEFAULT 'active',
+    current_lat float,
+    current_lng float,
+    sector_id uuid,
+    battery_level int,
+    flight_altitude float,
+    radius float,
+    stream_url text,
+    created_at timestamp with time zone DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.tactical_sectors (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    operation_id uuid REFERENCES public.operations(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    type text DEFAULT 'sector',
+    color text,
+    geojson jsonb,
+    responsible text,
+    notes text,
+    assigned_drones uuid[],
+    stream_url text,
+    created_at timestamp with time zone DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.tactical_pois (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    operation_id uuid REFERENCES public.operations(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    type text NOT NULL,
+    lat float NOT NULL,
+    lng float NOT NULL,
+    description text,
+    stream_url text,
+    created_at timestamp with time zone DEFAULT now()
+);
+ALTER TABLE public.tactical_drones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tactical_sectors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tactical_pois ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso Total Autenticado" ON public.tactical_drones FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Acesso Total Autenticado" ON public.tactical_sectors FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Acesso Total Autenticado" ON public.tactical_pois FOR ALL TO authenticated USING (true) WITH CHECK (true);
+NOTIFY pgrst, 'reload schema';
+    `);
   };
 
   const handleLocatePilot = () => {
-    if (!navigator.geolocation) {
-      alert("Seu navegador não suporta geolocalização.");
-      return;
-    }
+    if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition((pos) => {
-        const { latitude, longitude } = pos.coords;
-        if (mainMapRef.current) {
-            mainMapRef.current.flyTo([latitude, longitude], 18, { duration: 1.5 });
-        }
-    }, () => {
-        alert("Não foi possível obter sua localização.");
-    }, { enableHighAccuracy: true });
+        if (mainMapRef.current) mainMapRef.current.flyTo([pos.coords.latitude, pos.coords.longitude], 18, { duration: 1.5 });
+    }, null, { enableHighAccuracy: true });
   };
 
   const operationalSummary = useMemo(() => {
     const totalAreaM2 = sectors.filter(s => s.geojson?.coordinates).reduce((acc, s) => acc + calculatePolygonArea(s.geojson.coordinates), 0);
-    return { 
-        totalAreaM2, 
-        drones: tacticalDrones.length, 
-        victims: pois.filter(p => p.type === 'victim').length, 
-        teams: pois.filter(p => p.type === 'ground_team').length,
-        vehicles: pois.filter(p => p.type === 'vehicle').length
-    };
+    return { totalAreaM2, drones: tacticalDrones.length, victims: pois.filter(p => p.type === 'victim').length, teams: pois.filter(p => p.type === 'ground_team').length, vehicles: pois.filter(p => p.type === 'vehicle').length };
   }, [sectors, pois, tacticalDrones]);
 
   const handleDrawCreated = (e: any) => {
     const geojson = e.layer.toGeoJSON(); 
     let type: 'poi' | 'sector' = e.layerType === 'marker' ? 'poi' : 'sector';
-    setEntityType(type); 
-    setTempGeometry(geojson); 
-    setCurrentDrawMode(null);
+    setEntityType(type); setTempGeometry(geojson); setCurrentDrawMode(null);
     if (type === 'sector') setNewItemName(PHONETIC[sectors.length % PHONETIC.length]);
     else setNewItemName(`Ponto ${pois.length + 1}`);
-    setActivePanel('create');
-    setSidebarOpen(true);
+    setActivePanel('create'); setSidebarOpen(true);
   };
 
   const handleSaveElement = async () => {
@@ -278,72 +369,196 @@ export default function TacticalOperationCenter() {
       try {
           if (entityType === 'poi') {
               const [lng, lat] = tempGeometry.geometry.coordinates;
-              await tacticalService.createPOI({ 
-                  operation_id: id, 
-                  name: newItemName, 
-                  type: newItemSubType as any, 
-                  lat, lng, 
-                  stream_url: newItemStream 
-              });
+              await tacticalService.createPOI({ operation_id: id, name: newItemName, type: newItemSubType as any, lat, lng, stream_url: newItemStream });
           } else {
+              // Regra de cores sequenciais para os setores
+              const sectorIndex = sectors.length;
+              const sectorColor = TACTICAL_PALETTE[(sectorIndex + 1) % TACTICAL_PALETTE.length];
+              
               await tacticalService.createSector({ 
                   operation_id: id, 
                   name: newItemName, 
                   type: 'sector', 
-                  color: '#ef4444', 
+                  color: sectorColor, 
                   geojson: tempGeometry.geometry 
               });
           }
-          setActivePanel(null);
-          setNewItemStream('');
-          loadTacticalData(id);
-      } catch(e) { alert("Erro ao salvar elemento."); }
+          setActivePanel(null); setNewItemStream(''); loadTacticalData(id);
+      } catch(e: any) { if (e.code === 'PGRST205') handleSchemaError(); else alert("Erro ao salvar elemento."); }
+  };
+
+  const handleDroneDrag = async (td: any, e: any) => {
+      const { lat, lng } = e.target.getLatLng();
+      setTacticalDrones(prev => prev.map(item => item.id === td.id ? { ...item, current_lat: lat, current_lng: lng } : item));
+      try {
+          if (td.id.startsWith('primary-')) {
+              await base44.entities.Operation.update(id!, { latitude: Number(lat), longitude: Number(lng) });
+          } else {
+              await tacticalService.updateDroneStatus(td.id, { current_lat: Number(lat), current_lng: Number(lng) });
+          }
+      } catch (err) {
+          console.error("Falha ao persistir nova posição:", err);
+      }
+  };
+
+  const handleAddDroneToTactical = async () => {
+      if (!id || !selectedDroneId || !selectedPilotId) return;
+      setLoading(true);
+      try {
+          await tacticalService.assignDrone({
+              operation_id: id,
+              drone_id: selectedDroneId,
+              pilot_id: selectedPilotId,
+              status: 'active',
+              current_lat: Number(operation?.latitude),
+              current_lng: Number(operation?.longitude),
+              flight_altitude: Number(operation?.flight_altitude || 60),
+              radius: Number(operation?.radius || 200),
+              stream_url: newItemStream
+          });
+          await base44.entities.Drone.update(selectedDroneId, { status: 'in_operation' });
+          alert("Aeronave HARPIA vinculada com sucesso!");
+          setSelectedDroneId(''); setSelectedPilotId(''); setNewItemStream(''); setActivePanel(null); loadTacticalData(id);
+      } catch (e: any) {
+          if (e.code === 'PGRST205') handleSchemaError();
+          else alert("Erro ao vincular drone.");
+      } finally { setLoading(false); }
+  };
+
+  const handleSaveDroneTactical = async () => {
+    if (!selectedEntity || entityType !== 'drone') return;
+    setLoading(true);
+    try {
+      if (selectedEntity.id.startsWith('primary-')) {
+          await base44.entities.Operation.update(id!, { stream_url: newItemStream });
+      } else {
+          await tacticalService.updateDroneStatus(selectedEntity.id, { stream_url: newItemStream });
+      }
+      alert("Configurações do vetor atualizadas!");
+      setActivePanel(null);
+      setNewItemStream('');
+      loadTacticalData(id!);
+    } catch (e) {
+      alert("Erro ao salvar alterações no vetor.");
+    } finally {
+        setLoading(false);
+    }
   };
 
   const handleCaptureSnapshot = async () => {
-    if (!mapRef.current || !operation) return;
+    if (!mapRef.current || !id) return;
+    setLoading(true);
     try {
-      const canvas = await html2canvas(mapRef.current, { useCORS: true, allowTaint: true });
-      const base64 = canvas.toDataURL('image/jpeg', 0.8);
-      await tacticalService.saveMapSnapshot(operation.id, base64);
-      alert("Snapshot tático salvo!");
-    } catch (e) { alert("Erro ao capturar mapa."); }
+        const canvas = await html2canvas(mapRef.current, {
+            useCORS: true,
+            logging: false,
+            ignoreElements: (el) => el.classList.contains('leaflet-control-container')
+        });
+        const base64 = canvas.toDataURL('image/jpeg', 0.8);
+        await tacticalService.saveMapSnapshot(id, base64);
+        alert("Snapshot do teatro de operações salvo com sucesso!");
+    } catch (error) {
+        console.error("Falha na captura:", error);
+        alert("Erro ao processar imagem do mapa.");
+    } finally {
+        setLoading(false);
+    }
   };
 
-  if (loading || !operation) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white font-black animate-pulse">SINCRONIZANDO TEATRO DE OPERAÇÕES...</div>;
+  const handleKmlUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !id) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+        const text = event.target?.result as string;
+        const geojson = parseKmlToGeoJson(text);
+        
+        if (geojson) {
+            const newLayer: TacticalKmlLayer = {
+                id: crypto.randomUUID(),
+                operation_id: id,
+                name: file.name,
+                geojson: geojson,
+                visible: true,
+                color: TACTICAL_PALETTE[kmlLayers.length % TACTICAL_PALETTE.length]
+            };
+            
+            tacticalService.saveKmlLayer(id, newLayer);
+            setKmlLayers(prev => [...prev, newLayer]);
+            alert("Camada KML importada com sucesso!");
+        } else {
+            alert("Erro ao interpretar arquivo KML. Verifique se o formato está correto.");
+        }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // Reset input
+  };
+
+  const toggleKmlVisibility = (layerId: string) => {
+      const updated = kmlLayers.map(l => l.id === layerId ? { ...l, visible: !l.visible } : l);
+      setKmlLayers(updated);
+      // Aqui poderíamos persistir a visibilidade também se desejado
+  };
+
+  const removeKmlLayer = (layerId: string) => {
+      if (!id || !confirm("Remover esta camada permanentemente?")) return;
+      const updated = kmlLayers.filter(l => l.id !== layerId);
+      setKmlLayers(updated);
+      localStorage.setItem(`sysarp_kml_${id}`, JSON.stringify(updated));
+  };
+
+  if (loading || !operation) return <div className="h-screen bg-slate-950 flex items-center justify-center text-white font-black animate-pulse uppercase tracking-widest">Sincronizando Teatro de Operações...</div>;
 
   return (
     <div className="flex flex-col h-screen bg-slate-950 overflow-hidden text-slate-800 font-sans relative">
       
-      {/* Header Tático Institucional */}
-      <div className="h-16 bg-[#7f1d1d] border-b border-red-900/40 flex items-center justify-between px-6 shrink-0 z-[1000] shadow-2xl">
+      {sqlError && (
+          <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-fade-in">
+              <Card className="w-full max-w-3xl bg-white border-t-8 border-red-600 shadow-2xl rounded-3xl overflow-hidden">
+                  <div className="p-6 bg-red-50 flex items-center gap-4">
+                      <div className="p-3 bg-red-600 rounded-2xl text-white"><Database className="w-8 h-8" /></div>
+                      <div>
+                          <h3 className="text-xl font-black text-red-900 uppercase">Configuração de Banco</h3>
+                          <p className="text-sm text-red-700">Tabelas táticas inexistentes. Execute o SQL no Supabase.</p>
+                      </div>
+                  </div>
+                  <div className="p-6 bg-slate-50 flex flex-col gap-4">
+                      <pre className="bg-slate-900 text-green-400 p-5 rounded-2xl text-[10px] overflow-auto font-mono max-h-[40vh] shadow-inner">{sqlError}</pre>
+                      <div className="flex justify-end gap-3">
+                          <Button variant="outline" onClick={() => setSqlError(null)} className="font-bold">FECHAR</Button>
+                          <Button onClick={() => { navigator.clipboard.writeText(sqlError); alert("SQL Copiado!"); }} className="bg-blue-600 text-white font-bold px-8 shadow-lg shadow-blue-200">COPIAR SQL</Button>
+                      </div>
+                  </div>
+              </Card>
+          </div>
+      )}
+
+      <div className="h-20 bg-[#7f1d1d] border-b border-red-900/40 flex items-center justify-between px-6 shrink-0 z-[1000] shadow-2xl">
         <div className="flex items-center gap-4 text-white">
-          <button onClick={() => navigate('/operations')} className="h-10 w-10 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-all border border-white/20">
-            <ArrowLeft className="w-5 h-5" />
+          <button onClick={() => navigate('/operations')} className="h-12 w-12 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-all border border-white/20 shadow-inner">
+            <ArrowLeft className="w-6 h-6" />
           </button>
           <div>
-            <h1 className="text-sm md:text-base font-black uppercase tracking-tight truncate max-w-[200px] md:max-w-none">{operation.name}</h1>
-            <p className="text-[10px] text-red-200 opacity-60 font-bold uppercase tracking-widest">CCO TÁTICO • CBMPR • #{operation.occurrence_number}</p>
+            <h1 className="text-base md:text-lg font-black uppercase tracking-tighter truncate max-w-[250px] md:max-w-none leading-none">{operation.name}</h1>
+            <p className="text-[11px] text-red-200 opacity-80 font-mono mt-1 uppercase tracking-widest font-black">#{operation.occurrence_number} • CENTRO DE COMANDO CBMPR</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-            <Button onClick={() => setSidebarOpen(!sidebarOpen)} className="bg-white text-red-700 h-10 px-6 font-black text-xs uppercase shadow-xl border-none">
-                {sidebarOpen ? 'FECHAR PAINEL' : 'CONTROLES'}
-            </Button>
-        </div>
+        <Button onClick={() => setSidebarOpen(!sidebarOpen)} className="bg-white text-red-700 h-11 px-8 font-black text-xs uppercase shadow-2xl border-none active:scale-95 transition-transform">
+            {sidebarOpen ? 'OCULTAR PAINEL' : 'EXIBIR CONTROLES'}
+        </Button>
       </div>
 
       <div className="flex-1 flex overflow-hidden relative">
-          {/* BARRA LATERAL TÁTICA */}
           <div className={`${sidebarOpen ? 'w-full lg:w-96' : 'w-0'} bg-white border-r border-slate-200 flex flex-col shadow-2xl z-[500] transition-all duration-300 overflow-hidden shrink-0`}>
-              
               <div className="flex bg-slate-100 p-1.5 m-4 rounded-2xl shrink-0 border border-slate-200">
                   <button onClick={() => setActiveTab('resources')} className={`flex-1 py-3 text-[11px] font-black uppercase rounded-xl transition-all ${activeTab === 'resources' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500'}`}>Recursos</button>
                   <button onClick={() => setActiveTab('layers')} className={`flex-1 py-3 text-[11px] font-black uppercase rounded-xl transition-all ${activeTab === 'layers' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500'}`}>Camadas</button>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
-                  {!activePanel ? (
+                  {activeTab === 'resources' ? (
+                      !activePanel ? (
                       <>
                         <div className="grid grid-cols-2 gap-3">
                             <Card className="p-4 bg-slate-900 text-white border-none shadow-lg">
@@ -351,63 +566,55 @@ export default function TacticalOperationCenter() {
                                 <h4 className="text-lg font-black">{formatArea(operationalSummary.totalAreaM2)}</h4>
                             </Card>
                             <Card className="p-4 bg-slate-900 text-white border-none shadow-lg">
-                                <p className="text-[9px] font-black text-white/40 uppercase mb-1">Vetores RPA</p>
+                                <p className="text-[9px] font-black text-white/40 uppercase mb-1">Vetores HARPIA</p>
                                 <h4 className="text-lg font-black">{operationalSummary.drones} Ativos</h4>
-                            </Card>
-                            <Card className="p-4 bg-red-50 border-red-100 shadow-sm col-span-2 flex justify-between items-center">
-                                <div className="flex gap-4">
-                                    <div><p className="text-[9px] font-black text-red-400 uppercase">Equipes</p><p className="text-lg font-black text-red-700">{operationalSummary.teams}</p></div>
-                                    <div className="w-px h-8 bg-red-200 self-center"></div>
-                                    <div><p className="text-[9px] font-black text-red-400 uppercase">Vítimas</p><p className="text-lg font-black text-red-700">{operationalSummary.victims}</p></div>
-                                </div>
-                                <Activity className="w-6 h-6 text-red-300 animate-pulse" />
                             </Card>
                         </div>
 
                         <div className="space-y-4">
-                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1">
-                                <MapPin className="w-3.5 h-3.5" /> Objetivos e Pontos
-                            </h3>
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1"><MapPin className="w-3.5 h-3.5" /> Objetivos e Pontos</h3>
                             <div className="space-y-2">
-                                {sectors.map(s => (
-                                    <div key={s.id} onClick={() => { setSelectedEntity(s); setEntityType('sector'); setActivePanel('manage'); }} className="p-4 bg-white border border-slate-200 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors shadow-sm">
+                                {sectors.map((s, idx) => (
+                                    <div key={s.id} onClick={() => { setSelectedEntity(s); setEntityType('sector'); setActivePanel('manage'); }} className="p-4 bg-white border border-slate-200 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors shadow-sm group">
                                         <div className="flex items-center gap-4">
-                                            <div className="p-2 rounded-xl" style={{ backgroundColor: s.color + '20', color: s.color }}><Hexagon className="w-5 h-5"/></div>
+                                            <div className="p-2 rounded-xl" style={{ backgroundColor: (s.color || TACTICAL_PALETTE[0]) + '20', color: s.color || TACTICAL_PALETTE[0] }}><Hexagon className="w-5 h-5"/></div>
                                             <div><p className="text-xs font-black uppercase text-slate-800">{s.name}</p><p className="text-[9px] text-slate-400 font-bold">{formatArea(calculatePolygonArea(s.geojson.coordinates))}</p></div>
                                         </div>
-                                        <ChevronRight className="w-4 h-4 text-slate-300"/>
+                                        <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-red-600 transition-colors"/>
                                     </div>
                                 ))}
                                 {pois.map(p => (
-                                    <div key={p.id} onClick={() => { setSelectedEntity(p); setEntityType('poi'); setActivePanel('manage'); }} className="p-4 bg-white border border-slate-200 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors shadow-sm">
+                                    <div key={p.id} onClick={() => { setSelectedEntity(p); setEntityType('poi'); setActivePanel('manage'); setNewItemStream(p.stream_url || ''); }} className="p-4 bg-white border border-slate-200 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors shadow-sm group">
                                         <div className="flex items-center gap-4">
                                             <div className="p-2 rounded-full bg-slate-100 text-slate-600">
                                                 {p.type === 'victim' ? <Heart className="w-5 h-5 text-red-600"/> : p.type === 'ground_team' ? <Users className="w-5 h-5 text-blue-600"/> : p.type === 'vehicle' ? <Truck className="w-5 h-5 text-red-600"/> : p.type === 'k9' ? <Dog className="w-5 h-5 text-amber-900"/> : <MapPin className="w-5 h-5"/>}
                                             </div>
                                             <div><p className="text-xs font-black uppercase text-slate-800">{p.name}</p><p className="text-[9px] text-slate-400 font-bold uppercase">{p.type}</p></div>
                                         </div>
-                                        <div className="flex items-center gap-3">
-                                            {p.stream_url && <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div>}
-                                            <ChevronRight className="w-4 h-4 text-slate-300"/>
-                                        </div>
+                                        {p.stream_url && <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div>}
                                     </div>
                                 ))}
                             </div>
                         </div>
 
                         <div className="space-y-4 pt-4 border-t border-slate-100">
-                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1">
-                                <Activity className="w-3.5 h-3.5" /> Ativos em Tempo Real
-                            </h3>
-                            <div className="space-y-2">
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1"><Activity className="w-3.5 h-3.5" /> Aeronaves no Teatro</h3>
+                            <button 
+                                onClick={() => { setEntityType('drone'); setActivePanel('create'); }} 
+                                className="w-full bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-900 text-white h-16 rounded-2xl font-black uppercase text-[11px] flex items-center justify-center gap-3 shadow-[0_10px_30px_rgba(37,99,235,0.3)] hover:scale-[1.03] active:scale-[0.97] transition-all ring-4 ring-blue-500/10"
+                            >
+                                <Plus className="w-6 h-6" /> ADICIONAR HARPIA
+                            </button>
+
+                            <div className="space-y-2 mt-4">
                                 {tacticalDrones.map((td: any) => (
-                                    <div key={td.id} onClick={() => { setSelectedEntity(td); setEntityType('drone'); setActivePanel('manage'); }} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-3 cursor-pointer hover:bg-slate-100">
-                                        <div className="p-2 bg-white rounded-lg shadow-sm"><Activity className="w-4 h-4 text-blue-600"/></div>
-                                        <div className="min-w-0">
-                                            <p className="text-[10px] font-black uppercase text-slate-700">{td.drone?.prefix}</p>
-                                            <p className="text-[9px] text-slate-400 truncate uppercase">{td.pilot?.full_name}</p>
+                                    <div key={td.id} onClick={() => { setSelectedEntity(td); setEntityType('drone'); setActivePanel('manage'); setNewItemStream(td.stream_url || ''); }} className="p-4 bg-white rounded-2xl border-2 flex items-center gap-3 cursor-pointer hover:bg-slate-50 transition-all shadow-sm" style={{ borderColor: td.color + '40' }}>
+                                        <div className="p-2.5 rounded-xl shadow-sm border border-slate-100" style={{ backgroundColor: td.color + '15' }}><Activity className="w-5 h-5" style={{ color: td.color }}/></div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-xs font-black uppercase text-slate-800 leading-none">{td.drone?.prefix}</p>
+                                            <p className="text-[9px] text-slate-400 truncate uppercase mt-1 font-bold">PIC: {td.pilot?.full_name}</p>
                                         </div>
-                                        {td.stream_url ? <Badge className="ml-auto text-[8px] bg-red-600 text-white animate-pulse">LIVE</Badge> : <Badge variant="success" className="ml-auto text-[8px]">ONLINE</Badge>}
+                                        {td.stream_url ? <Badge className="text-[8px] bg-red-600 text-white animate-pulse border-none">LIVE</Badge> : <Badge variant="success" className="text-[8px]">ONLINE</Badge>}
                                     </div>
                                 ))}
                             </div>
@@ -415,254 +622,232 @@ export default function TacticalOperationCenter() {
                       </>
                   ) : activePanel === 'create' ? (
                       <div className="space-y-6 animate-fade-in">
-                          <h2 className="text-xs font-black uppercase text-red-700 flex items-center gap-2"><Plus className="w-4 h-4"/> Novo Recurso Tático</h2>
+                          <h2 className="text-xs font-black uppercase text-blue-700 flex items-center gap-2"><Plus className="w-4 h-4"/> Lançar HARPIA</h2>
                           <div className="space-y-4">
-                              <Input label="Identificação / Nome" value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="Ex: SETOR ALFA..." />
-                              {entityType === 'poi' && (
+                              {entityType === 'drone' ? (
                                   <>
-                                      <Select label="Natureza do Ponto" value={newItemSubType} onChange={e => setNewItemSubType(e.target.value)}>
-                                          <option value="base">Posto de Comando (Base)</option>
-                                          <option value="victim">Vítima Avistada</option>
-                                          <option value="ground_team">Equipe de Solo</option>
-                                          <option value="vehicle">Viatura BM</option>
-                                          <option value="k9">Binômio (K9)</option>
-                                          <option value="hazard">Zona de Perigo</option>
-                                          <option value="landing_zone">Ponto de Decolagem</option>
+                                      <Select label="Aeronave Disponível" value={selectedDroneId} onChange={e => setSelectedDroneId(e.target.value)} required>
+                                          <option value="">Selecione...</option>
+                                          {drones.filter(d => d.status === 'available').map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
                                       </Select>
-                                      <Input label="URL de Transmissão (Ponto)" value={newItemStream} onChange={e => setNewItemStream(e.target.value)} placeholder="Link Câmera..." />
+                                      <Select label="Piloto em Comando (PIC)" value={selectedPilotId} onChange={e => setSelectedPilotId(e.target.value)} required>
+                                          <option value="">Selecione...</option>
+                                          {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+                                      </Select>
+                                      <Input label="Link de Live (YouTube/RTSP)" value={newItemStream} onChange={e => setNewItemStream(e.target.value)} placeholder="Cole o link de transmissão..." />
+                                      <div className="flex gap-3 pt-4">
+                                          <Button variant="outline" className="flex-1 font-black" onClick={() => setActivePanel(null)}>Cancelar</Button>
+                                          <Button className="flex-1 bg-blue-700 text-white font-black uppercase shadow-lg shadow-blue-100" onClick={handleAddDroneToTactical}>Lançar no Mapa</Button>
+                                      </div>
+                                  </>
+                              ) : (
+                                  <>
+                                      <Input label="Identificação / Nome" value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="Ex: SETOR ALFA..." />
+                                      <div className="flex gap-3 pt-4">
+                                          <Button variant="outline" className="flex-1 font-black" onClick={() => setActivePanel(null)}>Cancelar</Button>
+                                          <Button className="flex-1 bg-red-700 text-white font-black uppercase shadow-lg shadow-red-100" onClick={handleSaveElement}>Salvar Elemento</Button>
+                                      </div>
                                   </>
                               )}
-                              <div className="flex gap-3 pt-4">
-                                  <Button variant="outline" className="flex-1" onClick={() => setActivePanel(null)}>Cancelar</Button>
-                                  <Button className="flex-1 bg-red-700 text-white font-black uppercase" onClick={handleSaveElement}>Salvar Elemento</Button>
-                              </div>
                           </div>
                       </div>
                   ) : (
                       <div className="space-y-6 animate-fade-in">
-                           <h2 className="text-xs font-black uppercase text-blue-700 flex items-center gap-2"><Settings className="w-4 h-4"/> Gestão do Elemento</h2>
-                           <div className="p-5 bg-slate-900 rounded-3xl text-white shadow-xl">
-                               <p className="text-[10px] font-black text-white/40 uppercase mb-1">{entityType === 'sector' ? 'ÁREA' : entityType === 'drone' ? 'VETOR' : 'PONTO'}</p>
-                               <h4 className="text-xl font-black uppercase">
-                                   {entityType === 'drone' ? (selectedEntity as any).drone?.prefix : (selectedEntity as any).name}
-                               </h4>
-                               
-                               {entityType === 'sector' && <p className="text-xs text-red-400 font-bold mt-2">Área: {formatArea(calculatePolygonArea(selectedEntity.geojson.coordinates))}</p>}
-                               
+                           <h2 className="text-xs font-black uppercase text-slate-500 flex items-center gap-2"><Settings className="w-4 h-4"/> Gestão do Elemento</h2>
+                           <div className="p-6 bg-slate-900 rounded-[2rem] text-white shadow-2xl border border-slate-800" style={entityType === 'drone' ? { borderTop: `8px solid ${selectedEntity.color}` } : {}}>
+                               <p className="text-[10px] font-black text-white/40 uppercase mb-2 tracking-widest">{entityType === 'sector' ? 'SETORIZADOR' : entityType === 'drone' ? 'VETOR OPERACIONAL' : 'PONTO TÁTICO'}</p>
+                               <h4 className="text-2xl font-black uppercase tracking-tight">{entityType === 'drone' ? (selectedEntity as any).drone?.prefix : (selectedEntity as any).name}</h4>
                                {entityType === 'drone' && (
-                                   <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
-                                       <div className="flex justify-between items-center"><span className="text-[9px] text-white/50 uppercase font-black">Piloto (PIC)</span><span className="text-xs font-bold uppercase">{selectedEntity.pilot?.full_name}</span></div>
-                                       {selectedEntity.observer_name && (
-                                           <div className="flex justify-between items-center"><span className="text-[9px] text-white/50 uppercase font-black">Equipe</span><span className="text-xs font-bold uppercase">{selectedEntity.observer_name}</span></div>
-                                       )}
-                                       <div className="flex justify-between items-center"><span className="text-[9px] text-white/50 uppercase font-black">Altitude Alvo</span><span className="text-xs font-bold">{selectedEntity.flight_altitude}m AGL</span></div>
-                                       <div className="flex justify-between items-center"><span className="text-[9px] text-white/50 uppercase font-black">Raio Atuação</span><span className="text-xs font-bold">{selectedEntity.radius}m</span></div>
+                                   <div className="mt-4 space-y-2.5 border-t border-white/10 pt-4">
+                                       <div className="flex justify-between items-center"><span className="text-[10px] text-white/40 uppercase font-black tracking-tighter">PIC (Piloto)</span><span className="text-xs font-bold uppercase" style={{ color: selectedEntity.color }}>{selectedEntity.pilot?.full_name}</span></div>
+                                       <div className="flex justify-between items-center"><span className="text-[10px] text-white/40 uppercase font-black tracking-tighter">Altitude Alvo</span><span className="text-xs font-bold">{selectedEntity.flight_altitude}m AGL</span></div>
                                    </div>
                                )}
-                               
                                {selectedEntity.stream_url && (
-                                   <div className="mt-4 p-3 bg-red-600 rounded-2xl flex items-center justify-between">
-                                       <span className="text-[10px] font-black uppercase flex items-center gap-2"><Video className="w-4 h-4"/> Transmissão Ativa</span>
-                                       <button onClick={() => setPipStream(extractVideoData(selectedEntity.stream_url))} className="text-[10px] bg-white text-red-700 px-4 py-1.5 rounded-full font-black shadow-lg active:scale-95 transition-transform">ASSISTIR</button>
+                                   <div className="mt-6 p-4 bg-red-600 rounded-2xl flex items-center justify-between shadow-lg shadow-red-900/40">
+                                       <span className="text-[10px] font-black uppercase flex items-center gap-2"><Video className="w-4 h-4"/> LIVE ATIVA</span>
+                                       <button onClick={() => setPipStream(extractVideoData(selectedEntity.stream_url))} className="text-[10px] bg-white text-red-700 px-5 py-2 rounded-full font-black shadow-xl active:scale-95 transition-transform">ABRIR</button>
                                    </div>
                                )}
                            </div>
-                           <div className="space-y-3">
-                               <Button variant="outline" className="w-full text-[10px] font-black uppercase h-12" onClick={() => setActivePanel(null)}>Voltar ao Menu</Button>
-                               {entityType !== 'drone' && (
-                                   <Button variant="danger" className="w-full text-[10px] font-black uppercase h-12" onClick={async () => {
-                                       if (entityType === 'sector') await tacticalService.deleteSector(selectedEntity.id);
-                                       else await tacticalService.deletePOI(selectedEntity.id);
-                                       setActivePanel(null); loadTacticalData(id!);
-                                   }}>Remover do Mapa</Button>
-                               )}
+                           {(entityType === 'drone' || entityType === 'poi') && (
+                               <Card className="p-5 border border-slate-200 bg-slate-50 space-y-4 rounded-3xl shadow-inner">
+                                   <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2 ml-1"><Video className="w-3.5 h-3.5 text-blue-600" /> Link de Transmissão</h3>
+                                   <Input value={newItemStream} onChange={e => setNewItemStream(e.target.value)} placeholder="Cole o link aqui..." className="bg-white text-xs h-11" />
+                                   <Button onClick={entityType === 'drone' ? handleSaveDroneTactical : handleSaveElement} className="w-full h-12 bg-blue-600 text-white font-black text-[11px] uppercase rounded-xl shadow-lg shadow-blue-100">Salvar Alterações</Button>
+                               </Card>
+                           )}
+                           <div className="space-y-3 pt-4">
+                               <Button variant="outline" className="w-full text-[10px] font-black uppercase h-14 rounded-2xl" onClick={() => setActivePanel(null)}>Retornar ao Painel</Button>
+                               <Button variant="danger" className="w-full text-[10px] font-black uppercase h-14 rounded-2xl shadow-xl shadow-red-100" onClick={async () => {
+                                   if (!confirm("Confirmar remoção?")) return;
+                                   if (entityType === 'sector') await tacticalService.deleteSector(selectedEntity.id);
+                                   else if (entityType === 'poi') await tacticalService.deletePOI(selectedEntity.id);
+                                   else {
+                                       await tacticalService.removeDroneFromOp(selectedEntity.id);
+                                       if (selectedEntity.drone_id) await base44.entities.Drone.update(selectedEntity.drone_id, { status: 'available' });
+                                   }
+                                   setActivePanel(null); loadTacticalData(id!);
+                               }}>Remover do Cenário</Button>
                            </div>
                       </div>
-                  )}
+                  )
+                  ) : (
+                    <div className="space-y-6 animate-fade-in">
+                        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1"><Layers className="w-3.5 h-3.5" /> Camadas do Mapa</h3>
+                        
+                        {/* Botão de Upload KML */}
+                        <div className="p-6 border-2 border-dashed border-slate-200 rounded-3xl bg-slate-50 hover:bg-blue-50 hover:border-blue-300 transition-all group relative cursor-pointer overflow-hidden">
+                            <input 
+                                type="file" 
+                                accept=".kml" 
+                                onChange={handleKmlUpload} 
+                                className="absolute inset-0 opacity-0 cursor-pointer z-10" 
+                            />
+                            <div className="flex flex-col items-center gap-3">
+                                <div className="p-3 bg-white rounded-full shadow-sm text-blue-600 group-hover:scale-110 transition-transform">
+                                    <UploadCloud className="w-8 h-8" />
+                                </div>
+                                <div className="text-center">
+                                    <p className="text-xs font-black text-slate-700 uppercase">Carregar KML / KMZ</p>
+                                    <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">Importar polígonos e rotas externas</p>
+                                </div>
+                            </div>
+                        </div>
 
-                  {activeTab === 'layers' && !activePanel && (
-                      <div className="space-y-6 animate-fade-in">
-                          <div className="p-6 bg-blue-50 border-2 border-dashed border-blue-200 rounded-3xl text-center">
-                              <Globe className="w-10 h-10 text-blue-400 mx-auto mb-3" />
-                              <h4 className="text-sm font-black text-blue-900 uppercase">Importar Camadas</h4>
-                              <p className="text-[10px] text-blue-600 font-bold mt-2">Suporte a arquivos .KML e .KMZ</p>
-                              <label className="mt-4 inline-block">
-                                  <input type="file" className="hidden" accept=".kml,.kmz" />
-                                  <div className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase shadow-lg cursor-pointer hover:bg-blue-700">Fazer Upload</div>
-                              </label>
-                          </div>
-                      </div>
+                        {/* Lista de Camadas */}
+                        <div className="space-y-3">
+                            <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Camadas Ativas</h4>
+                            {kmlLayers.length === 0 ? (
+                                <div className="py-10 text-center">
+                                    <Globe className="w-8 h-8 text-slate-200 mx-auto mb-2" />
+                                    <p className="text-[10px] text-slate-400 font-bold italic">Nenhuma camada externa carregada</p>
+                                </div>
+                            ) : (
+                                kmlLayers.map(layer => (
+                                    <div key={layer.id} className="p-3 bg-white border border-slate-200 rounded-2xl flex items-center justify-between shadow-sm group">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="p-2 rounded-lg" style={{ backgroundColor: layer.color + '20', color: layer.color }}>
+                                                <FileType className="w-4 h-4" />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-[10px] font-black text-slate-700 truncate uppercase">{layer.name}</p>
+                                                <p className="text-[8px] text-slate-400 font-bold uppercase">SIG / KML DATA</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity">
+                                            <button 
+                                                onClick={() => toggleKmlVisibility(layer.id)}
+                                                className={`p-2 rounded-xl transition-colors ${layer.visible ? 'text-blue-600 hover:bg-blue-50' : 'text-slate-400 hover:bg-slate-100'}`}
+                                                title={layer.visible ? "Ocultar" : "Exibir"}
+                                            >
+                                                {layer.visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                                            </button>
+                                            <button 
+                                                onClick={() => removeKmlLayer(layer.id)}
+                                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                                                title="Remover"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
                   )}
               </div>
           </div>
 
           <div className="flex-1 relative z-0 bg-slate-100" ref={mapRef}>
-              
-              {/* SISTEMA DE PIP (PICTURE IN PICTURE) FLUTUANTE E ARRASTÁVEL */}
               {pipStream && (
-                  <div 
-                    className="absolute bg-slate-900 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-slate-700 z-[3000] overflow-hidden animate-fade-in flex flex-col ring-8 ring-black/5"
-                    style={{ 
-                        left: pipPos.x, 
-                        top: pipPos.y, 
-                        width: window.innerWidth < 768 ? '320px' : '384px',
-                        cursor: isDragging ? 'grabbing' : 'default'
-                    }}
-                  >
-                      {/* Overlay para permitir arraste sobre o iframe */}
+                  <div className="absolute bg-slate-900 rounded-[2rem] shadow-[0_30px_60px_rgba(0,0,0,0.6)] border border-slate-700 z-[3000] overflow-hidden animate-fade-in flex flex-col ring-[12px] ring-black/5" style={{ left: pipPos.x, top: pipPos.y, width: window.innerWidth < 768 ? '320px' : '480px', cursor: isDragging ? 'grabbing' : 'default' }}>
                       {isDragging && <div className="absolute inset-0 z-50 bg-transparent" />}
-
-                      <div 
-                        onMouseDown={handleDragStart}
-                        className="bg-slate-800 p-3 flex justify-between items-center border-b border-slate-700 cursor-grab active:cursor-grabbing select-none"
-                      >
+                      <div onMouseDown={handleDragStart} className="bg-slate-800 p-4 flex justify-between items-center border-b border-slate-700 cursor-grab active:cursor-grabbing select-none">
                           <div className="flex items-center gap-3">
-                              <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div>
-                              <span className="text-[10px] font-black text-white uppercase tracking-widest">Feed de Vídeo Tático</span>
+                              <div className="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse border border-red-400"></div>
+                              <span className="text-[11px] font-black text-white uppercase tracking-widest">FEED TÁTICO</span>
                           </div>
-                          <div className="flex gap-1">
-                              <button onMouseDown={(e) => e.stopPropagation()} onClick={() => setPipStream(null)} className="p-1.5 hover:bg-white/10 rounded-full text-slate-400 transition-colors"><X className="w-5 h-5"/></button>
-                          </div>
+                          <button onMouseDown={(e) => e.stopPropagation()} onClick={() => setPipStream(null)} className="p-2 hover:bg-red-600 hover:text-white rounded-xl text-slate-400 transition-all"><X className="w-5 h-5"/></button>
                       </div>
-                      <div className="aspect-video bg-black relative flex items-center justify-center">
-                          <iframe 
-                            src={pipStream} 
-                            className="w-full h-full border-none"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                            allowFullScreen
-                          ></iframe>
+                      <div className="aspect-video bg-black relative flex items-center justify-center overflow-hidden">
+                          <iframe src={pipStream} className="w-full h-full border-none" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen></iframe>
                       </div>
-                      <div className="p-2 bg-slate-800 flex justify-center pointer-events-none">
-                          <button className="text-[9px] font-black text-slate-400 uppercase tracking-tighter flex items-center gap-2"><Move className="w-3 h-3"/> Livre Movimentação</button>
-                      </div>
+                      <div className="p-2.5 bg-slate-800 flex justify-center pointer-events-none opacity-50"><button className="text-[9px] font-black text-white uppercase tracking-widest flex items-center gap-2"><Move className="w-3.5 h-3.5"/> ARRASTE PARA MOVER</button></div>
                   </div>
               )}
 
-              {/* FERRAMENTAS FLUTUANTES TÁTICAS */}
-              <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[2000] bg-white/95 backdrop-blur-2xl border border-slate-200 rounded-2xl shadow-2xl flex items-center p-1.5 gap-1.5 ring-8 ring-black/5">
-                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'sector' ? null : 'sector')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'sector' ? 'bg-red-600 text-white shadow-lg' : 'text-red-600 hover:bg-red-50'}`} title="Setorizar Área">
-                    <Hexagon className="w-6 h-6"/>
-                  </button>
-                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'route' ? null : 'route')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'route' ? 'bg-orange-600 text-white shadow-lg' : 'text-orange-600 hover:bg-orange-50'}`} title="Traçar Rota">
-                    <Navigation className="w-6 h-6"/>
-                  </button>
-                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'poi' ? null : 'poi')} className={`p-3 rounded-xl transition-all ${currentDrawMode === 'poi' ? 'bg-blue-600 text-white shadow-lg' : 'text-blue-600 hover:bg-blue-50'}`} title="Novo Ponto">
-                    <Flag className="w-6 h-6"/>
-                  </button>
+              <div className="absolute top-8 left-1/2 -translate-x-1/2 z-[2000] bg-white/95 backdrop-blur-3xl border border-slate-200 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex items-center p-2 gap-2 ring-[10px] ring-black/5">
+                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'sector' ? null : 'sector')} className={`p-4 rounded-2xl transition-all duration-300 ${currentDrawMode === 'sector' ? 'bg-red-600 text-white shadow-xl scale-110' : 'text-red-600 hover:bg-red-50'}`} title="Setorizar"><Hexagon className="w-7 h-7"/></button>
+                  <div className="w-px h-8 bg-slate-200"></div>
+                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'route' ? null : 'route')} className={`p-4 rounded-2xl transition-all duration-300 ${currentDrawMode === 'route' ? 'bg-orange-600 text-white shadow-xl scale-110' : 'text-orange-600 hover:bg-orange-50'}`} title="Rota"><Navigation className="w-7 h-7"/></button>
+                  <div className="w-px h-8 bg-slate-200"></div>
+                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'poi' ? null : 'poi')} className={`p-4 rounded-2xl transition-all duration-300 ${currentDrawMode === 'poi' ? 'bg-blue-600 text-white shadow-xl scale-110' : 'text-blue-600 hover:bg-blue-50'}`} title="Ponto"><Flag className="w-7 h-7"/></button>
               </div>
 
-              <div className="absolute bottom-10 right-6 z-[1000] flex flex-col gap-3">
-                  <button onClick={() => setMapType(mapType === 'street' ? 'satellite' : 'street')} className="bg-white text-slate-700 w-14 h-14 flex items-center justify-center rounded-2xl shadow-2xl border border-slate-200 hover:bg-slate-50" title="Alternar Mapa">
-                    {mapType === 'street' ? <Layers className="w-6 h-6" /> : <Satellite className="w-6 h-6" />}
-                  </button>
-                  <button onClick={handleCaptureSnapshot} className="bg-white text-slate-700 w-14 h-14 flex items-center justify-center rounded-2xl shadow-2xl border border-slate-200 hover:bg-slate-50" title="Capturar Snapshot">
-                    <Camera className="w-6 h-6" />
-                  </button>
-                  <button onClick={handleLocatePilot} className="bg-white text-blue-600 w-14 h-14 flex items-center justify-center rounded-2xl shadow-2xl border border-slate-200 hover:bg-slate-50 animate-pulse" title="Centralizar em Mim">
-                    <LocateFixed className="w-6 h-6" />
-                  </button>
+              <div className="absolute bottom-10 right-8 z-[1000] flex flex-col gap-4">
+                  <button onClick={() => setMapType(mapType === 'street' ? 'satellite' : 'street')} className="bg-white text-slate-700 w-16 h-16 flex items-center justify-center rounded-[1.5rem] shadow-2xl border border-slate-200 hover:bg-slate-50 transition-all hover:scale-105 active:scale-95">{mapType === 'street' ? <Layers className="w-7 h-7" /> : <Satellite className="w-7 h-7" />}</button>
+                  <button onClick={handleCaptureSnapshot} className="bg-white text-slate-700 w-16 h-16 flex items-center justify-center rounded-[1.5rem] shadow-2xl border border-slate-200 hover:bg-slate-50 transition-all hover:scale-105 active:scale-95"><Camera className="w-7 h-7" /></button>
+                  <button onClick={handleLocatePilot} className="bg-blue-600 text-white w-16 h-16 flex items-center justify-center rounded-[1.5rem] shadow-2xl border-4 border-white hover:bg-blue-700 transition-all hover:scale-110 active:scale-90 animate-pulse shadow-blue-500/40"><LocateFixed className="w-8 h-8" /></button>
               </div>
 
-              <MapContainer 
-                  center={[operation.latitude, operation.longitude]} 
-                  zoom={17} 
-                  style={{ height: '100%', width: '100%' }}
-                  ref={(map) => { if (map) mainMapRef.current = map; }}
-              >
+              <MapContainer center={[operation.latitude, operation.longitude]} zoom={17} style={{ height: '100%', width: '100%' }} ref={(map) => { if (map) mainMapRef.current = map; }}>
                   <MapResizer />
                   <MapDrawingBridge drawMode={currentDrawMode} />
                   <TileLayer url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} />
                   <SectorsLayer onCreated={handleDrawCreated} />
                   
-                  {sectors.map((s: any) => (
-                    s.type === 'route' ? (
-                      <Polyline key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 0) as any} pathOptions={{ color: s.color, weight: 6, dashArray: '5, 10' }} />
-                    ) : (
-                      <Polygon key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 1) as any} pathOptions={{ color: s.color, fillOpacity: 0.2, weight: 2 }} />
-                    )
+                  {/* Renderização de Camadas KML Externas */}
+                  {kmlLayers.map(layer => layer.visible && (
+                      <GeoJSON 
+                        key={layer.id} 
+                        data={layer.geojson} 
+                        pathOptions={{ 
+                            color: layer.color, 
+                            fillColor: layer.color, 
+                            fillOpacity: 0.15, 
+                            weight: 3,
+                            dashArray: '4, 4'
+                        }} 
+                      />
                   ))}
 
-                  {pois.map((p: any) => (
-                    <Marker key={p.id} position={[p.lat, p.lng]} icon={getPoiIcon(p.type, !!p.stream_url)} eventHandlers={{ click: () => { setSelectedEntity(p); setEntityType('poi'); setActivePanel('manage'); } }}>
-                        <Popup>
-                            <div className="p-2 min-w-[200px]">
-                                <h4 className="font-black text-xs uppercase border-b pb-2 mb-2">{p.name}</h4>
-                                <p className="text-[10px] text-slate-500 mb-3">{p.description || 'Ponto tático operacional.'}</p>
-                                {p.stream_url && (
-                                    <button 
-                                        onClick={() => setPipStream(extractVideoData(p.stream_url!))}
-                                        className="w-full bg-red-600 text-white font-black uppercase text-[9px] py-2 rounded-lg flex items-center justify-center gap-2 animate-pulse"
-                                    >
-                                        <Video className="w-3.5 h-3.5"/> Abrir Live Tática
-                                    </button>
-                                )}
+                  {sectors.map((s: any) => (s.type === 'route' ? <Polyline key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 0) as any} pathOptions={{ color: s.color || '#f97316', weight: 6, dashArray: '5, 10' }} /> : <Polygon key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 1) as any} pathOptions={{ color: s.color || '#ef4444', fillOpacity: 0.2, weight: 2 }} />))}
+                  {pois.map((p: any) => (<Marker key={p.id} position={[p.lat, p.lng]} icon={getPoiIcon(p.type, !!p.stream_url)} eventHandlers={{ click: () => { setSelectedEntity(p); setEntityType('poi'); setActivePanel('manage'); setNewItemStream(p.stream_url || ''); } }} />))}
+                  {tacticalDrones.map((td: any) => td.current_lat && (<Marker 
+                    key={td.id} 
+                    position={[td.current_lat, td.current_lng]} 
+                    icon={getDroneIcon(td.color || '#2563eb', !!td.stream_url)} 
+                    draggable={true}
+                    eventHandlers={{ 
+                        click: () => { setSelectedEntity(td); setEntityType('drone'); setActivePanel('manage'); setNewItemStream(td.stream_url || ''); },
+                        dragend: (e) => handleDroneDrag(td, e)
+                    }}
+                  >
+                    <Popup>
+                        <div className="p-4 min-w-[240px] font-sans">
+                            <h4 className="font-black text-base uppercase leading-none mb-1 text-slate-900" style={{ color: td.color }}>{td.drone?.prefix}</h4>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase mb-4">{td.drone?.model}</p>
+                            <div className="space-y-2 mb-5">
+                                <div className="flex items-center gap-3 text-[11px] bg-slate-50 p-2 rounded-xl border border-slate-100" style={{ borderLeft: `4px solid ${td.color}` }}><Users className="w-4 h-4 text-slate-600" /><div><span className="text-slate-400 font-bold text-[9px] uppercase block">PIC (Piloto)</span><span className="font-black text-slate-800 uppercase">{td.pilot?.full_name}</span></div></div>
+                                <div className="grid grid-cols-2 gap-2"><div className="bg-slate-50 p-2 rounded-xl border border-slate-100"><span className="text-slate-400 font-bold text-[9px] uppercase block">Altura</span><span className="font-black text-slate-800 text-xs">{td.flight_altitude}m</span></div><div className="bg-slate-50 p-2 rounded-xl border border-slate-100"><span className="text-slate-400 font-bold text-[9px] uppercase block">Raio</span><span className="font-black text-slate-800 text-xs">{td.radius}m</span></div></div>
                             </div>
-                        </Popup>
-                    </Marker>
-                  ))}
-
-                  {tacticalDrones.map((td: any) => td.current_lat && (
-                    <Marker 
-                        key={td.id} 
-                        position={[td.current_lat, td.current_lng]} 
-                        icon={getDroneIcon(td.drone?.prefix || 'RPA', !!td.stream_url)} 
-                        eventHandlers={{ click: () => { setSelectedEntity(td); setEntityType('drone'); setActivePanel('manage'); } }}
-                    >
-                        <Popup>
-                            <div className="p-3 min-w-[220px] font-sans">
-                                <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
-                                    <span className="text-[9px] font-black text-blue-600 uppercase">Monitoramento em Tempo Real</span>
-                                    {td.stream_url && <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div>}
-                                </div>
-                                <h4 className="font-black text-sm uppercase leading-none mb-1 text-slate-800">{td.drone?.prefix}</h4>
-                                <p className="text-[10px] text-slate-500 font-bold uppercase mb-3">{td.drone?.model}</p>
-                                
-                                <div className="space-y-1.5 mb-4">
-                                    <div className="flex items-center gap-2 text-xs">
-                                        <Users className="w-3.5 h-3.5 text-slate-400" />
-                                        <span className="text-slate-500 font-medium">PIC:</span>
-                                        <span className="font-black text-slate-700 uppercase">{td.pilot?.full_name}</span>
-                                    </div>
-                                    {td.observer_name && (
-                                        <div className="flex items-center gap-2 text-xs">
-                                            <Shield className="w-3.5 h-3.5 text-slate-400" />
-                                            <span className="text-slate-500 font-medium">Equipe:</span>
-                                            <span className="font-black text-slate-700 uppercase">{td.observer_name}</span>
-                                        </div>
-                                    )}
-                                    <div className="flex items-center gap-2 text-xs">
-                                        <Activity className="w-3.5 h-3.5 text-blue-500" />
-                                        <span className="text-slate-500 font-medium">Altura:</span>
-                                        <span className="font-black text-slate-800">{td.flight_altitude}m AGL</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 text-xs">
-                                        <Ruler className="w-3.5 h-3.5 text-orange-500" />
-                                        <span className="text-slate-500 font-medium">Raio:</span>
-                                        <span className="font-black text-slate-800">{td.radius}m</span>
-                                    </div>
-                                </div>
-
-                                {td.stream_url && (
-                                    <button 
-                                        onClick={() => setPipStream(extractVideoData(td.stream_url!))}
-                                        className="w-full bg-red-600 text-white font-black uppercase text-[9px] py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"
-                                    >
-                                        <Video className="w-3.5 h-3.5"/> Abrir Live Cam
-                                    </button>
-                                )}
-                            </div>
-                        </Popup>
-                    </Marker>
-                  ))}
+                            {td.stream_url && (<button onClick={() => setPipStream(extractVideoData(td.stream_url!))} className="w-full bg-red-600 text-white font-black uppercase text-[10px] py-3.5 rounded-2xl flex items-center justify-center gap-3 shadow-xl active:scale-95 transition-all"><Video className="w-4 h-4"/> MONITORAR CÂMERA</button>)}
+                            <div className="mt-3 text-[9px] text-slate-400 text-center font-bold uppercase italic">Segure e arraste para reposicionar</div>
+                        </div>
+                    </Popup>
+                  </Marker>))}
               </MapContainer>
           </div>
       </div>
-
       <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 12px; }
         .leaflet-container { border-radius: inherit; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
     </div>
   );

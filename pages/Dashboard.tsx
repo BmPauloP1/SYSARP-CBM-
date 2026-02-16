@@ -1,11 +1,10 @@
-
 import React, { useEffect, useState, useCallback, memo, useRef, useMemo } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import { base44 } from "../services/base44Client";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, MISSION_COLORS, ConflictNotification, Maintenance } from "../types";
 import { Badge, Button, Card } from "../components/ui_components";
-import { Radio, Video, Map as MapIcon, Shield, Check, User, Plane, Clock, Share2, LayoutList } from "lucide-react";
+import { Radio, Video, Map as MapIcon, Shield, Check, User, Plane, Clock, Share2, LayoutList, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { OperationalInfoTicker } from "../components/OperationalInfoTicker";
 
@@ -59,11 +58,10 @@ export default function Dashboard() {
 
   const loadData = useCallback(async () => {
     try {
-      const [ops, drn, pils, me] = await Promise.all([
+      const [ops, drn, pils] = await Promise.all([
         base44.entities.Operation.list('-start_time'),
         base44.entities.Drone.list(),
-        base44.entities.Pilot.list(),
-        base44.auth.me()
+        base44.entities.Pilot.list()
       ]);
       const active = ops.filter(o => o.status === 'active');
       setActiveOps(active);
@@ -80,10 +78,21 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [loadData]);
 
+  const handleShare = (op: Operation, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const url = `${window.location.origin}${window.location.pathname}#/operations/${op.id}/gerenciar`;
+    if (navigator.share) {
+        navigator.share({ title: `SYSARP - ${op.name}`, text: `Acompanhe a operação RPA: ${op.name}`, url }).catch(console.error);
+    } else {
+        navigator.clipboard.writeText(url);
+        alert("Link copiado!");
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-white overflow-hidden">
       
-      {/* Operational Ticker - Otimizado para Mobile */}
+      {/* Operational Ticker */}
       <div className="hidden lg:block shrink-0">
         <OperationalInfoTicker 
           totalOps={0} activeOpsCount={activeOps.length}
@@ -134,52 +143,98 @@ export default function Dashboard() {
            </MapContainer>
         </div>
 
-        {/* Lateral Info */}
-        <div className={`w-full lg:w-96 bg-white flex flex-col border-t lg:border-t-0 lg:border-l border-slate-200 shrink-0 ${dashboardView === 'map' ? 'hidden lg:flex' : 'flex h-full'}`}>
-          <div className="p-4 bg-white border-b border-slate-200 font-black text-slate-800 flex items-center justify-between shadow-sm shrink-0">
-            <div className="flex items-center gap-2"><Shield className="w-5 h-5 text-red-700" /> Operações Ativas</div>
-            <Badge variant="danger" className="text-[10px]">{activeOps.length}</Badge>
-          </div>
+        {/* Painel de Controle Direito */}
+        <div className={`w-full lg:w-[400px] bg-slate-50 flex flex-col border-t lg:border-t-0 lg:border-l border-slate-200 shrink-0 ${dashboardView === 'map' ? 'hidden lg:flex' : 'flex h-full'}`}>
           
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 lg:pb-4 custom-scrollbar">
-            {activeOps.length === 0 ? (
-                <div className="py-20 text-center text-xs text-slate-400 font-bold uppercase italic">Sem aeronaves em voo</div>
-            ) : (
-                activeOps.map(op => (
-                   <Card key={op.id} className="p-4 hover:bg-slate-50 transition-all border border-slate-100 shadow-md group cursor-pointer" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>
-                      <div className="flex justify-between items-start mb-2">
-                         <span className="text-[9px] font-black text-red-600 uppercase flex items-center gap-1.5 animate-pulse">
-                            <div className="w-2 h-2 rounded-full bg-red-600"></div> LIVE
-                         </span>
-                         <Badge className="bg-slate-100 text-slate-600 text-[8px] uppercase">{MISSION_HIERARCHY[op.mission_type].label.split('. ')[1]}</Badge>
-                      </div>
-                      <h4 className="font-black text-slate-800 text-sm leading-tight uppercase group-hover:text-red-700">{op.name}</h4>
-                      <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center">
-                         <span className="text-[10px] text-slate-400 font-bold uppercase"><Clock className="w-3 h-3 inline mr-1" /> {new Date(op.start_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                         <button className="text-[9px] font-black text-white bg-slate-900 px-3 py-1.5 rounded-lg shadow-lg">DETALHES</button>
-                      </div>
-                   </Card>
-                ))
-            )}
+          <div className="p-5 flex items-center gap-3 shrink-0">
+             <Shield className="w-5 h-5 text-red-700" />
+             <h2 className="text-base font-black text-slate-800 uppercase tracking-tight">Painel de Controle</h2>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-4 space-y-4 pb-24 lg:pb-6 custom-scrollbar">
             
-            {liveStreams.length > 0 && (
-                <div className="mt-8">
-                   <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                      <Video className="w-3.5 h-3.5 text-red-600"/> Links de Transmissão
-                   </h5>
-                   <div className="space-y-2">
-                      {liveStreams.map(op => (
-                         <div key={op.id} className="p-3 bg-slate-900 rounded-xl flex items-center justify-between border border-slate-800 shadow-lg">
-                            <div className="min-w-0 flex-1">
-                               <p className="text-white text-[10px] font-black uppercase truncate">{op.name}</p>
-                               <p className="text-red-500 text-[8px] font-bold animate-pulse uppercase">Câmera Ativa</p>
+            {/* Bloco Operações Ativas */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+               <div className="bg-red-700 p-3 flex justify-between items-center text-white">
+                  <div className="flex items-center gap-2">
+                     <Radio className="w-4 h-4 animate-pulse" />
+                     <span className="text-[10px] font-black uppercase tracking-wider">Operações Ativas</span>
+                  </div>
+                  <span className="bg-white/20 px-2 py-0.5 rounded-full text-[10px] font-black">{activeOps.length}</span>
+               </div>
+               
+               <div className="p-3 space-y-3">
+                  {activeOps.length === 0 ? (
+                    <div className="py-10 text-center text-[10px] text-slate-400 font-bold uppercase italic">Sem aeronaves em voo</div>
+                  ) : (
+                    activeOps.map(op => {
+                      const pilot = pilots.find(p => p.id === op.pilot_id);
+                      const natureLabel = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
+                      
+                      return (
+                        <Card key={op.id} className="p-4 border border-slate-100 shadow-sm hover:shadow-md transition-all cursor-pointer relative group" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>
+                            <div className="flex justify-between items-start mb-2">
+                               <span className="bg-red-50 text-red-600 text-[8px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 border border-red-100">
+                                  <div className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse"></div>
+                                  EM ANDAMENTO
+                               </span>
+                               <button onClick={(e) => handleShare(op, e)} className="p-1.5 hover:bg-slate-100 rounded-full text-slate-300 hover:text-slate-600 transition-colors">
+                                  <Share2 className="w-3.5 h-3.5" />
+                               </button>
                             </div>
-                            <button onClick={() => navigate('/transmissions')} className="p-2 bg-red-600 text-white rounded-lg ml-3"><Video className="w-4 h-4"/></button>
-                         </div>
-                      ))}
-                   </div>
-                </div>
-            )}
+                            
+                            <h4 className="font-black text-slate-800 text-sm leading-tight uppercase mb-1 line-clamp-2">{op.name}</h4>
+                            <p className="text-[9px] text-slate-400 font-mono font-bold uppercase tracking-tighter truncate">
+                               #{op.occurrence_number} • {natureLabel}
+                            </p>
+
+                            <div className="mt-4 flex justify-between items-center border-t border-slate-50 pt-3">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-500 font-black text-xs shadow-inner">
+                                        {pilot?.full_name?.charAt(0) || 'P'}
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] font-black text-slate-400 uppercase leading-none">PIC</span>
+                                        <span className="text-[10px] font-black text-slate-700 uppercase leading-none mt-1">{pilot?.full_name?.split(' ')[0] || 'Desconhecido'}</span>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-[7px] font-black text-slate-400 uppercase leading-none block">Início</span>
+                                    <span className="text-[10px] font-black text-slate-600 uppercase flex items-center gap-1 mt-1">
+                                        <Clock className="w-3 h-3" />
+                                        {new Date(op.start_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                                    </span>
+                                </div>
+                            </div>
+                        </Card>
+                      );
+                    })
+                  )}
+               </div>
+            </div>
+
+            {/* Bloco Transmissões */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+               <div className="bg-[#1e293b] p-3 flex items-center gap-2 text-white">
+                  <Video className="w-4 h-4" />
+                  <span className="text-[10px] font-black uppercase tracking-wider">Transmissões</span>
+               </div>
+               <div className="p-6 text-center">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase italic">Nenhuma transmissão ativa.</p>
+               </div>
+            </div>
+
+            {/* Bloco Tráfego Aéreo */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+               <div className="bg-[#16a34a] p-3 flex items-center gap-2 text-white">
+                  <Plane className="w-4 h-4" />
+                  <span className="text-[10px] font-black uppercase tracking-wider">Tráfego Aéreo</span>
+               </div>
+               <div className="p-6 text-center">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase italic">Sem conflitos de espaço aéreo.</p>
+               </div>
+            </div>
+
           </div>
         </div>
       </div>

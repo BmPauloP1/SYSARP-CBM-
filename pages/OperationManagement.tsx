@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, Polygon, Polyline } from "react-leaflet";
 import L from "leaflet";
 import "@geoman-io/leaflet-geoman-free";
 import { base44 } from "../services/base44Client";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, MISSION_COLORS, MISSION_LABELS, ORGANIZATION_CHART, MissionType } from "../types";
+import { SUMMER_LOCATIONS } from "../types_summer";
 import { Button, Input, Select, Badge, Card } from "../components/ui_components";
 import { 
   Plus, Clock, User, X, Radio, Plane, 
@@ -11,39 +12,110 @@ import {
   Share2, Play, Pause, Pencil, CheckCircle, 
   Crosshair, Loader2, Save, FileText, Navigation, LayoutList, Map as MapIcon,
   Sun, Calendar, Zap, Flag, Hexagon, Route,
-  Video
+  Video, ChevronDown, CheckSquare, Square, Building2, Phone
 } from "lucide-react";
 import { useNavigate } from "react-router-dom"; 
 
-// Componente para garantir que o mapa preencha o container corretamente
+// Mapeamento de Coordenadas das Sedes (Bases) do CBMPR
+const UNIT_COORDINATES: Record<string, [number, number]> = {
+  "1º BBM - Curitiba": [-25.4370, -49.2700],
+  "2º BBM - Ponta Grossa": [-25.0950, -50.1613],
+  "3º BBM - Londrina": [-23.3106, -51.1628],
+  "4º BBM - Cascavel": [-24.9555, -53.4552],
+  "5º BBM - Maringá": [-23.4209, -51.9331],
+  "6º BBM - São José dos Pinhais": [-25.5348, -49.2064],
+  "7º BBM - Colombo": [-25.2925, -49.2244],
+  "8º BBM - Paranaguá": [-25.5204, -48.5093],
+  "9º BBM - Foz do Iguaçu": [-25.5478, -54.5881],
+  "10º BBM - Francisco Beltrão": [-26.0779, -53.0518],
+  "11º BBM - Apucarana": [-23.5505, -51.4614],
+  "12º BBM - Guarapuava": [-25.3907, -51.4628],
+  "13º BBM - Pato Branco": [-26.2275, -52.6711],
+  "1ª CIBM - Ivaiporã": [-24.2478, -51.6834],
+  "2ª CIBM - Umuarama": [-23.7664, -53.3206],
+  "3ª CIBM - Santo Antônio da Platina": [-23.2944, -50.0789],
+  "4ª CIBM - Cianorte": [-23.6631, -52.6047],
+  "5ª CIBM - Paranavaí": [-23.0848, -52.4633],
+  "6ª CIBM - Irati": [-25.4672, -50.6511],
+  "BOA - Batalhão de Operações Aéreas": [-25.4032, -49.2321],
+  "GOST - Grupo de Operações de Socorro Tático": [-25.4431, -49.2455],
+  "CCB (QCGBM) - Quartel do Comando Geral": [-25.4375, -49.2715],
+  "FORÇA TAREFA (FT) - Resposta a Desastres": [-25.4400, -49.2750]
+};
+
+const handleWhatsApp = (phone: string) => {
+    if (!phone) return;
+    const cleanPhone = phone.replace(/\D/g, '');
+    window.open(`https://wa.me/55${cleanPhone}`, '_blank');
+};
+
+const getOrgShortCode = (label: string) => {
+    if (!label) return '';
+    const part = label.split(' - ')[0];
+    return part.replace(/[ºª.]/g, '').replace(/\s/g, '').toUpperCase();
+};
+
+const calculateNextOccurrenceNumber = (crbm: string, unit: string, allOps: Operation[]) => {
+    const year = new Date().getFullYear();
+    const targetOrg = unit ? unit : crbm;
+    const shortCode = getOrgShortCode(targetOrg);
+    const prefix = `${year}ARP${shortCode}`;
+    const relevantOps = allOps.filter(o => o.occurrence_number && o.occurrence_number.startsWith(prefix));
+    let maxSeq = 0;
+    relevantOps.forEach(op => {
+        const seqPart = op.occurrence_number.replace(prefix, '');
+        const seq = parseInt(seqPart, 10);
+        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    });
+    const nextSeq = (maxSeq + 1).toString().padStart(5, '0');
+    return `${prefix}${nextSeq}`;
+};
+
 const MapResizer = () => {
     const map = useMap();
     useEffect(() => {
-        const timer = setTimeout(() => { map.invalidateSize(); }, 400);
+        const timer = setTimeout(() => { map.invalidateSize(); }, 500);
         return () => clearTimeout(timer);
     }, [map]);
     return null;
 };
 
-const LocationSelectorMap = ({ mode, center, radius, onPositionChange }: any) => {
+const DrawingManager = ({ drawMode, onShapeCreated }: { drawMode: string | null, onShapeCreated: (geojson: any, mode: string) => void }) => {
     const map = useMap();
-    useEffect(() => { setTimeout(() => map.invalidateSize(), 400) }, [map]);
-
-    useMapEvents({
-        click(e) { onPositionChange(e.latlng.lat, e.latlng.lng); }
-    });
-
     useEffect(() => {
-        map.flyTo(center, map.getZoom());
-    }, [center, map]);
+        if (!map || !(map as any).pm) return;
+        const pm = (map as any).pm;
+        pm.setPathOptions({ color: '#ef4444', fillColor: '#ef4444', fillOpacity: 0.2 });
+        pm.disableDraw();
+        if (drawMode === 'pc') pm.enableDraw('Marker', { snappable: true });
+        else if (drawMode === 'area') pm.enableDraw('Polygon', { snappable: true });
+        else if (drawMode === 'route') pm.enableDraw('Line', { snappable: true });
+        else if (drawMode === 'poi') pm.enableDraw('Marker', { snappable: true });
+        const handleCreate = (e: any) => {
+            const geojson = e.layer.toGeoJSON();
+            onShapeCreated(geojson, drawMode || '');
+            map.removeLayer(e.layer);
+        };
+        map.on('pm:create', handleCreate);
+        return () => { map.off('pm:create', handleCreate); };
+    }, [map, drawMode, onShapeCreated]);
+    return null;
+};
 
+const LocationSelectorMap = ({ center, radius, shapes }: any) => {
     return (
         <>
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <Circle center={center} radius={radius} pathOptions={{ color: '#ef4444', fillColor: '#ef4444', fillOpacity: 0.15, dashArray: '5, 10', weight: 2 }} />
-            <Marker position={center} icon={L.divIcon({ className: '', html: '<div style="background-color: #ef4444; width: 16px; height: 16px; border: 3px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(0,0,0,0.5);"></div>', iconSize: [16, 16], iconAnchor: [8, 8] })}>
-               <Popup>Ponto Zero (PC)</Popup>
+            <Marker position={center} icon={L.divIcon({ className: '', html: '<div style="background-color: #ef4444; width: 18px; height: 18px; border: 3.5px solid white; border-radius: 50%; box-shadow: 0 0 12px rgba(0,0,0,0.5);"></div>', iconSize: [18, 18], iconAnchor: [9, 9] })}>
+               <Popup><span className="font-bold text-xs uppercase">Ponto Zero (PC)</span></Popup>
             </Marker>
+            {shapes && Array.isArray(shapes.features) && shapes.features.map((f: any, i: number) => {
+                if (f.geometry.type === 'Polygon') return <Polygon key={i} positions={L.GeoJSON.coordsToLatLngs(f.geometry.coordinates, 1) as any} pathOptions={{ color: '#ef4444', fillOpacity: 0.1 }} />;
+                if (f.geometry.type === 'LineString') return <Polyline key={i} positions={L.GeoJSON.coordsToLatLngs(f.geometry.coordinates, 0) as any} pathOptions={{ color: '#f97316', weight: 4 }} />;
+                if (f.geometry.type === 'Point') return <Marker key={i} position={[f.geometry.coordinates[1], f.geometry.coordinates[0]]} icon={L.divIcon({ className: '', html: '<div style="background-color: #3b82f6; width: 12px; height: 12px; border: 2px solid white; border-radius: 50%;"></div>' })} />;
+                return null;
+            })}
         </>
     );
 };
@@ -57,97 +129,52 @@ export default function OperationManagement() {
   const [mobileView, setMobileView] = useState<'map' | 'list'>('list'); 
   const [loading, setLoading] = useState(false);
   const [isMissionModalOpen, setIsMissionModalOpen] = useState(false);
-  const [mapLayers, setMapLayers] = useState({ gps: false, ops: true });
+  const [drawMode, setDrawMode] = useState<string | null>(null);
   const [controlModal, setControlModal] = useState<{type: 'pause' | 'cancel' | 'end' | null, op: Operation | null}>({type: null, op: null});
-  const [flightDurationStr, setFlightDurationStr] = useState("00:00");
-  const [actionsTaken, setActionsTaken] = useState('');
-  
-  // Ref para o mapa da modal para flyTo
+  const [mapLayers, setMapLayers] = useState({ ops: true, drones: false, pilots: false, bases: false });
+
   const modalMapRef = useRef<L.Map | null>(null);
 
   const [formData, setFormData] = useState({ 
     id: '', name: '', occurrence_number: '', mission_type: 'diverse' as any, sub_mission_type: '', pilot_id: '', observer_name: '', drone_id: '', 
     latitude: -25.42, longitude: -49.27, radius: 200, flight_altitude: 60, description: '', stream_url: '', sarpas_protocol: '',
-    is_summer_op: false, is_multi_day: false, op_crbm: '', op_unit: '',
-    start_date: new Date().toISOString().split('T')[0],
-    start_time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
-    estimated_end_time: '', takeoff_points: [] as any[], shapes: null as any
+    is_summer_op: false, is_multi_day: false, op_crbm: '', op_unit: '', start_date: new Date().toISOString().split('T')[0],
+    start_time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}), estimated_end_time: '', takeoff_points: [], 
+    shapes: { type: 'FeatureCollection', features: [] } as any, summer_city: '', summer_pgv: ''
   });
 
   useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     try {
-      const [ops, pils, drns] = await Promise.all([
-        base44.entities.Operation.list('-created_at'), 
-        base44.entities.Pilot.list(), 
-        base44.entities.Drone.list()
-      ]);
+      const [ops, pils, drns] = await Promise.all([ base44.entities.Operation.list('-created_at'), base44.entities.Pilot.list(), base44.entities.Drone.list() ]);
       setOperations(ops); setPilots(pils); setDrones(drns);
     } catch(e) {}
   };
 
   const handleLocateMeInModal = () => {
-      if (!navigator.geolocation) {
-          alert("Seu dispositivo não suporta geolocalização.");
-          return;
-      }
+      if (!navigator.geolocation) { alert("GPS não disponível."); return; }
+      setDrawMode(null);
       navigator.geolocation.getCurrentPosition((pos) => {
           const { latitude, longitude } = pos.coords;
           setFormData(prev => ({ ...prev, latitude, longitude }));
-          if (modalMapRef.current) {
-              modalMapRef.current.flyTo([latitude, longitude], 17, { duration: 1.5 });
-          }
-      }, () => {
-          alert("Erro ao obter localização. Verifique as permissões de GPS.");
-      }, { enableHighAccuracy: true });
+          if (modalMapRef.current) modalMapRef.current.flyTo([latitude, longitude], 17);
+      }, () => alert("Erro ao obter GPS."), { enableHighAccuracy: true });
   };
 
-  const handleShare = (op: Operation) => {
-    const pilot = pilots.find(p => p.id === op.pilot_id);
-    const drone = drones.find(d => d.id === op.drone_id);
-    const nature = MISSION_HIERARCHY[op.mission_type as MissionType]?.label || op.mission_type;
-    const startTime = new Date(op.start_time).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
-    const gmapsLink = `https://www.google.com/maps?q=${op.latitude},${op.longitude}`;
-
-    const text = `🚨 *SYSARP - SITUAÇÃO OPERACIONAL* 🚨
-
-🚁 *Ocorrência:* ${op.name}
-🔢 *Protocolo:* ${op.occurrence_number}
-📋 *Natureza:* ${nature}
-
-👤 *PIC:* ${pilot?.full_name || 'N/A'}
-📞 *Contato:* ${pilot?.phone || 'N/A'}
-🛡️ *Aeronave:* ${drone?.prefix || 'N/A'} (${drone?.model || 'N/A'})
-
-📍 *Coord:* ${op.latitude.toFixed(6)}, ${op.longitude.toFixed(6)}
-🗺️ *Google Maps:* ${gmapsLink}
-
-📏 *Raio:* ${op.radius}m
-✈️ *Altitude:* ${op.flight_altitude}m
-
-🕒 *Início:* ${startTime}
-🏁 *Término Previsto:* ${op.estimated_end_time || '-'}`;
-
-    if (navigator.share) {
-      navigator.share({ title: 'Situação Operacional', text }).catch(() => {
-        navigator.clipboard.writeText(text);
-        alert("Informações copiadas para a área de transferência!");
-      });
-    } else {
-      navigator.clipboard.writeText(text);
-      alert("Informações copiadas para a área de transferência!");
-    }
+  const handleShapeCreated = (geojson: any, mode: string) => {
+      if (mode === 'pc') { const [lng, lat] = geojson.geometry.coordinates; setFormData(prev => ({ ...prev, latitude: lat, longitude: lng })); }
+      else { setFormData(prev => ({ ...prev, shapes: { ...prev.shapes, features: [...prev.shapes.features, geojson] } })); }
+      setDrawMode(null);
   };
 
   const handleOpenNewMission = () => {
       setFormData({ 
         id: '', name: '', occurrence_number: '', mission_type: 'diverse', sub_mission_type: '', pilot_id: '', observer_name: '', drone_id: '', 
         latitude: -25.42, longitude: -49.27, radius: 200, flight_altitude: 60, description: '', stream_url: '', sarpas_protocol: '', 
-        is_summer_op: false, is_multi_day: false, op_crbm: '', op_unit: '', 
-        start_date: new Date().toISOString().split('T')[0], 
-        start_time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}), 
-        estimated_end_time: '', takeoff_points: [], shapes: null 
+        is_summer_op: false, is_multi_day: false, op_crbm: '', op_unit: '', start_date: new Date().toISOString().split('T')[0], 
+        start_time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}), estimated_end_time: '', takeoff_points: [], 
+        shapes: { type: 'FeatureCollection', features: [] }, summer_city: '', summer_pgv: ''
       });
       setIsMissionModalOpen(true);
   };
@@ -156,91 +183,122 @@ export default function OperationManagement() {
       e.preventDefault();
       setLoading(true);
       try {
-          const localDate = new Date(`${formData.start_date}T${formData.start_time}:00`);
-          const payload = { ...formData, start_time: localDate.toISOString() };
-          if (formData.id) {
-              await base44.entities.Operation.update(formData.id, payload);
-          } else {
-              await base44.entities.Operation.create({ ...payload, status: 'active' } as any);
+          const localStartDate = new Date(`${formData.start_date}T${formData.start_time}:00`);
+          let estimatedEndISO = formData.estimated_end_time ? new Date(`${formData.start_date}T${formData.estimated_end_time}:00`).toISOString() : undefined;
+          const { id, start_date, start_time, estimated_end_time, summer_city, summer_pgv, ...payloadBase } = formData;
+          const finalName = formData.is_summer_op && summer_city ? `VERÃO: ${summer_city} - ${summer_pgv || 'Geral'}` : formData.name;
+          const finalPayload: any = { 
+              ...payloadBase, name: finalName || "Missão Sem Título", start_time: localStartDate.toISOString(), estimated_end_time: estimatedEndISO, 
+              latitude: Number(formData.latitude), longitude: Number(formData.longitude), radius: Number(formData.radius), flight_altitude: Number(formData.flight_altitude), status: 'active'
+          };
+          if (id && id.length > 5) await base44.entities.Operation.update(id, finalPayload);
+          else {
+              const allOps = await base44.entities.Operation.list();
+              const nextOccurrence = calculateNextOccurrenceNumber(formData.op_crbm, formData.op_unit, allOps);
+              finalPayload.occurrence_number = nextOccurrence;
+              await base44.entities.Operation.create(finalPayload);
               if (formData.drone_id) await base44.entities.Drone.update(formData.drone_id, { status: 'in_operation' });
           }
-          setIsMissionModalOpen(false);
-          loadData();
-      } catch(e) { alert("Erro ao salvar missão."); } finally { setLoading(false); }
+          setIsMissionModalOpen(false); loadData();
+      } catch(err: any) { alert("Erro ao salvar missão."); } finally { setLoading(false); }
   };
 
-  const handleResume = async (op: Operation) => {
-      setLoading(true);
-      try { await base44.entities.Operation.update(op.id, { is_paused: false }); loadData(); } catch(e) {} finally { setLoading(false); }
-  };
-
-  const handleAction = async (e: React.FormEvent) => {
-      e.preventDefault();
-      const op = controlModal.op;
-      if (!op) return;
-      setLoading(true);
-      try {
-          if (controlModal.type === 'pause') {
-              const currentLogs = op.pause_logs || [];
-              await base44.entities.Operation.update(op.id, { 
-                  is_paused: true,
-                  last_pause_start: new Date().toISOString(),
-                  pause_logs: [...currentLogs, { start: new Date().toISOString(), reason: actionsTaken }]
-              });
-          }
-          else if (controlModal.type === 'cancel') {
-              await base44.entities.Operation.update(op.id, { status: 'cancelled' });
-              if (op.drone_id) await base44.entities.Drone.update(op.drone_id, { status: 'available' });
-          }
-          else if (controlModal.type === 'end') {
-              let decimalHours = 0;
-              const parts = flightDurationStr.split(':');
-              if (parts.length === 2) decimalHours = Number(parts[0]) + (Number(parts[1]) / 60);
-              await base44.entities.Operation.update(op.id, { status: 'completed', flight_hours: decimalHours, actions_taken: actionsTaken, end_time: new Date().toISOString() });
-              if (op.drone_id) await base44.entities.Drone.update(op.drone_id, { status: 'available' });
-          }
-          setControlModal({type: null, op: null}); 
-          setActionsTaken('');
-          loadData();
-      } catch(e) {} finally { setLoading(false); }
+  const handleShare = (op: Operation) => {
+      const url = `${window.location.origin}${window.location.pathname}#/operations/${op.id}/gerenciar`;
+      if (navigator.share) navigator.share({ title: `SYSARP - ${op.name}`, url }).catch(console.error);
+      else { navigator.clipboard.writeText(url); alert("Link copiado!"); }
   };
 
   return (
     <div className="flex flex-col lg:flex-row h-full w-full bg-slate-100 overflow-hidden relative">
-      
-      {/* Botões Rápidos Mobile */}
       <div className="lg:hidden flex bg-white border-b border-slate-200 shrink-0">
           <button onClick={() => setMobileView('list')} className={`flex-1 py-4 flex items-center justify-center gap-2 text-xs font-black uppercase transition-all ${mobileView === 'list' ? 'text-red-700 border-b-2 border-red-700 bg-slate-50' : 'text-slate-400'}`}><LayoutList className="w-4 h-4" /> Missões</button>
           <button onClick={() => setMobileView('map')} className={`flex-1 py-4 flex items-center justify-center gap-2 text-xs font-black uppercase transition-all ${mobileView === 'map' ? 'text-red-700 border-b-2 border-red-700 bg-slate-50' : 'text-slate-400'}`}><MapIcon className="w-4 h-4" /> Mapa</button>
       </div>
 
       <div className={`flex-1 relative z-0 ${mobileView === 'list' ? 'hidden lg:block' : 'block h-full'}`}>
+          <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-2 pointer-events-auto">
+              <button onClick={() => setMapLayers(prev => ({ ...prev, ops: !prev.ops }))} className={`flex items-center justify-center lg:justify-start gap-2 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase shadow-xl transition-all border-2 ${mapLayers.ops ? 'bg-red-700 text-white border-red-800 scale-105' : 'bg-white/90 backdrop-blur text-slate-400 border-slate-100'}`}><Radio className={`w-4 h-4 ${mapLayers.ops ? 'animate-pulse' : ''}`} /> <span className="hidden lg:inline">Operações</span></button>
+              <button onClick={() => setMapLayers(prev => ({ ...prev, drones: !prev.drones }))} className={`flex items-center justify-center lg:justify-start gap-2 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase shadow-xl transition-all border-2 ${mapLayers.drones ? 'bg-orange-600 text-white border-orange-700 scale-105' : 'bg-white/90 backdrop-blur text-slate-400 border-slate-100'}`}><Plane className="w-4 h-4" /> <span className="hidden lg:inline">Aeronaves</span></button>
+              <button onClick={() => setMapLayers(prev => ({ ...prev, pilots: !prev.pilots }))} className={`flex items-center justify-center lg:justify-start gap-2 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase shadow-xl transition-all border-2 ${mapLayers.pilots ? 'bg-blue-600 text-white border-blue-700 scale-105' : 'bg-white/90 backdrop-blur text-slate-400 border-slate-100'}`}><Users className="w-4 h-4" /> <span className="hidden lg:inline">Pilotos</span></button>
+              <button onClick={() => setMapLayers(prev => ({ ...prev, bases: !prev.bases }))} className={`flex items-center justify-center lg:justify-start gap-2 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase shadow-xl transition-all border-2 ${mapLayers.bases ? 'bg-slate-800 text-white border-slate-900 scale-105' : 'bg-white/90 backdrop-blur text-slate-400 border-slate-100'}`}><Shield className="w-4 h-4" /> <span className="hidden lg:inline">Bases / Sedes</span></button>
+          </div>
+
           <MapContainer center={[-24.8, -51.5]} zoom={7} style={{ height: '100%', width: '100%' }}>
               <MapResizer />
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              {operations.filter(o => o.status === 'active').map(op => (
+              
+              {/* CAMADA DE OPERAÇÕES */}
+              {mapLayers.ops && operations.filter(o => o.status === 'active').map(op => (
                   <Marker key={op.id} position={[op.latitude, op.longitude]} icon={L.divIcon({ className: 'op-marker', html: `<div style="background-color: ${MISSION_COLORS[op.mission_type]}; width: 14px; height: 14px; border-radius: 50%; border: 2.5px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.4);"></div>`, iconSize: [14, 14] })}>
-                    <Popup>
-                        <div className="p-1 min-w-[200px]">
-                            <h4 className="font-black text-xs uppercase leading-tight">{op.name}</h4>
-                            <p className="text-[10px] text-slate-500 font-mono mt-1">#{op.occurrence_number}</p>
-                            <Button size="sm" className="w-full mt-3 h-8 text-[9px] font-black uppercase" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>CENTRO TÁTICO</Button>
-                        </div>
-                    </Popup>
+                    <Popup><div className="p-1 min-w-[200px]"><h4 className="font-black text-xs uppercase leading-tight">{op.name}</h4><p className="text-[10px] text-slate-500 font-mono mt-1">#{op.occurrence_number}</p><Button size="sm" className="w-full mt-3 h-8 text-[9px] font-black uppercase" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>CENTRO TÁTICO</Button></div></Popup>
                   </Marker>
               ))}
+
+              {/* CAMADA DE BASES / SEDES */}
+              {mapLayers.bases && Object.entries(UNIT_COORDINATES).map(([name, coords]) => (
+                  <Marker key={name} position={coords} icon={L.divIcon({ className: '', html: `<div style="background-color: #1e293b; width: 24px; height: 24px; border: 2px solid white; border-radius: 6px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0,0,0,0.4);"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 14px; height: 14px;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>`, iconSize: [24, 24] })}>
+                      <Popup><div className="p-1"><p className="font-black text-xs uppercase">{name}</p><p className="text-[9px] text-slate-400 font-bold uppercase mt-1">Sede Administrativa / Operacional</p></div></Popup>
+                  </Marker>
+              ))}
+
+              {/* CAMADA DE AERONAVES (Agrupadas por Unidade) */}
+              {mapLayers.drones && Object.entries(UNIT_COORDINATES).map(([unitName, coords]) => {
+                  const unitDrones = drones.filter(d => d.unit === unitName);
+                  if (unitDrones.length === 0) return null;
+                  return (
+                    <Marker key={`unit-drone-${unitName}`} position={coords} icon={L.divIcon({ className: '', html: `<div style="background-color: #ea580c; width: 26px; height: 26px; border: 2.5px solid white; border-radius: 6px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3);"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 16px; height: 16px;"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" /><path d="M12 12v-4" /><circle cx="4.5" cy="9" r="2" /><circle cx="19.5" cy="9" r="2" /></svg></div>`, iconSize: [26, 26] })}>
+                        <Popup>
+                            <div className="p-2 min-w-[220px]">
+                                <h4 className="font-black text-xs uppercase border-b pb-2 mb-2 text-orange-700">{unitName} - Frota ({unitDrones.length})</h4>
+                                <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                                    {unitDrones.map(d => (
+                                        <div key={d.id} className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                            <p className="font-black text-[10px] text-slate-800 uppercase leading-none">{d.prefix}</p>
+                                            <p className="text-[9px] text-slate-500 uppercase mt-1">{d.model}</p>
+                                            <p className="text-[8px] text-slate-400 mt-1 uppercase font-black">SN: {d.serial_number}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </Popup>
+                    </Marker>
+                  );
+              })}
+
+              {/* CAMADA DE PILOTOS (Agrupados por Unidade com WhatsApp) */}
+              {mapLayers.pilots && Object.entries(UNIT_COORDINATES).map(([unitName, coords]) => {
+                  const unitPilots = pilots.filter(p => p.unit === unitName && p.status === 'active');
+                  if (unitPilots.length === 0) return null;
+                  return (
+                    <Marker key={`unit-pilot-${unitName}`} position={coords} icon={L.divIcon({ className: '', html: `<div style="background-color: #2563eb; width: 24px; height: 24px; border: 2.5px solid white; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3);"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 12px; height: 12px;"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>`, iconSize: [24, 24] })}>
+                        <Popup>
+                            <div className="p-2 min-w-[220px]">
+                                <h4 className="font-black text-xs uppercase border-b pb-2 mb-2 text-blue-700">{unitName} - Efetivo ({unitPilots.length})</h4>
+                                <div className="space-y-3 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                                    {unitPilots.map(p => (
+                                        <div key={p.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center justify-between shadow-sm">
+                                            <div className="min-w-0 flex-1 mr-2">
+                                                <p className="font-black text-[10px] text-slate-800 uppercase leading-none truncate">{p.full_name}</p>
+                                                <p className="text-[8px] text-slate-500 uppercase mt-1">SARPAS: {p.sarpas_code}</p>
+                                            </div>
+                                            <button onClick={() => handleWhatsApp(p.phone)} className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 shadow-md transition-colors shrink-0">
+                                                <Phone className="w-3 h-3 fill-white" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </Popup>
+                    </Marker>
+                  );
+              })}
           </MapContainer>
-          <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-2">
-              <button onClick={() => setMapLayers(p => ({...p, gps: !p.gps}))} className={`w-12 h-12 rounded-2xl bg-white shadow-2xl flex items-center justify-center border border-slate-200 transition-all ${mapLayers.gps ? 'text-blue-600' : 'text-slate-400'}`}><LocateFixed className="w-6 h-6"/></button>
-          </div>
       </div>
 
       <div className={`${mobileView === 'map' ? 'hidden lg:flex' : 'flex'} w-full lg:w-[450px] bg-white flex flex-col shadow-2xl z-10 border-l border-slate-200 overflow-hidden`}>
           <div className="p-6 bg-white border-b border-slate-100 flex justify-between items-center shrink-0">
-            <div>
-              <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight leading-none">Missões RPA</h2>
-              <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-2">Corpo de Bombeiros Militar</p>
-            </div>
+            <div><h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight leading-none">Missões RPA</h2><p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-2">Corpo de Bombeiros Militar</p></div>
             <Button onClick={handleOpenNewMission} className="bg-red-700 hover:bg-red-800 text-white h-11 px-5 font-black text-[11px] uppercase shadow-lg transition-transform active:scale-95"><Plus className="w-4 h-4 mr-2" /> Nova Missão</Button>
           </div>
           
@@ -257,282 +315,32 @@ export default function OperationManagement() {
                     return (
                       <Card key={op.id} className="bg-white border-l-[6px] border-l-red-600 shadow-xl p-6 flex flex-col gap-4 relative transition-all group hover:border-l-red-700">
                           <div className="flex justify-between items-start">
-                            <div className="min-w-0 flex-1">
-                                <h4 className="font-black text-slate-900 text-lg uppercase leading-none truncate group-hover:text-red-700 transition-colors">{op.name}</h4>
-                                <p className="text-[10px] font-mono text-slate-400 mt-2 uppercase font-black tracking-tighter">#{op.occurrence_number}</p>
-                            </div>
+                            <div className="min-w-0 flex-1"><h4 className="font-black text-slate-900 text-lg uppercase leading-none truncate group-hover:text-red-700 transition-colors">{op.name}</h4><p className="text-[10px] font-mono text-slate-400 mt-2 uppercase font-black tracking-tighter">#{op.occurrence_number}</p></div>
                             {isPaused && <Badge className="bg-amber-100 text-amber-700 text-[9px] font-black uppercase ring-1 ring-amber-200">PAUSADA</Badge>}
                           </div>
-                          <div className="space-y-2 text-[11px] font-black text-slate-500 uppercase tracking-tighter bg-slate-50 p-3 rounded-xl border border-slate-100">
-                            <div className="flex items-center gap-3"><Clock className="w-4 h-4 text-red-400" /><span>{new Date(op.start_time).toLocaleString()}</span></div>
-                            <div className="flex items-center gap-3"><User className="w-4 h-4 text-blue-400" /><span className="truncate">PIC: {pilot?.full_name}</span></div>
-                          </div>
+                          <div className="space-y-2 text-[11px] font-black text-slate-500 uppercase tracking-tighter bg-slate-50 p-3 rounded-xl border border-slate-100"><div className="flex items-center gap-3"><Clock className="w-4 h-4 text-red-400" /><span>{new Date(op.start_time).toLocaleString()}</span></div><div className="flex items-center gap-3"><User className="w-4 h-4 text-blue-400" /><span className="truncate">PIC: {pilot?.full_name}</span></div></div>
                           <div className="grid grid-cols-4 gap-2">
-                             <button onClick={(e) => { e.stopPropagation(); isPaused ? handleResume(op) : setControlModal({type: 'pause', op}); }} className={`flex flex-col items-center justify-center p-2 rounded-xl border transition-all ${isPaused ? 'bg-green-50 text-green-600 border-green-200 hover:bg-green-100' : 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100'}`}>
-                                {isPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
-                                <span className="text-[8px] font-black mt-1 uppercase">{isPaused ? 'Retomar' : 'Pausar'}</span>
-                             </button>
-                             <button onClick={() => { setFormData({...op} as any); setIsMissionModalOpen(true); }} className="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"><Pencil className="w-5 h-5"/><span className="text-[8px] font-black mt-1 uppercase">Editar</span></button>
-                             <button onClick={() => handleShare(op)} className="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 bg-slate-50 text-blue-600 hover:bg-blue-100">
-                                <Share2 className="w-5 h-5"/>
-                                <span className="text-[8px] font-black mt-1 uppercase">Partilhar</span>
-                             </button>
-                             <button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] shadow-lg active:scale-95 transition-transform"><Crosshair className="w-5 h-5 text-red-500 animate-pulse"/> TÁTICO</button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-4">
-                             <button onClick={() => setControlModal({type: 'cancel', op})} className="h-11 rounded-xl border border-slate-200 text-slate-500 font-black text-[11px] uppercase hover:bg-red-50 hover:text-red-600 transition-all">X Cancelar</button>
-                             <button onClick={() => setControlModal({type: 'end', op})} className="h-11 rounded-xl bg-red-600 text-white font-black text-[11px] uppercase shadow-lg shadow-red-100 hover:bg-red-700 transition-all">✓ Encerrar</button>
+                             <button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="col-span-4 flex items-center justify-center h-11 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] shadow-lg active:scale-95 transition-transform"><Crosshair className="w-5 h-5 text-red-500 mr-2 animate-pulse"/> CENTRO TÁTICO</button>
                           </div>
                       </Card>
                     );
                   })
               ) : (
                   operations.filter(o => o.status !== 'active').map(op => (
-                    <Card key={op.id} className="p-4 bg-white border border-slate-200 rounded-2xl flex justify-between items-center shadow-sm opacity-80 transition-opacity">
-                        <div className="min-w-0 flex-1">
-                            <p className="font-black text-slate-700 text-xs truncate uppercase leading-none">{op.name}</p>
-                            <p className="text-[9px] text-slate-400 font-mono mt-1.5 uppercase font-black">#{op.occurrence_number} • {new Date(op.start_time).toLocaleDateString()}</p>
-                        </div>
+                    <Card key={op.id} className="p-4 bg-white border border-slate-200 rounded-2xl flex justify-between items-center shadow-sm opacity-80">
+                        <div className="min-w-0 flex-1"><p className="font-black text-slate-700 text-xs truncate uppercase leading-none">{op.name}</p><p className="text-[9px] text-slate-400 font-mono mt-1.5 uppercase font-black">#{op.occurrence_number} • {new Date(op.start_time).toLocaleDateString()}</p></div>
                         <Badge variant={op.status === 'completed' ? 'success' : 'danger'} className="text-[9px] font-black uppercase">{op.status === 'completed' ? 'CONCLUÍDO' : 'CANCELADO'}</Badge>
                     </Card>
                   ))
               )}
           </div>
       </div>
-
-      {/* MODAL DE CONTROLE DE OPERAÇÃO */}
-      {controlModal.type && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[3000] flex items-center justify-center p-4 animate-fade-in">
-              <Card className="w-full max-w-md bg-white shadow-2xl rounded-3xl overflow-hidden border-t-8 border-red-600">
-                  <div className="p-8">
-                      <div className="flex items-center gap-4 mb-6">
-                          <div className="p-4 bg-red-50 rounded-2xl text-red-600">
-                              {controlModal.type === 'pause' ? <Pause className="w-7 h-7" /> : 
-                               controlModal.type === 'cancel' ? <X className="w-7 h-7" /> : <CheckCircle className="w-7 h-7" />}
-                          </div>
-                          <div>
-                              <h3 className="text-xl font-black uppercase tracking-tight text-slate-800">
-                                  {controlModal.type === 'pause' ? 'Pausar Operação' : 
-                                   controlModal.type === 'cancel' ? 'Cancelar Missão' : 'Encerrar Missão'}
-                              </h3>
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Confirmação de Ação Tática</p>
-                          </div>
-                      </div>
-
-                      <form onSubmit={handleAction} className="space-y-5">
-                          {controlModal.type === 'pause' && (
-                              <div className="space-y-2">
-                                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Motivo da Interrupção</label>
-                                  <textarea 
-                                      required 
-                                      className="w-full p-4 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-red-600 outline-none h-32 resize-none bg-slate-50"
-                                      placeholder="Descreva o motivo (ex: Troca de bateria, mau tempo, solicitação do solicitante...)"
-                                      value={actionsTaken}
-                                      onChange={e => setActionsTaken(e.target.value)}
-                                  />
-                              </div>
-                          )}
-                          
-                          {controlModal.type === 'end' && (
-                              <div className="space-y-4">
-                                  <div className="grid grid-cols-2 gap-3">
-                                      <Input label="Horas de Voo" value={flightDurationStr} onChange={e => setFlightDurationStr(e.target.value)} placeholder="00:00" />
-                                      <div className="space-y-1">
-                                          <label className="text-xs font-bold text-slate-500">Status</label>
-                                          <div className="h-10 flex items-center px-4 bg-green-50 text-green-700 font-bold rounded-lg border border-green-200 text-xs">CONCLUÍDO</div>
-                                      </div>
-                                  </div>
-                                  <div className="space-y-2">
-                                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Ações Tomadas / Relato Final</label>
-                                      <textarea 
-                                          required 
-                                          className="w-full p-4 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-red-600 outline-none h-32 resize-none bg-slate-50"
-                                          placeholder="Resuma as atividades executadas..."
-                                          value={actionsTaken}
-                                          onChange={e => setActionsTaken(e.target.value)}
-                                      />
-                                  </div>
-                              </div>
-                          )}
-
-                          {controlModal.type === 'cancel' && (
-                              <div className="p-5 bg-red-50 rounded-2xl border border-red-100 mb-2">
-                                  <p className="text-sm text-red-800 font-bold leading-relaxed">
-                                      Atenção: Ao cancelar, a missão será movida para o histórico com status "Cancelado" e o vetor será liberado imediatamente.
-                                  </p>
-                              </div>
-                          )}
-
-                          <div className="flex gap-3 pt-2">
-                              <Button type="button" variant="outline" className="flex-1 font-black uppercase text-[10px] h-14 rounded-2xl" onClick={() => setControlModal({type: null, op: null})}>VOLTAR</Button>
-                              <Button type="submit" disabled={loading} className="flex-[2] bg-red-700 hover:bg-red-800 text-white font-black uppercase text-[10px] h-14 rounded-2xl shadow-xl shadow-red-100">
-                                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'CONFIRMAR AÇÃO'}
-                              </Button>
-                          </div>
-                      </form>
-                  </div>
-              </Card>
-          </div>
-      )}
-
-      {/* FORMULÁRIO SEQUENCIAL 1 A 10 */}
-      {isMissionModalOpen && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-0 lg:p-4 animate-fade-in">
-              <Card className="w-full lg:max-w-4xl h-full lg:h-[95vh] bg-white shadow-2xl rounded-none lg:rounded-3xl flex flex-col overflow-hidden">
-                  <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center shrink-0 bg-slate-900 text-white">
-                      <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3"><Radio className="w-7 h-7 text-red-500 animate-pulse" /> LANÇAR OPERAÇÃO RPA</h3>
-                      <button onClick={() => setIsMissionModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X className="w-7 h-7"/></button>
-                  </div>
-                  
-                  <form onSubmit={handleSaveMission} className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-6 bg-slate-50 custom-scrollbar">
-                      
-                      {/* 1. Lotação Operacional */}
-                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Shield className="w-4 h-4"/> 1. LOTAÇÃO OPERACIONAL</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <Select label="CRBM" value={formData.op_crbm} onChange={e => setFormData({...formData, op_crbm: e.target.value, op_unit: ''})} required>
-                                  <option value="">Selecione...</option>
-                                  {Object.keys(ORGANIZATION_CHART).map(c => <option key={c} value={c}>{c}</option>)}
-                              </Select>
-                              <Select label="Unidade" value={formData.op_unit} onChange={e => setFormData({...formData, op_unit: e.target.value})} required disabled={!formData.op_crbm}>
-                                  <option value="">Selecione...</option>
-                                  {formData.op_crbm && ORGANIZATION_CHART[formData.op_crbm as keyof typeof ORGANIZATION_CHART]?.map((u: string) => <option key={u} value={u}>{u}</option>)}
-                              </Select>
-                          </div>
-                      </div>
-
-                      {/* 2. Dados da Missão */}
-                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Zap className="w-4 h-4"/> 2. DADOS DA MISSÃO</h4>
-                          <Input label="Título da Ocorrência" placeholder="Ex: Incêndio Urbano..." value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required />
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <Select label="Natureza" value={formData.mission_type} onChange={e => setFormData({...formData, mission_type: e.target.value as any})} required>
-                                  <option value="">Selecione...</option>
-                                  {Object.entries(MISSION_HIERARCHY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                              </Select>
-                              <Select label="Subnatureza" value={formData.sub_mission_type} onChange={e => setFormData({...formData, sub_mission_type: e.target.value})}>
-                                  <option value="">Selecione...</option>
-                                  {MISSION_HIERARCHY[formData.mission_type as keyof typeof MISSION_HIERARCHY]?.subtypes.map((s: string) => <option key={s} value={s}>{s}</option>)}
-                              </Select>
-                          </div>
-                      </div>
-
-                      {/* 3. Equipe e Aeronave */}
-                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Users className="w-4 h-4"/> 3. EQUIPE E AERONAVE</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <Select label="Piloto (PIC)" required value={formData.pilot_id} onChange={e => setFormData({...formData, pilot_id: e.target.value})}>
-                                  <option value="">Selecione...</option>
-                                  {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-                              </Select>
-                              <Select label="Aeronave (RPA)" required value={formData.drone_id} onChange={e => setFormData({...formData, drone_id: e.target.value})}>
-                                  <option value="">Selecione...</option>
-                                  {drones.map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}
-                              </Select>
-                          </div>
-                          <Input label="Observador / Auxiliar" placeholder="Nome do militar de apoio" value={formData.observer_name} onChange={e => setFormData({...formData, observer_name: e.target.value})} />
-                      </div>
-
-                      {/* 4. Localização e Mapa Tático */}
-                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><MapPin className="w-4 h-4"/> 4. LOCALIZAÇÃO E MAPA TÁTICO</h4>
-                          <div className="grid grid-cols-2 gap-4">
-                              <Input label="Latitude PC" value={formData.latitude} type="number" step="any" onChange={e => setFormData({...formData, latitude: Number(e.target.value)})} />
-                              <Input label="Longitude PC" value={formData.longitude} type="number" step="any" onChange={e => setFormData({...formData, longitude: Number(e.target.value)})} />
-                              <Input label="Raio de Voo (m)" value={formData.radius} type="number" onChange={e => setFormData({...formData, radius: Number(e.target.value)})} />
-                              <Input label="Altitude Máx (m)" value={formData.flight_altitude} type="number" onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})} />
-                          </div>
-                          <div className="h-64 rounded-xl overflow-hidden border border-slate-200 relative">
-                              {/* Botão flutuante de GPS (Target Icon) */}
-                              <button 
-                                type="button"
-                                onClick={handleLocateMeInModal}
-                                className="absolute bottom-4 right-4 z-[1000] bg-blue-600 text-white w-12 h-12 flex items-center justify-center rounded-2xl shadow-2xl hover:bg-blue-700 active:scale-95 transition-all ring-4 ring-white"
-                                title="Centralizar em Mim"
-                              >
-                                <LocateFixed className="w-6 h-6" />
-                              </button>
-
-                              <div className="absolute top-2 left-2 right-2 z-[1000] flex justify-center gap-1">
-                                  <button type="button" className="bg-red-600 text-white px-3 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1"><Navigation className="w-3 h-3"/> PC</button>
-                                  <button type="button" className="bg-white border text-slate-600 px-3 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1"><Hexagon className="w-3 h-3"/> ÁREA</button>
-                                  <button type="button" className="bg-white border text-slate-600 px-3 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1"><Route className="w-3 h-3"/> ROTA</button>
-                                  <button type="button" className="bg-white border text-slate-600 px-3 py-1 rounded-lg text-[9px] font-bold flex items-center gap-1"><Flag className="w-3 h-3"/> PONTO</button>
-                              </div>
-                              <MapContainer 
-                                center={[formData.latitude, formData.longitude]} 
-                                zoom={14} 
-                                style={{ height: '100%', width: '100%' }}
-                                ref={map => { if(map) modalMapRef.current = map; }}
-                              >
-                                  <MapResizer />
-                                  <LocationSelectorMap center={[formData.latitude, formData.longitude]} radius={formData.radius} onPositionChange={(lat: number, lng: number) => setFormData({...formData, latitude: lat, longitude: lng})}/>
-                              </MapContainer>
-                          </div>
-                      </div>
-
-                      {/* 5. Cronograma Operacional */}
-                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Clock className="w-4 h-4"/> 5. CRONOGRAMA OPERACIONAL</h4>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                              <Input label="Data" type="date" value={formData.start_date} onChange={e => setFormData({...formData, start_date: e.target.value})} />
-                              <Input label="Início" type="time" value={formData.start_time} onChange={e => setFormData({...formData, start_time: e.target.value})} />
-                              <Input label="Término Previsto" type="time" value={formData.estimated_end_time} onChange={e => setFormData({...formData, estimated_end_time: e.target.value})} />
-                          </div>
-                      </div>
-
-                      {/* 6. Descrição / Notas */}
-                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileText className="w-4 h-4"/> 6. DESCRIÇÃO / NOTAS OPERACIONAIS</h4>
-                          <textarea className="w-full p-4 border border-slate-200 rounded-xl text-sm min-h-[100px] outline-none focus:ring-2 focus:ring-red-600 resize-none bg-slate-50" placeholder="Relate detalhes, obstáculos or observações importantes da missão..." value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
-                      </div>
-
-                      {/* 7. Link de Transmissão */}
-                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Video className="w-4 h-4"/> 7. LINK DE TRANSMISSÃO</h4>
-                          <Input placeholder="Link YouTube/RTSP..." value={formData.stream_url} onChange={e => setFormData({...formData, stream_url: e.target.value})} />
-                      </div>
-
-                      {/* 8. Integração SARPAS */}
-                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Zap className="w-4 h-4"/> 8. INTEGRAÇÃO SARPAS NG (MANUAL)</h4>
-                          <Input label="Protocolo SARPAS" placeholder="Ex: XXXXXX" value={formData.sarpas_protocol} onChange={e => setFormData({...formData, sarpas_protocol: e.target.value})} />
-                      </div>
-
-                      {/* 9. Operação Verão */}
-                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Sun className="w-4 h-4"/> 9. OPERAÇÃO VERÃO</h4>
-                          <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl cursor-pointer hover:bg-orange-50 transition-colors">
-                              <input type="checkbox" className="w-5 h-5 rounded accent-orange-500" checked={formData.is_summer_op} onChange={e => setFormData({...formData, is_summer_op: e.target.checked})} />
-                              <span className="text-sm font-bold text-slate-700 flex items-center gap-2"><Sun className="w-4 h-4 text-orange-500"/> VINCULAR À OPERAÇÃO VERÃO</span>
-                          </label>
-                      </div>
-
-                      {/* 10. Diário de Bordo */}
-                      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calendar className="w-4 h-4"/> 10. DIÁRIO DE BORDO</h4>
-                          <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl cursor-pointer hover:bg-blue-50 transition-colors">
-                              <input type="checkbox" className="w-5 h-5 rounded accent-blue-600" checked={formData.is_multi_day} onChange={e => setFormData({...formData, is_multi_day: e.target.checked})} />
-                              <span className="text-sm font-bold text-slate-700 flex items-center gap-2"><Calendar className="w-4 h-4 text-blue-600"/> ATIVAR MODO MULTIDIAS</span>
-                          </label>
-                      </div>
-
-                  </form>
-                  <div className="p-6 lg:p-8 border-t bg-white flex flex-col md:flex-row gap-4 shrink-0">
-                      <Button variant="outline" onClick={() => setIsMissionModalOpen(false)} className="h-14 font-black uppercase text-xs rounded-xl flex-1">CANCELAR</Button>
-                      <Button onClick={handleSaveMission} disabled={loading} className="flex-[2] h-14 bg-red-700 text-white font-black uppercase text-xs shadow-2xl rounded-xl flex items-center justify-center gap-3">
-                          {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                          INICIAR MISSÃO RPA
-                      </Button>
-                  </div>
-              </Card>
-          </div>
-      )}
-
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
         .leaflet-container { border-radius: inherit; }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
     </div>
   );
