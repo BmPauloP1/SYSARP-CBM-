@@ -12,7 +12,7 @@ import {
   Share2, Play, Pause, Pencil, CheckCircle, 
   Crosshair, Loader2, Save, FileText, Navigation, LayoutList, Map as MapIcon,
   Sun, Calendar, Zap, Flag, Hexagon, Route,
-  Video, ChevronDown, CheckSquare, Square, Building2, Phone
+  Video, ChevronDown, CheckSquare, Square, Building2, Phone, SaveIcon, MapPinOff
 } from "lucide-react";
 import { useNavigate } from "react-router-dom"; 
 
@@ -131,6 +131,8 @@ export default function OperationManagement() {
   const [isMissionModalOpen, setIsMissionModalOpen] = useState(false);
   const [drawMode, setDrawMode] = useState<string | null>(null);
   const [controlModal, setControlModal] = useState<{type: 'pause' | 'cancel' | 'end' | null, op: Operation | null}>({type: null, op: null});
+  const [flightDurationStr, setFlightDurationStr] = useState("00:00");
+  const [actionsTaken, setActionsTaken] = useState('');
   const [mapLayers, setMapLayers] = useState({ ops: true, drones: false, pilots: false, bases: false });
 
   const modalMapRef = useRef<L.Map | null>(null);
@@ -139,7 +141,7 @@ export default function OperationManagement() {
     id: '', name: '', occurrence_number: '', mission_type: 'diverse' as any, sub_mission_type: '', pilot_id: '', observer_name: '', drone_id: '', 
     latitude: -25.42, longitude: -49.27, radius: 200, flight_altitude: 60, description: '', stream_url: '', sarpas_protocol: '',
     is_summer_op: false, is_multi_day: false, op_crbm: '', op_unit: '', start_date: new Date().toISOString().split('T')[0],
-    start_time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}), estimated_end_time: '', takeoff_points: [], 
+    start_time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}), estimated_end_time: '', takeoff_points: [] as any[], 
     shapes: { type: 'FeatureCollection', features: [] } as any, summer_city: '', summer_pgv: ''
   });
 
@@ -186,20 +188,36 @@ export default function OperationManagement() {
           const localStartDate = new Date(`${formData.start_date}T${formData.start_time}:00`);
           let estimatedEndISO = formData.estimated_end_time ? new Date(`${formData.start_date}T${formData.estimated_end_time}:00`).toISOString() : undefined;
           const { id, start_date, start_time, estimated_end_time, summer_city, summer_pgv, ...payloadBase } = formData;
-          const finalName = formData.is_summer_op && summer_city ? `VERÃO: ${summer_city} - ${summer_pgv || 'Geral'}` : formData.name;
+          
+          let finalName = formData.name;
+          if (formData.is_summer_op && summer_city) {
+              finalName = `VERÃO: ${summer_city} - ${summer_pgv || 'Geral'}`;
+          }
+
           const finalPayload: any = { 
               ...payloadBase, name: finalName || "Missão Sem Título", start_time: localStartDate.toISOString(), estimated_end_time: estimatedEndISO, 
               latitude: Number(formData.latitude), longitude: Number(formData.longitude), radius: Number(formData.radius), flight_altitude: Number(formData.flight_altitude), status: 'active'
           };
-          if (id && id.length > 5) await base44.entities.Operation.update(id, finalPayload);
-          else {
+
+          let targetId = id;
+          if (id && id.length > 5) {
+              await base44.entities.Operation.update(id, finalPayload);
+          } else {
               const allOps = await base44.entities.Operation.list();
               const nextOccurrence = calculateNextOccurrenceNumber(formData.op_crbm, formData.op_unit, allOps);
               finalPayload.occurrence_number = nextOccurrence;
-              await base44.entities.Operation.create(finalPayload);
+              const newOp = await base44.entities.Operation.create(finalPayload);
+              targetId = newOp.id;
               if (formData.drone_id) await base44.entities.Drone.update(formData.drone_id, { status: 'in_operation' });
           }
-          setIsMissionModalOpen(false); loadData();
+          
+          setIsMissionModalOpen(false); 
+          loadData();
+
+          // Se for multidias, após salvar leva o usuário direto para o tático onde o diário está funcional
+          if (formData.is_multi_day && targetId) {
+              navigate(`/operations/${targetId}/gerenciar`);
+          }
       } catch(err: any) { alert("Erro ao salvar missão."); } finally { setLoading(false); }
   };
 
@@ -207,6 +225,33 @@ export default function OperationManagement() {
       const url = `${window.location.origin}${window.location.pathname}#/operations/${op.id}/gerenciar`;
       if (navigator.share) navigator.share({ title: `SYSARP - ${op.name}`, url }).catch(console.error);
       else { navigator.clipboard.writeText(url); alert("Link copiado!"); }
+  };
+
+  const handleResume = async (op: Operation) => {
+      setLoading(true);
+      try { await base44.entities.Operation.update(op.id, { is_paused: false }); loadData(); } catch(e) {} finally { setLoading(false); }
+  };
+
+  const handleAction = async (e: React.FormEvent) => {
+      e.preventDefault();
+      const op = controlModal.op;
+      if (!op) return;
+      setLoading(true);
+      try {
+          if (controlModal.type === 'pause') {
+              const currentLogs = op.pause_logs || [];
+              await base44.entities.Operation.update(op.id, { is_paused: true, last_pause_start: new Date().toISOString(), pause_logs: [...currentLogs, { start: new Date().toISOString(), reason: actionsTaken }] });
+          } else if (controlModal.type === 'cancel') {
+              await base44.entities.Operation.update(op.id, { status: 'cancelled' });
+              if (op.drone_id) await base44.entities.Drone.update(op.drone_id, { status: 'available' });
+          } else if (controlModal.type === 'end') {
+              let decimalHours = 0; const parts = flightDurationStr.split(':');
+              if (parts.length === 2) decimalHours = Number(parts[0]) + (Number(parts[1]) / 60);
+              await base44.entities.Operation.update(op.id, { status: 'completed', flight_hours: decimalHours, actions_taken: actionsTaken, end_time: new Date().toISOString() });
+              if (op.drone_id) await base44.entities.Drone.update(op.drone_id, { status: 'available' });
+          }
+          setControlModal({type: null, op: null}); setActionsTaken(''); loadData();
+      } catch(e) {} finally { setLoading(false); }
   };
 
   return (
@@ -235,7 +280,6 @@ export default function OperationManagement() {
                   </Marker>
               ))}
 
-              {/* CAMADA DE BASES / SEDES */}
               {mapLayers.bases && Object.entries(UNIT_COORDINATES).map(([name, coords]) => (
                   <Marker key={name} position={coords} icon={L.divIcon({ className: '', html: `<div style="background-color: #1e293b; width: 24px; height: 24px; border: 2px solid white; border-radius: 6px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0,0,0,0.4);"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 14px; height: 14px;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>`, iconSize: [24, 24] })}>
                       <Popup><div className="p-1"><p className="font-black text-xs uppercase">{name}</p><p className="text-[9px] text-slate-400 font-bold uppercase mt-1">Sede Administrativa / Operacional</p></div></Popup>
@@ -248,20 +292,7 @@ export default function OperationManagement() {
                   if (unitDrones.length === 0) return null;
                   return (
                     <Marker key={`unit-drone-${unitName}`} position={coords} icon={L.divIcon({ className: '', html: `<div style="background-color: #ea580c; width: 26px; height: 26px; border: 2.5px solid white; border-radius: 6px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3);"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 16px; height: 16px;"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" /><path d="M12 12v-4" /><circle cx="4.5" cy="9" r="2" /><circle cx="19.5" cy="9" r="2" /></svg></div>`, iconSize: [26, 26] })}>
-                        <Popup>
-                            <div className="p-2 min-w-[220px]">
-                                <h4 className="font-black text-xs uppercase border-b pb-2 mb-2 text-orange-700">{unitName} - Frota ({unitDrones.length})</h4>
-                                <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
-                                    {unitDrones.map(d => (
-                                        <div key={d.id} className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                            <p className="font-black text-[10px] text-slate-800 uppercase leading-none">{d.prefix}</p>
-                                            <p className="text-[9px] text-slate-500 uppercase mt-1">{d.model}</p>
-                                            <p className="text-[8px] text-slate-400 mt-1 uppercase font-black">SN: {d.serial_number}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </Popup>
+                        <Popup><div className="p-2 min-w-[220px]"><h4 className="font-black text-xs uppercase border-b pb-2 mb-2 text-orange-700">{unitName} - Frota ({unitDrones.length})</h4><div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">{unitDrones.map(d => (<div key={d.id} className="bg-slate-50 p-2 rounded-lg border border-slate-100"><p className="font-black text-[10px] text-slate-800 uppercase leading-none">{d.prefix}</p><p className="text-[9px] text-slate-500 uppercase mt-1">{d.model}</p></div>))}</div></div></Popup>
                     </Marker>
                   );
               })}
@@ -272,24 +303,7 @@ export default function OperationManagement() {
                   if (unitPilots.length === 0) return null;
                   return (
                     <Marker key={`unit-pilot-${unitName}`} position={coords} icon={L.divIcon({ className: '', html: `<div style="background-color: #2563eb; width: 24px; height: 24px; border: 2.5px solid white; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3);"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 12px; height: 12px;"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>`, iconSize: [24, 24] })}>
-                        <Popup>
-                            <div className="p-2 min-w-[220px]">
-                                <h4 className="font-black text-xs uppercase border-b pb-2 mb-2 text-blue-700">{unitName} - Efetivo ({unitPilots.length})</h4>
-                                <div className="space-y-3 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
-                                    {unitPilots.map(p => (
-                                        <div key={p.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center justify-between shadow-sm">
-                                            <div className="min-w-0 flex-1 mr-2">
-                                                <p className="font-black text-[10px] text-slate-800 uppercase leading-none truncate">{p.full_name}</p>
-                                                <p className="text-[8px] text-slate-500 uppercase mt-1">SARPAS: {p.sarpas_code}</p>
-                                            </div>
-                                            <button onClick={() => handleWhatsApp(p.phone)} className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 shadow-md transition-colors shrink-0">
-                                                <Phone className="w-3 h-3 fill-white" />
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </Popup>
+                        <Popup><div className="p-2 min-w-[220px]"><h4 className="font-black text-xs uppercase border-b pb-2 mb-2 text-blue-700">{unitName} - Efetivo ({unitPilots.length})</h4><div className="space-y-3 max-h-48 overflow-y-auto pr-1 custom-scrollbar">{unitPilots.map(p => (<div key={p.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center justify-between shadow-sm"><div className="min-w-0 flex-1 mr-2"><p className="font-black text-[10px] text-slate-800 uppercase leading-none truncate">{p.full_name}</p></div><button onClick={() => handleWhatsApp(p.phone)} className="p-2 bg-green-500 text-white rounded-full shadow-md"><Phone className="w-3 h-3 fill-white" /></button></div>))}</div></div></Popup>
                     </Marker>
                   );
               })}
@@ -320,7 +334,14 @@ export default function OperationManagement() {
                           </div>
                           <div className="space-y-2 text-[11px] font-black text-slate-500 uppercase tracking-tighter bg-slate-50 p-3 rounded-xl border border-slate-100"><div className="flex items-center gap-3"><Clock className="w-4 h-4 text-red-400" /><span>{new Date(op.start_time).toLocaleString()}</span></div><div className="flex items-center gap-3"><User className="w-4 h-4 text-blue-400" /><span className="truncate">PIC: {pilot?.full_name}</span></div></div>
                           <div className="grid grid-cols-4 gap-2">
-                             <button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="col-span-4 flex items-center justify-center h-11 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] shadow-lg active:scale-95 transition-transform"><Crosshair className="w-5 h-5 text-red-500 mr-2 animate-pulse"/> CENTRO TÁTICO</button>
+                             <button onClick={(e) => { e.stopPropagation(); isPaused ? handleResume(op) : setControlModal({type: 'pause', op}); }} className={`flex flex-col items-center justify-center p-2 rounded-xl border transition-all ${isPaused ? 'bg-green-50 text-green-600 border-green-200' : 'bg-orange-50 text-orange-600 border-orange-200'}`}><div className="w-5 h-5">{isPaused ? <Play /> : <Pause />}</div><span className="text-[8px] font-black mt-1 uppercase">{isPaused ? 'Retomar' : 'Pausar'}</span></button>
+                             <button onClick={() => { setFormData({...op} as any); setIsMissionModalOpen(true); }} className="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-600"><Pencil className="w-5 h-5"/><span className="text-[8px] font-black mt-1 uppercase">Editar</span></button>
+                             <button onClick={() => handleShare(op)} className="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 bg-slate-50 text-blue-600"><Share2 className="w-5 h-5"/><span className="text-[8px] font-black mt-1 uppercase">Partilhar</span></button>
+                             <button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px]"><Crosshair className="w-5 h-5 text-red-500 animate-pulse"/> TÁTICO</button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-4">
+                             <button onClick={() => setControlModal({type: 'cancel', op})} className="h-11 rounded-xl border border-slate-200 text-slate-500 font-black text-[11px] uppercase">X Cancelar</button>
+                             <button onClick={() => setControlModal({type: 'end', op})} className="h-11 rounded-xl bg-red-600 text-white font-black text-[11px] uppercase">✓ Encerrar</button>
                           </div>
                       </Card>
                     );
@@ -335,6 +356,176 @@ export default function OperationManagement() {
               )}
           </div>
       </div>
+
+      {/* MODAL DE CONTROLE */}
+      {controlModal.type && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[3000] flex items-center justify-center p-4">
+              <Card className="w-full max-w-md bg-white shadow-2xl rounded-3xl overflow-hidden border-t-8 border-red-600">
+                  <div className="p-8">
+                      <h3 className="text-xl font-black uppercase mb-6">{controlModal.type === 'pause' ? 'Pausar Missão' : controlModal.type === 'cancel' ? 'Cancelar Missão' : 'Encerrar Missão'}</h3>
+                      <form onSubmit={handleAction} className="space-y-5">
+                          {controlModal.type === 'end' && <Input label="Horas de Voo" value={flightDurationStr} onChange={e => setFlightDurationStr(e.target.value)} placeholder="00:00" />}
+                          <textarea required className="w-full p-4 border border-slate-200 rounded-2xl text-sm h-32 resize-none" placeholder="Relato das ações..." value={actionsTaken} onChange={e => setActionsTaken(e.target.value)} />
+                          <div className="flex gap-3"><Button type="button" variant="outline" className="flex-1 font-black" onClick={() => setControlModal({type: null, op: null})}>VOLTAR</Button><Button type="submit" className="flex-[2] bg-red-700 text-white font-black">CONFIRMAR</Button></div>
+                      </form>
+                  </div>
+              </Card>
+          </div>
+      )}
+
+      {/* MODAL DE NOVA MISSÃO (ESTRUTURA 1 A 10) */}
+      {isMissionModalOpen && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[2000] flex items-center justify-center p-0 md:p-4 animate-fade-in overflow-hidden">
+              <Card className="w-full lg:max-w-4xl h-full md:h-[95vh] bg-slate-50 shadow-2xl rounded-none md:rounded-3xl flex flex-col overflow-hidden">
+                  <div className="px-6 py-5 border-b border-slate-200 flex justify-between items-center shrink-0 bg-white shadow-sm">
+                      <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3 text-slate-800"><Radio className="w-7 h-7 text-red-600 animate-pulse" /> LANÇAR OPERAÇÃO RPA</h3>
+                      <button onClick={() => setIsMissionModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X className="w-7 h-7"/></button>
+                  </div>
+                  
+                  <form onSubmit={handleSaveMission} id="mission-form" className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 bg-slate-50 custom-scrollbar pb-10">
+                      
+                      {/* 1. LOTAÇÃO OPERACIONAL */}
+                      <Card className="p-6 border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Shield className="w-4 h-4"/> 1. LOTAÇÃO OPERACIONAL</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <Select label="CRBM" value={formData.op_crbm} onChange={e => setFormData({...formData, op_crbm: e.target.value, op_unit: ''})} required>
+                                  <option value="">Selecione...</option>
+                                  {Object.keys(ORGANIZATION_CHART).map(c => <option key={c} value={c}>{c}</option>)}
+                              </Select>
+                              <Select label="Unidade" value={formData.op_unit} onChange={e => setFormData({...formData, op_unit: e.target.value})} required disabled={!formData.op_crbm}>
+                                  <option value="">Selecione...</option>
+                                  {formData.op_crbm && ORGANIZATION_CHART[formData.op_crbm as keyof typeof ORGANIZATION_CHART]?.map((u: string) => <option key={u} value={u}>{u}</option>)}
+                              </Select>
+                          </div>
+                      </Card>
+
+                      {/* 2. DADOS DA MISSÃO */}
+                      <Card className="p-6 border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Navigation className="w-4 h-4"/> 2. DADOS DA MISSÃO</h4>
+                          <Input label="Título da Ocorrência" placeholder="Ex: Incêndio Urbano..." value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required disabled={formData.is_summer_op} />
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <Select label="Natureza" value={formData.mission_type} onChange={e => setFormData({...formData, mission_type: e.target.value as any})} required>
+                                  <option value="">Selecione...</option>
+                                  {Object.entries(MISSION_HIERARCHY).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                              </Select>
+                              <Select label="Subnatureza" value={formData.sub_mission_type} onChange={e => setFormData({...formData, sub_mission_type: e.target.value})}>
+                                  <option value="">Selecione...</option>
+                                  {MISSION_HIERARCHY[formData.mission_type as keyof typeof MISSION_HIERARCHY]?.subtypes.map((s: string) => <option key={s} value={s}>{s}</option>)}
+                              </Select>
+                          </div>
+                      </Card>
+
+                      {/* 3. EQUIPE E AERONAVE */}
+                      <Card className="p-6 border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Users className="w-4 h-4"/> 3. EQUIPE E AERONAVE</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <Select label="Piloto (PIC)" required value={formData.pilot_id} onChange={e => setFormData({...formData, pilot_id: e.target.value})}><option value="">Selecione...</option>{pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}</Select>
+                              <Select label="Aeronave (RPA)" required value={formData.drone_id} onChange={e => setFormData({...formData, drone_id: e.target.value})}><option value="">Selecione...</option>{drones.map(d => <option key={d.id} value={d.id}>{d.prefix} - {d.model}</option>)}</Select>
+                          </div>
+                          <Input label="Observador / Auxiliar" placeholder="Nome do militar de apoio" value={formData.observer_name} onChange={e => setFormData({...formData, observer_name: e.target.value})} />
+                      </Card>
+
+                      {/* 4. LOCALIZAÇÃO E MAPA TÁTICO */}
+                      <Card className="p-6 border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><MapPin className="w-4 h-4"/> 4. LOCALIZAÇÃO E MAPA TÁTICO</h4>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                              <Input label="Latitude PC" value={formData.latitude} type="number" step="any" onChange={e => setFormData({...formData, latitude: Number(e.target.value)})} />
+                              <Input label="Longitude PC" value={formData.longitude} type="number" step="any" onChange={e => setFormData({...formData, longitude: Number(e.target.value)})} />
+                              <Input label="Raio de Voo (m)" value={formData.radius} type="number" onChange={e => setFormData({...formData, radius: Number(e.target.value)})} />
+                              <Input label="Altitude Máx (m)" value={formData.flight_altitude} type="number" onChange={e => setFormData({...formData, flight_altitude: Number(e.target.value)})} />
+                          </div>
+                          <div className="h-80 rounded-2xl overflow-hidden border border-slate-200 relative">
+                              <div className="absolute top-2 left-2 z-[1000] flex flex-col gap-2">
+                                  <button type="button" onClick={() => setDrawMode('pc')} className={`w-10 h-10 flex items-center justify-center rounded-lg shadow-lg border transition-all ${drawMode === 'pc' ? 'bg-red-600 text-white' : 'bg-white text-slate-600'}`} title="Marcar PC"><MapPin className="w-5 h-5"/></button>
+                                  <button type="button" onClick={() => setDrawMode('area')} className={`w-10 h-10 flex items-center justify-center rounded-lg shadow-lg border transition-all ${drawMode === 'area' ? 'bg-red-600 text-white' : 'bg-white text-slate-600'}`} title="Desenhar Área"><Square className="w-5 h-5"/></button>
+                                  <button type="button" onClick={() => setDrawMode('route')} className={`w-10 h-10 flex items-center justify-center rounded-lg shadow-lg border transition-all ${drawMode === 'route' ? 'bg-red-600 text-white' : 'bg-white text-slate-600'}`} title="Desenhar Rota"><Route className="w-5 h-5"/></button>
+                                  <button type="button" onClick={() => setDrawMode('poi')} className={`w-10 h-10 flex items-center justify-center rounded-lg shadow-lg border transition-all ${drawMode === 'poi' ? 'bg-red-600 text-white' : 'bg-white text-slate-600'}`} title="Marcar Ponto"><Flag className="w-5 h-5"/></button>
+                              </div>
+                              <button type="button" onClick={handleLocateMeInModal} className="absolute bottom-4 right-4 z-[1000] bg-blue-600 text-white w-12 h-12 flex items-center justify-center rounded-2xl shadow-2xl active:scale-95 transition-all"><LocateFixed className="w-6 h-6" /></button>
+                              <MapContainer center={[formData.latitude, formData.longitude]} zoom={15} style={{ height: '100%', width: '100%' }} ref={map => { if(map) modalMapRef.current = map; }}>
+                                  <MapResizer />
+                                  <DrawingManager drawMode={drawMode} onShapeCreated={handleShapeCreated} />
+                                  <LocationSelectorMap center={[formData.latitude, formData.longitude]} radius={formData.radius} shapes={formData.shapes}/>
+                              </MapContainer>
+                          </div>
+                      </Card>
+
+                      {/* 5. CRONOGRAMA OPERACIONAL */}
+                      <Card className="p-6 border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Clock className="w-4 h-4"/> 5. CRONOGRAMA OPERACIONAL</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              <Input label="Data" type="date" value={formData.start_date} onChange={e => setFormData({...formData, start_date: e.target.value})} />
+                              <Input label="Início" type="time" value={formData.start_time} onChange={e => setFormData({...formData, start_time: e.target.value})} />
+                              <Input label="Término Previsto" type="time" value={formData.estimated_end_time} onChange={e => setFormData({...formData, estimated_end_time: e.target.value})} />
+                          </div>
+                      </Card>
+
+                      {/* 6. DESCRIÇÃO / NOTAS OPERACIONAIS */}
+                      <Card className="p-6 border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileText className="w-4 h-4"/> 6. DESCRIÇÃO / NOTAS OPERACIONAIS</h4>
+                          <textarea className="w-full p-4 border border-slate-200 rounded-2xl text-sm min-h-[120px] outline-none bg-white focus:ring-2 focus:ring-red-500 transition-all" placeholder="Relate detalhes, obstáculos or observações importantes da missão..." value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
+                      </Card>
+
+                      {/* 7. LINK DE TRANSMISSÃO */}
+                      <Card className="p-6 border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Video className="w-4 h-4"/> 7. LINK DE TRANSMISSÃO</h4>
+                          <Input placeholder="Link YouTube/RTSP..." value={formData.stream_url} onChange={e => setFormData({...formData, stream_url: e.target.value})} />
+                      </Card>
+
+                      {/* 8. INTEGRAÇÃO SARPAS NG (MANUAL) */}
+                      <Card className="p-6 border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Zap className="w-4 h-4"/> 8. INTEGRAÇÃO SARPAS NG (MANUAL)</h4>
+                          <Input label="Protocolo SARPAS" placeholder="Ex: XXXXXX" value={formData.sarpas_protocol} onChange={e => setFormData({...formData, sarpas_protocol: e.target.value})} />
+                      </Card>
+
+                      {/* 9. OPERAÇÃO VERÃO - DINÂMICO */}
+                      <Card className="p-6 border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Sun className="w-4 h-4"/> 9. OPERAÇÃO VERÃO</h4>
+                          <label className="flex items-center gap-3 p-4 bg-white border border-slate-200 rounded-2xl cursor-pointer hover:bg-orange-50 transition-colors">
+                              <input type="checkbox" className="w-5 h-5 accent-orange-500" checked={formData.is_summer_op} onChange={e => setFormData({...formData, is_summer_op: e.target.checked, summer_city: '', summer_pgv: ''})} />
+                              <span className="text-sm font-bold flex items-center gap-2"><Sun className="w-4 h-4 text-orange-500" /> VINCULAR À OPERAÇÃO VERÃO</span>
+                          </label>
+
+                          {formData.is_summer_op && (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in p-4 bg-orange-50/50 rounded-2xl border border-orange-100">
+                                  <Select label="Cidade Litorânea" required value={formData.summer_city} onChange={e => setFormData({...formData, summer_city: e.target.value, summer_pgv: ''})}>
+                                      <option value="">Selecione a cidade...</option>
+                                      {Object.keys(SUMMER_LOCATIONS).map(city => <option key={city} value={city}>{city}</option>)}
+                                  </Select>
+                                  <Select label="Posto Guarda-Vidas (PGV)" required value={formData.summer_pgv} onChange={e => setFormData({...formData, summer_pgv: e.target.value})} disabled={!formData.summer_city}>
+                                      <option value="">Selecione o posto...</option>
+                                      {formData.summer_city && SUMMER_LOCATIONS[formData.summer_city]?.map(pgv => <option key={pgv} value={pgv}>{pgv}</option>)}
+                                  </Select>
+                              </div>
+                          )}
+                      </Card>
+
+                      {/* 10. DIÁRIO DE BORDO / MULTIDIAS */}
+                      <Card className="p-6 border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Calendar className="w-4 h-4"/> 10. DIÁRIO DE BORDO</h4>
+                          <label className="flex items-center gap-3 p-4 bg-white border border-slate-200 rounded-2xl cursor-pointer hover:bg-blue-50 transition-colors">
+                              <input type="checkbox" className="w-5 h-5 accent-blue-600" checked={formData.is_multi_day} onChange={e => setFormData({...formData, is_multi_day: e.target.checked})} />
+                              <span className="text-sm font-bold flex items-center gap-2"><Calendar className="w-4 h-4 text-blue-600" /> ATIVAR MODO MULTIDIAS</span>
+                          </label>
+                          {formData.is_multi_day && (
+                              <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 flex items-center gap-3 animate-fade-in">
+                                  <div className="p-2 bg-blue-600 rounded-lg text-white shadow-md"><FileText className="w-4 h-4" /></div>
+                                  <p className="text-[10px] font-bold text-blue-800 leading-tight">O sistema habilitará o lançamento por turnos e controle de diário técnico no Centro Tático desta missão.</p>
+                              </div>
+                          )}
+                      </Card>
+                  </form>
+                  
+                  <div className="p-6 border-t bg-white flex gap-4 shrink-0 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-20">
+                      <Button variant="outline" onClick={() => setIsMissionModalOpen(false)} className="h-14 font-black uppercase text-xs rounded-2xl flex-1 border-slate-200">CANCELAR</Button>
+                      <Button type="submit" form="mission-form" disabled={loading} className="flex-[2] h-14 bg-red-700 hover:bg-red-800 text-white font-black uppercase text-xs rounded-2xl shadow-xl shadow-red-100 flex items-center justify-center gap-2">
+                          <SaveIcon className="w-5 h-5"/> INICIAR MISSÃO RPA
+                      </Button>
+                  </div>
+              </Card>
+          </div>
+      )}
+
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
