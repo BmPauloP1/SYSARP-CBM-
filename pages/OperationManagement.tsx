@@ -12,7 +12,7 @@ import {
   Share2, Play, Pause, Pencil, CheckCircle, 
   Crosshair, Loader2, Save, FileText, Navigation, LayoutList, Map as MapIcon,
   Sun, Calendar, Zap, Flag, Hexagon, Route,
-  Video, ChevronDown, CheckSquare, Square, Building2, Phone, SaveIcon, MapPinOff
+  Video, ChevronDown, CheckSquare, Square, Building2, Phone, SaveIcon
 } from "lucide-react";
 import { useNavigate } from "react-router-dom"; 
 
@@ -43,7 +43,7 @@ const UNIT_COORDINATES: Record<string, [number, number]> = {
   "FORÇA TAREFA (FT) - Resposta a Desastres": [-25.4400, -49.2750]
 };
 
-const handleWhatsApp = (phone: string) => {
+const handleWhatsAppContact = (phone: string) => {
     if (!phone) return;
     const cleanPhone = phone.replace(/\D/g, '');
     window.open(`https://wa.me/55${cleanPhone}`, '_blank');
@@ -214,7 +214,6 @@ export default function OperationManagement() {
           setIsMissionModalOpen(false); 
           loadData();
 
-          // Se for multidias, após salvar leva o usuário direto para o tático onde o diário está funcional
           if (formData.is_multi_day && targetId) {
               navigate(`/operations/${targetId}/gerenciar`);
           }
@@ -222,9 +221,34 @@ export default function OperationManagement() {
   };
 
   const handleShare = (op: Operation) => {
-      const url = `${window.location.origin}${window.location.pathname}#/operations/${op.id}/gerenciar`;
-      if (navigator.share) navigator.share({ title: `SYSARP - ${op.name}`, url }).catch(console.error);
-      else { navigator.clipboard.writeText(url); alert("Link copiado!"); }
+      const pilot = pilots.find(p => p.id === op.pilot_id);
+      const drone = drones.find(d => d.id === op.drone_id);
+      const nature = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
+      
+      const startTime = new Date(op.start_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const endTime = op.estimated_end_time ? new Date(op.estimated_end_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'N/D';
+
+      const message = `🚨 SYSARP - SITUAÇÃO OPERACIONAL 🚨
+
+🚁 Ocorrência: ${op.name.toUpperCase()}
+🔢 Protocolo: ${op.occurrence_number}
+📋 Natureza: ${nature}
+
+👤 PIC: ${pilot?.full_name || 'Não atribuído'}
+📞 Contato: ${pilot?.phone || 'Não disponível'}
+🛡️ Aeronave: ${drone?.prefix || 'Não atribuída'} (${drone?.model || 'Modelo N/D'})
+
+📍 Coord: ${op.latitude.toFixed(6)}, ${op.longitude.toFixed(6)}
+🗺️ Google Maps: https://www.google.com/maps?q=${op.latitude},${op.longitude}
+
+📏 Raio: ${op.radius}m
+✈️ Altitude: ${op.flight_altitude || 60}m
+
+🕒 Início: ${startTime}
+🏁 Término Previsto: ${endTime}`;
+
+      const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+      window.open(whatsappUrl, '_blank');
   };
 
   const handleResume = async (op: Operation) => {
@@ -273,7 +297,6 @@ export default function OperationManagement() {
               <MapResizer />
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
               
-              {/* CAMADA DE OPERAÇÕES */}
               {mapLayers.ops && operations.filter(o => o.status === 'active').map(op => (
                   <Marker key={op.id} position={[op.latitude, op.longitude]} icon={L.divIcon({ className: 'op-marker', html: `<div style="background-color: ${MISSION_COLORS[op.mission_type]}; width: 14px; height: 14px; border-radius: 50%; border: 2.5px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.4);"></div>`, iconSize: [14, 14] })}>
                     <Popup><div className="p-1 min-w-[200px]"><h4 className="font-black text-xs uppercase leading-tight">{op.name}</h4><p className="text-[10px] text-slate-500 font-mono mt-1">#{op.occurrence_number}</p><Button size="sm" className="w-full mt-3 h-8 text-[9px] font-black uppercase" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>CENTRO TÁTICO</Button></div></Popup>
@@ -286,7 +309,6 @@ export default function OperationManagement() {
                   </Marker>
               ))}
 
-              {/* CAMADA DE AERONAVES (Agrupadas por Unidade) */}
               {mapLayers.drones && Object.entries(UNIT_COORDINATES).map(([unitName, coords]) => {
                   const unitDrones = drones.filter(d => d.unit === unitName);
                   if (unitDrones.length === 0) return null;
@@ -297,13 +319,12 @@ export default function OperationManagement() {
                   );
               })}
 
-              {/* CAMADA DE PILOTOS (Agrupados por Unidade com WhatsApp) */}
               {mapLayers.pilots && Object.entries(UNIT_COORDINATES).map(([unitName, coords]) => {
                   const unitPilots = pilots.filter(p => p.unit === unitName && p.status === 'active');
                   if (unitPilots.length === 0) return null;
                   return (
                     <Marker key={`unit-pilot-${unitName}`} position={coords} icon={L.divIcon({ className: '', html: `<div style="background-color: #2563eb; width: 24px; height: 24px; border: 2.5px solid white; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3);"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 12px; height: 12px;"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>`, iconSize: [24, 24] })}>
-                        <Popup><div className="p-2 min-w-[220px]"><h4 className="font-black text-xs uppercase border-b pb-2 mb-2 text-blue-700">{unitName} - Efetivo ({unitPilots.length})</h4><div className="space-y-3 max-h-48 overflow-y-auto pr-1 custom-scrollbar">{unitPilots.map(p => (<div key={p.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center justify-between shadow-sm"><div className="min-w-0 flex-1 mr-2"><p className="font-black text-[10px] text-slate-800 uppercase leading-none truncate">{p.full_name}</p></div><button onClick={() => handleWhatsApp(p.phone)} className="p-2 bg-green-500 text-white rounded-full shadow-md"><Phone className="w-3 h-3 fill-white" /></button></div>))}</div></div></Popup>
+                        <Popup><div className="p-2 min-w-[220px]"><h4 className="font-black text-xs uppercase border-b pb-2 mb-2 text-blue-700">{unitName} - Efetivo ({unitPilots.length})</h4><div className="space-y-3 max-h-48 overflow-y-auto pr-1 custom-scrollbar">{unitPilots.map(p => (<div key={p.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center justify-between shadow-sm"><div className="min-w-0 flex-1 mr-2"><p className="font-black text-[10px] text-slate-800 uppercase leading-none truncate">{p.full_name}</p></div><button onClick={() => handleWhatsAppContact(p.phone)} className="p-2 bg-green-500 text-white rounded-full shadow-md"><Phone className="w-3 h-3 fill-white" /></button></div>))}</div></div></Popup>
                     </Marker>
                   );
               })}
@@ -463,7 +484,7 @@ export default function OperationManagement() {
                       {/* 6. DESCRIÇÃO / NOTAS OPERACIONAIS */}
                       <Card className="p-6 border border-slate-200 shadow-sm space-y-4">
                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><FileText className="w-4 h-4"/> 6. DESCRIÇÃO / NOTAS OPERACIONAIS</h4>
-                          <textarea className="w-full p-4 border border-slate-200 rounded-2xl text-sm min-h-[120px] outline-none bg-white focus:ring-2 focus:ring-red-500 transition-all" placeholder="Relate detalhes, obstáculos or observações importantes da missão..." value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
+                          <textarea className="w-full p-4 border border-slate-300 rounded-2xl text-sm min-h-[120px] outline-none bg-white focus:ring-2 focus:ring-red-500 transition-all" placeholder="Relate detalhes, obstáculos or observações importantes da missão..." value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
                       </Card>
 
                       {/* 7. LINK DE TRANSMISSÃO */}
