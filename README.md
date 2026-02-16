@@ -1,31 +1,20 @@
-📌 Visão Geral
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
 
-Este projeto contém toda a estrutura necessária para:
+# Run and deploy your AI Studio app
 
-Executar a aplicação localmente
+This contains everything you need to run your app locally.
 
-Configurar variáveis de ambiente
+View your app in AI Studio: https://ai.studio/apps/drive/1RfZqqr6Dx5DjewM3W5Aox5jDhglm4vjd
 
-Realizar deploy
+## Run Locally
 
-Integrar com APIs externas
+**Prerequisites:**  Node.js
 
-Customizar conforme necessidade do projeto
 
-🛠️ Tecnologias Utilizadas
-
-Node.js
-
-NPM
-
-Ambiente configurado via variáveis .env
-
-Estrutura modular para fácil manutenção
-
-⚙️ Pré-requisitos
-
-Antes de começar, certifique-se de ter instalado:
-
-Node.js (versão recomendada: LTS)
-
-NPM (instalado junto com o Node)
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

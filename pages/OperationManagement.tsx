@@ -297,11 +297,27 @@ export default function OperationManagement() {
               <MapResizer />
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
               
-              {mapLayers.ops && operations.filter(o => o.status === 'active').map(op => (
-                  <Marker key={op.id} position={[op.latitude, op.longitude]} icon={L.divIcon({ className: 'op-marker', html: `<div style="background-color: ${MISSION_COLORS[op.mission_type]}; width: 14px; height: 14px; border-radius: 50%; border: 2.5px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.4);"></div>`, iconSize: [14, 14] })}>
-                    <Popup><div className="p-1 min-w-[200px]"><h4 className="font-black text-xs uppercase leading-tight">{op.name}</h4><p className="text-[10px] text-slate-500 font-mono mt-1">#{op.occurrence_number}</p><Button size="sm" className="w-full mt-3 h-8 text-[9px] font-black uppercase" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>CENTRO TÁTICO</Button></div></Popup>
-                  </Marker>
-              ))}
+              {/* CAMADA DE OPERAÇÕES */}
+              {mapLayers.ops && operations.filter(o => o.status === 'active').map(op => {
+                  const pilot = pilots.find(p => p.id === op.pilot_id);
+                  const missionLabel = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
+                  return (
+                    <Marker key={op.id} position={[op.latitude, op.longitude]} icon={L.divIcon({ className: 'op-marker', html: `<div style="background-color: ${MISSION_COLORS[op.mission_type]}; width: 14px; height: 14px; border-radius: 50%; border: 2.5px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.4);"></div>`, iconSize: [14, 14] })}>
+                        <Popup>
+                            <div className="p-2 min-w-[240px] font-sans">
+                                <h4 className="font-black text-sm uppercase leading-tight text-slate-900 border-b pb-2 mb-2">{op.name}</h4>
+                                <div className="space-y-1.5">
+                                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Protocolo: <span className="text-slate-700 font-mono">#{op.occurrence_number}</span></p>
+                                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Natureza: <span className="text-slate-700">{missionLabel}</span></p>
+                                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Piloto (PIC): <span className="text-slate-700 font-bold uppercase">{pilot?.full_name || 'N/A'}</span></p>
+                                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Data/Início: <span className="text-slate-700">{new Date(op.start_time).toLocaleString()}</span></p>
+                                </div>
+                                <Button size="sm" className="w-full mt-4 h-9 text-[10px] font-black uppercase shadow-md" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>ACESSAR CENTRO TÁTICO</Button>
+                            </div>
+                        </Popup>
+                    </Marker>
+                  );
+              })}
 
               {mapLayers.bases && Object.entries(UNIT_COORDINATES).map(([name, coords]) => (
                   <Marker key={name} position={coords} icon={L.divIcon({ className: '', html: `<div style="background-color: #1e293b; width: 24px; height: 24px; border: 2px solid white; border-radius: 6px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 8px rgba(0,0,0,0.4);"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 14px; height: 14px;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>`, iconSize: [24, 24] })}>
@@ -309,6 +325,7 @@ export default function OperationManagement() {
                   </Marker>
               ))}
 
+              {/* CAMADA DE AERONAVES (Agrupadas por Unidade) */}
               {mapLayers.drones && Object.entries(UNIT_COORDINATES).map(([unitName, coords]) => {
                   const unitDrones = drones.filter(d => d.unit === unitName);
                   if (unitDrones.length === 0) return null;
@@ -319,11 +336,12 @@ export default function OperationManagement() {
                   );
               })}
 
+              {/* CAMADA DE PILOTOS (Agrupados por Unidade com WhatsApp) */}
               {mapLayers.pilots && Object.entries(UNIT_COORDINATES).map(([unitName, coords]) => {
                   const unitPilots = pilots.filter(p => p.unit === unitName && p.status === 'active');
                   if (unitPilots.length === 0) return null;
                   return (
-                    <Marker key={`unit-pilot-${unitName}`} position={coords} icon={L.divIcon({ className: '', html: `<div style="background-color: #2563eb; width: 24px; height: 24px; border: 2.5px solid white; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3);"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 12px; height: 12px;"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>`, iconSize: [24, 24] })}>
+                    <Marker key={`unit-pilot-${unitName}`} position={coords} icon={L.divIcon({ className: '', html: `<div style="background-color: #2563eb; width: 24px; height: 24px; border: 2px solid white; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3);"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" style="width: 12px; height: 12px;"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>`, iconSize: [24, 24] })}>
                         <Popup><div className="p-2 min-w-[220px]"><h4 className="font-black text-xs uppercase border-b pb-2 mb-2 text-blue-700">{unitName} - Efetivo ({unitPilots.length})</h4><div className="space-y-3 max-h-48 overflow-y-auto pr-1 custom-scrollbar">{unitPilots.map(p => (<div key={p.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center justify-between shadow-sm"><div className="min-w-0 flex-1 mr-2"><p className="font-black text-[10px] text-slate-800 uppercase leading-none truncate">{p.full_name}</p></div><button onClick={() => handleWhatsAppContact(p.phone)} className="p-2 bg-green-500 text-white rounded-full shadow-md"><Phone className="w-3 h-3 fill-white" /></button></div>))}</div></div></Popup>
                     </Marker>
                   );
@@ -399,7 +417,7 @@ export default function OperationManagement() {
           <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[2000] flex items-center justify-center p-0 md:p-4 animate-fade-in overflow-hidden">
               <Card className="w-full lg:max-w-4xl h-full md:h-[95vh] bg-slate-50 shadow-2xl rounded-none md:rounded-3xl flex flex-col overflow-hidden">
                   <div className="px-6 py-5 border-b border-slate-200 flex justify-between items-center shrink-0 bg-white shadow-sm">
-                      <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3 text-slate-800"><Radio className="w-7 h-7 text-red-600 animate-pulse" /> LANÇAR OPERAÇÃO RPA</h3>
+                      <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-3 text-slate-800"><Radio className="w-7 h-7 text-red-600 animate-pulse" /> {formData.id ? 'EDITAR OPERAÇÃO RPA' : 'LANÇAR OPERAÇÃO RPA'}</h3>
                       <button onClick={() => setIsMissionModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X className="w-7 h-7"/></button>
                   </div>
                   
@@ -540,7 +558,7 @@ export default function OperationManagement() {
                   <div className="p-6 border-t bg-white flex gap-4 shrink-0 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] z-20">
                       <Button variant="outline" onClick={() => setIsMissionModalOpen(false)} className="h-14 font-black uppercase text-xs rounded-2xl flex-1 border-slate-200">CANCELAR</Button>
                       <Button type="submit" form="mission-form" disabled={loading} className="flex-[2] h-14 bg-red-700 hover:bg-red-800 text-white font-black uppercase text-xs rounded-2xl shadow-xl shadow-red-100 flex items-center justify-center gap-2">
-                          <SaveIcon className="w-5 h-5"/> INICIAR MISSÃO RPA
+                          <SaveIcon className="w-5 h-5"/> {formData.id ? 'ATUALIZAR OCORRÊNCIA' : 'INICIAR MISSÃO RPA'}
                       </Button>
                   </div>
               </Card>
