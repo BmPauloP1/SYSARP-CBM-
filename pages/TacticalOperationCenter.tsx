@@ -771,8 +771,8 @@ NOTIFY pgrst, 'reload schema';
                           </div>
                           <button onMouseDown={(e) => e.stopPropagation()} onClick={() => setPipStream(null)} className="p-2 hover:bg-red-600 hover:text-white rounded-xl text-slate-400 transition-all"><X className="w-5 h-5"/></button>
                       </div>
-                      <div className="aspect-video bg-black relative flex items-center justify-center overflow-hidden">
-                          <iframe src={pipStream} className="w-full h-full border-none" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen></iframe>
+                      <div className="aspect-video bg-black relative overflow-hidden">
+                          <iframe src={pipStream} className="absolute top-0 left-0 w-full h-full border-none" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen></iframe>
                       </div>
                       <div className="p-2.5 bg-slate-800 flex justify-center pointer-events-none opacity-50"><button className="text-[9px] font-black text-white uppercase tracking-widest flex items-center gap-2"><Move className="w-3.5 h-3.5"/> ARRASTE PARA MOVER</button></div>
                   </div>

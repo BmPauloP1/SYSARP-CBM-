@@ -42,6 +42,20 @@ const formatFlightHours = (decimalHours: number = 0) => {
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}H VOADAS`;
 };
 
+const calculatePolygonArea = (coordinates: any) => {
+    if (!coordinates || !Array.isArray(coordinates) || coordinates.length === 0) return 0;
+    try {
+        const latLngs = L.GeoJSON.coordsToLatLngs(coordinates, 1)[0] as L.LatLng[];
+        if (!latLngs || latLngs.length < 3) return 0;
+        let area = 0; const radius = 6378137;
+        for (let i = 0; i < latLngs.length; i++) {
+            const p1 = latLngs[i]; const p2 = latLngs[(i + 1) % latLngs.length];
+            area += (p2.lng - p1.lng) * Math.PI / 180 * (2 + Math.sin(p1.lat * Math.PI / 180) + Math.sin(p2.lat * Math.PI / 180));
+        }
+        return Math.abs(area * radius * radius / 2.0);
+    } catch (e) { return 0; }
+};
+
 const getImageData = (url: string): Promise<{data: string, ratio: number}> => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -233,6 +247,39 @@ export default function Reports() {
 
             yAfter = Number((doc as any).lastAutoTable?.finalY || yAfter + 40) + 10;
 
+            // Seção de Recursos Táticos
+            const sectors = await tacticalService.getSectors(op.id);
+            const pois = await tacticalService.getPOIs(op.id);
+            const tacticalDrones = await tacticalService.getTacticalDrones(op.id);
+
+            const totalAreaM2 = sectors.reduce((acc, s) => {
+                if (!s.geojson || !s.geojson.coordinates) return acc;
+                return acc + calculatePolygonArea(s.geojson.coordinates);
+            }, 0);
+            const groundTeams = pois.filter(p => p.type === 'ground_team').length;
+            const vehicles = pois.filter(p => p.type === 'vehicle').length;
+            const k9s = pois.filter(p => p.type === 'k9').length;
+            const victims = pois.filter(p => p.type === 'victim').length;
+            const droneIds = new Set<string>();
+            if (op.drone_id) droneIds.add(op.drone_id);
+            tacticalDrones.forEach(td => { if(td.drone_id) droneIds.add(td.drone_id) });
+            const totalDrones = droneIds.size;
+
+            doc.setFont("helvetica", "bold"); doc.text("3. RECURSOS E DIMENSIONAMENTO TÁTICO", 14, yAfter);
+            autoTable(doc, {
+                startY: yAfter + 3,
+                body: [
+                    ["Área Total Mapeada:", formatArea(totalAreaM2)],
+                    ["Aeronaves (Drones) no TO:", `${totalDrones} vetor(es)`],
+                    ["Equipes de Solo no TO:", `${groundTeams} equipe(s)`],
+                    ["Viaturas no TO:", `${vehicles} viatura(s)`],
+                    ["Binômios (K9) no TO:", `${k9s} binômio(s)`],
+                    ["Vítimas Localizadas:", `${victims} vítima(s)`],
+                ],
+                theme: 'plain', styles: { fontSize: 9, cellPadding: 1 }, columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45 } }
+            });
+            yAfter = Number((doc as any).lastAutoTable?.finalY || yAfter + 40) + 10;
+
             if (op.is_multi_day) {
                 const opDays = await base44.entities.OperationDay.filter({ operation_id: op.id });
                 if (opDays.length > 0) {
@@ -257,14 +304,14 @@ export default function Reports() {
             if (snapshotUrl && yAfter + 100 < pageHeight) {
                 const snapshotData = await getImageData(snapshotUrl);
                 if (snapshotData.data) {
-                    doc.setFont("helvetica", "bold"); doc.text("3. GEOPROCESSAMENTO TÁTICO", 14, yAfter);
+                    doc.setFont("helvetica", "bold"); doc.text("4. GEOPROCESSAMENTO TÁTICO", 14, yAfter);
                     doc.addImage(snapshotData.data, 'JPEG', 14, yAfter + 4, 182, 90); 
                     yAfter += 100;
                 }
             }
 
             if (yAfter > pageHeight - 40) doc.addPage();
-            doc.setFont("helvetica", "bold"); doc.text("4. RELATO OPERACIONAL", 14, yAfter || 20);
+            doc.setFont("helvetica", "bold"); doc.text("5. RELATO OPERACIONAL", 14, yAfter || 20);
             const relato = `NARRATIVA:\n${op.description || 'Sem descrição.'}\n\nAÇÕES TOMADAS:\n${op.actions_taken || 'Nenhuma ação detalhada.'}`;
             const splitNarrative = doc.splitTextToSize(relato, pageWidth - 28);
             doc.setFont("helvetica", "normal"); doc.setFontSize(9);
