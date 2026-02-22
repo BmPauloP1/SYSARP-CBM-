@@ -155,6 +155,10 @@ const getPoiIcon = (type: string, hasStream?: boolean) => {
         case 'ground_team': color = '#2563eb'; iconSvg = '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'; break;
         case 'vehicle': color = '#dc2626'; iconSvg = '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><path d="M9 18h6"/><path d="M19 18h2a1 1 0 0 0 1-1v-5l-3-4h-5"/>'; break;
         case 'k9': color = '#78350f'; iconSvg = '<path d="M10 5.172l.596.596a2 2 0 0 0 2.828 0L14 5.172M20 21l-2-6M6 21l2-6M12 21v-6M4 4l3 3M20 4l-3 3M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4z"/>'; break;
+        case 'command_post': color = '#1e40af'; iconSvg = '<path d="M15 6l-4 4l-4-4"/><path d="M11 10v11"/><path d="M21 10h-6"/><path d="M3 10h6"/><path d="M21 19h-6"/><path d="M3 19h6"/>'; break;
+        case 'evidence': color = '#4a044e'; iconSvg = '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>'; break;
+        case 'footprints': color = '#57534e'; iconSvg = '<path d="M4 16.85V18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.15"/><path d="M8.63 13.51a2 2 0 0 1-.26 3.01L8 16.85"/><path d="M15.63 13.51a2 2 0 0 0-.26 3.01L15 16.85"/><path d="M12 3a7.49 7.49 0 0 0-6 6c0 2.5.83 4.5 2.13 5.68a2 2 0 0 1 2.62 0L12 15.5l1.25-.82a2 2 0 0 1 2.62 0C17.17 13.5 18 11.5 18 9a7.49 7.49 0 0 0-6-6"/>'; break;
+        case 'obstacle': color = '#7f1d1d'; iconSvg = '<path d="M18 6L6 18"/><path d="M6 6l12 12"/>'; break;
         default: iconSvg = '<circle cx="12" cy="12" r="10"/>';
     }
     return L.divIcon({ 
@@ -678,7 +682,21 @@ NOTIFY pgrst, 'reload schema';
                                   </>
                               ) : (
                                   <>
-                                      <Input label="Identificação / Nome" value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="Ex: SETOR ALFA..." />
+                                                                            <Input label="Identificação / Nome" value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="Ex: SETOR ALFA..." />
+                                      {entityType === 'poi' && (
+                                        <Select label="Tipo de Ponto" value={newItemSubType} onChange={e => setNewItemSubType(e.target.value)}>
+                                          <option value="base">Base de Operações</option>
+                                          <option value="victim">Vítima</option>
+                                          <option value="hazard">Perigo / Risco</option>
+                                          <option value="ground_team">Equipe Terrestre</option>
+                                          <option value="vehicle">Viatura</option>
+                                          <option value="k9">Cão de Busca (K9)</option>
+                                          <option value="command_post">Posto de Comando</option>
+                                          <option value="evidence">Vestígio</option>
+                                          <option value="footprints">Pegadas</option>
+                                          <option value="obstacle">Obstáculo</option>
+                                        </Select>
+                                      )}
                                       <div className="flex gap-3 pt-4">
                                           <Button variant="outline" className="flex-1 font-black" onClick={() => setActivePanel(null)}>Cancelar</Button>
                                           <Button className="flex-1 bg-red-700 text-white font-black uppercase shadow-lg shadow-red-100" onClick={handleSaveElement}>Salvar Elemento</Button>
