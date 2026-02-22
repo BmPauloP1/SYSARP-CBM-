@@ -450,6 +450,22 @@ NOTIFY pgrst, 'reload schema';
     }
   };
 
+  const handleSavePOITactical = async () => {
+    if (!selectedEntity || entityType !== 'poi') return;
+    setLoading(true);
+    try {
+        await tacticalService.updatePOI(selectedEntity.id, { stream_url: newItemStream });
+        alert("Ponto de Interesse atualizado!");
+        setActivePanel(null);
+        setNewItemStream('');
+        loadTacticalData(id!);
+    } catch (e) {
+        alert("Erro ao salvar alterações no Ponto de Interesse.");
+    } finally {
+        setLoading(false);
+    }
+  };
+
   const handleCaptureSnapshot = async () => {
     if (!mapRef.current || !id || !mainMapRef.current) return;
     setIsCapturing(true);
@@ -611,6 +627,12 @@ NOTIFY pgrst, 'reload schema';
                             </Card>
                         </div>
 
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                            <div className="bg-red-50 py-2 rounded-lg"><p className="text-[9px] font-black text-red-400 uppercase">Vítimas</p><p className="text-sm font-black text-red-800">{operationalSummary.victims}</p></div>
+                            <div className="bg-blue-50 py-2 rounded-lg"><p className="text-[9px] font-black text-blue-400 uppercase">Equipes</p><p className="text-sm font-black text-blue-800">{operationalSummary.teams}</p></div>
+                            <div className="bg-slate-100 py-2 rounded-lg"><p className="text-[9px] font-black text-slate-400 uppercase">Viaturas</p><p className="text-sm font-black text-slate-800">{operationalSummary.vehicles}</p></div>
+                        </div>
+
                         <div className="space-y-4">
                             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1"><MapPin className="w-3.5 h-3.5" /> Objetivos e Pontos</h3>
                             <div className="space-y-2">
@@ -711,6 +733,7 @@ NOTIFY pgrst, 'reload schema';
                            <div className="p-6 bg-slate-900 rounded-[2rem] text-white shadow-2xl border border-slate-800" style={entityType === 'drone' ? { borderTop: `8px solid ${selectedEntity.color}` } : {}}>
                                <p className="text-[10px] font-black text-white/40 uppercase mb-2 tracking-widest">{entityType === 'sector' ? 'SETORIZADOR' : entityType === 'drone' ? 'VETOR OPERACIONAL' : 'PONTO TÁTICO'}</p>
                                <h4 className="text-2xl font-black uppercase tracking-tight">{entityType === 'drone' ? (selectedEntity as any).drone?.prefix : (selectedEntity as any).name}</h4>
+                               {entityType === 'poi' && <p className="text-[10px] text-white/40 font-mono mt-1 uppercase">{selectedEntity.type}</p>}
                                {entityType === 'drone' && (
                                    <div className="mt-4 space-y-2.5 border-t border-white/10 pt-4">
                                        <div className="flex justify-between items-center"><span className="text-[10px] text-white/40 uppercase font-black tracking-tighter">PIC (Piloto)</span><span className="text-xs font-bold uppercase" style={{ color: selectedEntity.color }}>{selectedEntity.pilot?.full_name}</span></div>
@@ -728,7 +751,7 @@ NOTIFY pgrst, 'reload schema';
                                <Card className="p-5 border border-slate-200 bg-slate-50 space-y-4 rounded-3xl shadow-inner">
                                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2 ml-1"><Video className="w-3.5 h-3.5 text-blue-600" /> Link de Transmissão</h3>
                                    <Input value={newItemStream} onChange={e => setNewItemStream(e.target.value)} placeholder="Cole o link aqui..." className="bg-white text-xs h-11" />
-                                   <Button onClick={entityType === 'drone' ? handleSaveDroneTactical : handleSaveElement} className="w-full h-12 bg-blue-600 text-white font-black text-[11px] uppercase rounded-xl shadow-lg shadow-blue-100">Salvar Alterações</Button>
+                                   <Button onClick={entityType === 'drone' ? handleSaveDroneTactical : handleSavePOITactical} className="w-full h-12 bg-blue-600 text-white font-black text-[11px] uppercase rounded-xl shadow-lg shadow-blue-100">Salvar Alterações</Button>
                                </Card>
                            )}
                            <div className="space-y-3 pt-4">
