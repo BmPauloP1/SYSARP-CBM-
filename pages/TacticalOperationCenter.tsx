@@ -204,6 +204,7 @@ export default function TacticalOperationCenter() {
   const [newItemSubType, setNewItemSubType] = useState('base');
   const [newItemStream, setNewItemStream] = useState('');
   const [sqlError, setSqlError] = useState<string | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
   
   const [selectedDroneId, setSelectedDroneId] = useState('');
   const [selectedPilotId, setSelectedPilotId] = useState('');
@@ -446,22 +447,57 @@ NOTIFY pgrst, 'reload schema';
   };
 
   const handleCaptureSnapshot = async () => {
-    if (!mapRef.current || !id) return;
-    setLoading(true);
+    if (!mapRef.current || !id || !mainMapRef.current) return;
+    setIsCapturing(true);
     try {
-        const canvas = await html2canvas(mapRef.current, {
+      const map = mainMapRef.current;
+      const bounds = L.featureGroup();
+
+      sectors.forEach(s => {
+        if (s.geojson) bounds.addLayer(L.geoJSON(s.geojson as any));
+      });
+      kmlLayers.filter(l => l.visible).forEach(l => {
+        if (l.geojson) bounds.addLayer(L.geoJSON(l.geojson as any));
+      });
+      pois.forEach(p => {
+        bounds.addLayer(L.marker([p.lat, p.lng]));
+      });
+      tacticalDrones.forEach(td => {
+        if (td.current_lat && td.current_lng) bounds.addLayer(L.marker([td.current_lat, td.current_lng]));
+      });
+
+      if (bounds.getLayers().length > 0) {
+        map.fitBounds(bounds.getBounds(), { padding: [50, 50] });
+      }
+
+      setTimeout(async () => {
+        if (!mapRef.current) {
+          console.error("Map element not found after delay.");
+          alert("Não foi possível capturar o mapa. Tente novamente.");
+          setIsCapturing(false);
+          return;
+        }
+        try {
+          const canvas = await html2canvas(mapRef.current, {
             useCORS: true,
             logging: false,
-            ignoreElements: (el) => el.classList.contains('leaflet-control-container')
-        });
-        const base64 = canvas.toDataURL('image/jpeg', 0.8);
-        await tacticalService.saveMapSnapshot(id, base64);
-        alert("Snapshot do teatro de operações salvo com sucesso!");
+            ignoreElements: (el) => el.classList.contains('leaflet-control-container') || el.closest('.leaflet-control-container')
+          });
+          const base64 = canvas.toDataURL('image/jpeg', 0.8);
+          await tacticalService.saveMapSnapshot(id, base64);
+          alert("Snapshot do teatro de operações salvo com sucesso!");
+        } catch (error) {
+          console.error("Falha na captura:", error);
+          alert("Erro ao processar imagem do mapa.");
+        } finally {
+          setIsCapturing(false);
+        }
+      }, 1000);
+
     } catch (error) {
-        console.error("Falha na captura:", error);
-        alert("Erro ao processar imagem do mapa.");
-    } finally {
-        setLoading(false);
+      console.error("Erro ao preparar snapshot:", error);
+      alert("Erro ao preparar o mapa para captura.");
+      setIsCapturing(false);
     }
   };
 
@@ -788,15 +824,20 @@ NOTIFY pgrst, 'reload schema';
 
               <div className="absolute bottom-10 right-8 z-[1000] flex flex-col gap-4">
                   <button onClick={() => setMapType(mapType === 'street' ? 'satellite' : 'street')} className="bg-white text-slate-700 w-16 h-16 flex items-center justify-center rounded-[1.5rem] shadow-2xl border border-slate-200 hover:bg-slate-50 transition-all hover:scale-105 active:scale-95">{mapType === 'street' ? <Layers className="w-7 h-7" /> : <Satellite className="w-7 h-7" />}</button>
-                  <button onClick={handleCaptureSnapshot} className="bg-white text-slate-700 w-16 h-16 flex items-center justify-center rounded-[1.5rem] shadow-2xl border border-slate-200 hover:bg-slate-50 transition-all hover:scale-105 active:scale-95"><Camera className="w-7 h-7" /></button>
+                  <button onClick={handleCaptureSnapshot} disabled={isCapturing} className="bg-white text-slate-700 w-16 h-16 flex items-center justify-center rounded-[1.5rem] shadow-2xl border border-slate-200 hover:bg-slate-50 transition-all hover:scale-105 active:scale-95 disabled:bg-slate-200 disabled:cursor-not-allowed">
+                    {isCapturing ? <Loader2 className="w-7 h-7 animate-spin" /> : <Camera className="w-7 h-7" />}
+                  </button>
                   <button onClick={handleLocatePilot} className="bg-blue-600 text-white w-16 h-16 flex items-center justify-center rounded-[1.5rem] shadow-2xl border-4 border-white hover:bg-blue-700 transition-all hover:scale-110 active:scale-90 animate-pulse shadow-blue-500/40"><LocateFixed className="w-8 h-8" /></button>
               </div>
 
-              <MapContainer center={[operation.latitude, operation.longitude]} zoom={17} style={{ height: '100%', width: '100%' }} ref={(map) => { if (map) mainMapRef.current = map; }}>
+              <MapContainer center={[operation.latitude, operation.longitude]} zoom={17} style={{ height: '100%', width: '100%' }} ref={(map) => { if (map) mainMapRef.current = map; }} preferCanvas={true}>
                   <MapResizer />
                   <MapDrawingBridge drawMode={currentDrawMode} />
                   <TileLayer url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} />
                   <SectorsLayer onCreated={handleDrawCreated} />
+                  {kmlLayers.filter(l => l.visible).map(layer => (
+                      <GeoJSON key={layer.id} data={layer.geojson} style={{ color: layer.color, weight: 3 }} />
+                  ))}
                   
                   {/* Renderização de Camadas KML Externas */}
                   {kmlLayers.map(layer => layer.visible && (

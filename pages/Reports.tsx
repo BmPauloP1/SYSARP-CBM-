@@ -10,8 +10,9 @@ import {
   BarChart3, PieChart as PieIcon, Map as MapIcon, 
   Filter, ChevronDown, ChevronUp, Users, Plane, LayoutDashboard, 
   CheckSquare, Square, TrendingUp, Activity, MousePointer2, Crosshair,
-  MapPin, Download, Table, LayoutGrid, CheckCircle2, Camera, Trash2
+  MapPin, Download, Table, LayoutGrid, CheckCircle2, Camera, Trash2, AlertTriangle
 } from "lucide-react";
+import { ReactivateOperationModal } from "../components/ReactivateOperationModal";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, 
   ResponsiveContainer, PieChart, Pie, Cell, Legend 
@@ -88,6 +89,8 @@ export default function Reports() {
   const [loading, setLoading] = useState(true);
   const [selectedOpIds, setSelectedOpIds] = useState<Set<string>>(new Set());
   const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [isReactivateModalOpen, setIsReactivateModalOpen] = useState(false);
+  const [selectedOpForReactivation, setSelectedOpForReactivation] = useState<Operation | null>(null);
 
   const [filterCrbm, setFilterCrbm] = useState("all");
   const [filterNature, setFilterNature] = useState("all");
@@ -165,6 +168,16 @@ export default function Reports() {
       const newSet = new Set(selectedOpIds);
       if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
       setSelectedOpIds(newSet);
+  };
+
+  const handleOpenReactivateModal = () => {
+    if (selectedOpIds.size !== 1) return;
+    const opId = selectedOpIds.values().next().value;
+    const operation = operations.find(o => o.id === opId);
+    if (operation && operation.status === 'completed') {
+      setSelectedOpForReactivation(operation);
+      setIsReactivateModalOpen(true);
+    }
   };
 
   /**
@@ -310,12 +323,26 @@ export default function Reports() {
                 }
             }
 
-            if (yAfter > pageHeight - 40) doc.addPage();
-            doc.setFont("helvetica", "bold"); doc.text("5. RELATO OPERACIONAL", 14, yAfter || 20);
+            if (yAfter > pageHeight - 40) {
+                doc.addPage();
+                yAfter = 20;
+            }
+            doc.setFont("helvetica", "bold"); doc.text("5. RELATO OPERACIONAL", 14, yAfter);
+            yAfter += 7;
+
             const relato = `NARRATIVA:\n${op.description || 'Sem descrição.'}\n\nAÇÕES TOMADAS:\n${op.actions_taken || 'Nenhuma ação detalhada.'}`;
             const splitNarrative = doc.splitTextToSize(relato, pageWidth - 28);
             doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-            doc.text(splitNarrative, 14, (yAfter || 20) + 7);
+
+            const lineHeight = doc.getLineHeight() / doc.internal.scaleFactor;
+            for (const line of splitNarrative) {
+                if (yAfter + lineHeight > pageHeight - 40) { // Check against footer margin
+                    doc.addPage();
+                    yAfter = 20;
+                }
+                doc.text(line, 14, yAfter);
+                yAfter += lineHeight;
+            }
             
             const footerY = pageHeight - 35;
             doc.setDrawColor(220, 220, 220); doc.setLineWidth(0.2); doc.line(14, footerY, pageWidth - 14, footerY);
@@ -478,6 +505,11 @@ export default function Reports() {
                                <Button onClick={handleExportBoletim} disabled={generatingPdf} className="bg-red-700 hover:bg-red-800 text-white h-9 px-6 text-[10px] font-black uppercase tracking-widest shadow-lg">
                                    <Printer className="w-3.5 h-3.5 mr-2"/> {generatingPdf ? 'PROCESSANDO...' : 'GERAR BOLETINS'}
                                </Button>
+                               {currentUser?.role === 'admin' && selectedOpIds.size === 1 && operations.find(o => o.id === selectedOpIds.values().next().value)?.status === 'completed' && (
+                                   <Button onClick={handleOpenReactivateModal} className="bg-amber-600 hover:bg-amber-700 text-white h-9 px-4 text-[10px] font-black uppercase tracking-widest shadow-lg">
+                                       <AlertTriangle className="w-3.5 h-3.5 mr-2"/> REATIVAR
+                                   </Button>
+                               )}
                            </div>
                        )}
                    </div>
@@ -510,6 +542,16 @@ export default function Reports() {
             </div>
         )}
       </div>
+      <ReactivateOperationModal
+        isOpen={isReactivateModalOpen}
+        onClose={() => setIsReactivateModalOpen(false)}
+        operation={selectedOpForReactivation}
+        currentUser={currentUser}
+        onSuccess={() => {
+          loadData();
+          setSelectedOpIds(new Set());
+        }}
+      />
     </div>
   );
 }

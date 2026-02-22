@@ -5,6 +5,7 @@ import { base44 } from "../services/base44Client";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, MISSION_COLORS, ConflictNotification, Maintenance } from "../types";
 import { Badge, Button, Card } from "../components/ui_components";
 import { Radio, Video, Map as MapIcon, Shield, Check, User, Plane, Clock, Share2, LayoutList, ChevronRight } from "lucide-react";
+import { PendencyAlerts } from "../components/PendencyAlerts";
 import { useNavigate } from "react-router-dom";
 import { OperationalInfoTicker } from "../components/OperationalInfoTicker";
 
@@ -55,6 +56,7 @@ export default function Dashboard() {
   const [pilots, setPilots] = useState<Pilot[]>([]);
   const [totalFlightHours, setTotalFlightHours] = useState(0);
   const [dashboardView, setDashboardView] = useState<'map' | 'panel'>('map'); 
+  const [currentUser, setCurrentUser] = useState<Pilot | null>(null); 
 
   const loadData = useCallback(async () => {
     try {
@@ -69,6 +71,8 @@ export default function Dashboard() {
       setDrones(drn);
       setPilots(pils);
       setTotalFlightHours(drn.reduce((acc, d) => acc + (d.total_flight_hours || 0), 0));
+      const me = await base44.auth.me();
+      setCurrentUser(me);
     } catch (e: any) {}
   }, []);
 
@@ -152,6 +156,7 @@ export default function Dashboard() {
           </div>
 
           <div className="flex-1 overflow-y-auto px-4 space-y-4 pb-24 lg:pb-6 custom-scrollbar">
+<PendencyAlerts currentUser={currentUser} />
             
             {/* Bloco Operações Ativas */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">

@@ -78,6 +78,31 @@ export const Input = ({ label, labelClassName, className = "", ...props }: React
   </div>
 );
 
+export const Textarea = ({ label, labelClassName, className = "", ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label?: string, labelClassName?: string }) => (
+  <div className="space-y-1">
+    {label && <label className={`text-sm font-medium ${labelClassName || 'text-slate-700'}`}>{label}</label>}
+    <textarea 
+      className={`w-full px-3 py-2 border border-slate-300 bg-white text-slate-900 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all placeholder:text-slate-400 ${className}`}
+      {...props} 
+    />
+  </div>
+);
+
+export const Modal = ({ isOpen, onClose, title, children }: { isOpen: boolean, onClose: () => void, title: string, children: React.ReactNode }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in-up" onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+          <h3 className="text-lg font-bold text-slate-800">{title}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">&times;</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+};
+
 export const Select = ({ label, labelClassName, className = "", children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement> & { label?: string, labelClassName?: string }) => (
   <div className="space-y-1">
     {label && <label className={`text-sm font-medium ${labelClassName || 'text-slate-700'}`}>{label}</label>}

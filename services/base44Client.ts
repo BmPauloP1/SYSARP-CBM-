@@ -1,6 +1,6 @@
 
 import { supabase, isConfigured } from './supabase';
-import { Drone, Operation, Pilot, Maintenance, FlightLog, ConflictNotification, DroneChecklist, SystemAuditLog, OperationDay, OperationDayAsset, OperationDayPilot } from '../types';
+import { Drone, Operation, Pilot, Maintenance, FlightLog, ConflictNotification, DroneChecklist, SystemAuditLog, OperationDay, OperationDayAsset, OperationDayPilot, OperationPendency } from '../types';
 
 // Mapeamento de nomes de tabelas
 const TABLE_MAP = {
@@ -15,6 +15,7 @@ const TABLE_MAP = {
   OperationDay: 'operation_days',
   OperationDayAsset: 'operation_day_assets',
   OperationDayPilot: 'operation_day_pilots',
+  OperationPendency: 'operation_pendencies',
   SchemaMigration: 'schema_migrations'
 };
 
@@ -30,6 +31,7 @@ const STORAGE_KEYS = {
   OperationDay: 'sysarp_op_days',
   OperationDayAsset: 'sysarp_op_day_assets',
   OperationDayPilot: 'sysarp_op_day_pilots',
+  OperationPendency: 'sysarp_op_pendencies',
   SchemaMigration: 'sysarp_schema_migrations'
 };
 
@@ -277,6 +279,7 @@ export const base44 = {
     OperationDay: createEntityHandler<OperationDay>('OperationDay'),
     OperationDayAsset: createEntityHandler<OperationDayAsset>('OperationDayAsset'),
     OperationDayPilot: createEntityHandler<OperationDayPilot>('OperationDayPilot'),
+    OperationPendency: createEntityHandler<OperationPendency>('OperationPendency'),
     SchemaMigration: createEntityHandler<{ id: string }>('SchemaMigration'),
   },
   auth: authHandler,

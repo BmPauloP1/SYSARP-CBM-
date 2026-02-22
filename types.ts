@@ -559,6 +559,18 @@ export const ORGANIZATION_CHART: Record<string, string[]> = {
   ]
 };
 
+export interface OperationPendency {
+  id: string;
+  operation_id: string;
+  reopened_by_id: string;
+  assigned_to_id: string;
+  reason: string;
+  status: 'pending' | 'resolved';
+  created_at: string;
+  resolved_at?: string;
+  resolution_notes?: string;
+}
+
 export const LGPD_TERMS = `
 POLÍTICA DE PRIVACIDADE E TERMOS DE USO DE DADOS - SYSARP CBMPR
 ...
