@@ -357,7 +357,7 @@ NOTIFY pgrst, 'reload schema';
 
   const operationalSummary = useMemo(() => {
     const totalAreaM2 = sectors.filter(s => s.geojson?.coordinates).reduce((acc, s) => acc + calculatePolygonArea(s.geojson.coordinates), 0);
-    return { totalAreaM2, drones: tacticalDrones.length, victims: pois.filter(p => p.type === 'victim').length, teams: pois.filter(p => p.type === 'ground_team').length, vehicles: pois.filter(p => p.type === 'vehicle').length };
+    return { totalAreaM2, drones: tacticalDrones.length, victims: pois.filter(p => p.type === 'victim').length, teams: pois.filter(p => p.type === 'ground_team').length, vehicles: pois.filter(p => p.type === 'vehicle').length, k9s: pois.filter(p => p.type === 'k9').length };
   }, [sectors, pois, tacticalDrones]);
 
   const handleDrawCreated = (e: any) => {
@@ -627,10 +627,11 @@ NOTIFY pgrst, 'reload schema';
                             </Card>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="grid grid-cols-4 gap-2 text-center">
                             <div className="bg-red-50 py-2 rounded-lg"><p className="text-[9px] font-black text-red-400 uppercase">Vítimas</p><p className="text-sm font-black text-red-800">{operationalSummary.victims}</p></div>
                             <div className="bg-blue-50 py-2 rounded-lg"><p className="text-[9px] font-black text-blue-400 uppercase">Equipes</p><p className="text-sm font-black text-blue-800">{operationalSummary.teams}</p></div>
                             <div className="bg-slate-100 py-2 rounded-lg"><p className="text-[9px] font-black text-slate-400 uppercase">Viaturas</p><p className="text-sm font-black text-slate-800">{operationalSummary.vehicles}</p></div>
+                            <div className="bg-amber-50 py-2 rounded-lg"><p className="text-[9px] font-black text-amber-400 uppercase">K9</p><p className="text-sm font-black text-amber-800">{operationalSummary.k9s}</p></div>
                         </div>
 
                         <div className="space-y-4">
