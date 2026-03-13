@@ -1,4 +1,4 @@
-import { MissionType } from '../types';
+import { MissionType } from './types';
 
 export const SUMMER_LOCATIONS: Record<string, string[]> = {
   "Pontal do Paraná": [

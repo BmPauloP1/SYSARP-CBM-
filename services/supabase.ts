@@ -10,8 +10,16 @@ const sanitize = (value: any): string => {
 // Fallback robusto para evitar quebras de inicialização
 const getEnvVar = (key: string, fallback: string) => {
   try {
-    const value = sanitize((import.meta as any).env?.[key]);
-    return value || fallback;
+    // Tenta import.meta.env (Vite)
+    let value = (import.meta as any).env?.[key];
+    
+    // Tenta process.env (Node/SSR/Injeção de plataforma)
+    if (!value && typeof process !== 'undefined' && process.env) {
+      value = (process.env as any)[key];
+    }
+
+    const sanitized = sanitize(value);
+    return sanitized || fallback;
   } catch {
     return fallback;
   }
@@ -20,8 +28,8 @@ const getEnvVar = (key: string, fallback: string) => {
 const FALLBACK_URL = "https://hcnlrzzwwcbhkxfcolgw.supabase.co";
 const FALLBACK_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhjbmxyenp3d2NiaGt4ZmNvbGd3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0MjI2MjUsImV4cCI6MjA3OTk5ODYyNX0.bbfDQA8VHebBMizyJGeP1GentnEiEka1nvFdR7fgQwo";
 
-const finalUrl = getEnvVar('VITE_SUPABASE_URL', FALLBACK_URL);
-const finalKey = getEnvVar('VITE_SUPABASE_ANON_KEY', FALLBACK_KEY);
+export const finalUrl = getEnvVar('VITE_SUPABASE_URL', FALLBACK_URL);
+export const finalKey = getEnvVar('VITE_SUPABASE_ANON_KEY', FALLBACK_KEY);
 
 export const isConfigured = finalUrl.startsWith('http') && finalKey.length > 20;
 

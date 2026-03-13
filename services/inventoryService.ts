@@ -147,13 +147,28 @@ export const inventoryService = {
   registerUsage: async (materialId: string, type: MaterialType, amount: number, details: string) => {
     if (!isConfigured) return;
     try {
+        // Se for bateria, verifica se tem par
         if (type === 'battery') {
-          const { data: stats } = await supabase.from('battery_stats').select('cycles, max_cycles').eq('material_id', materialId).single();
-          if (stats) {
-            const newCycles = (stats.cycles || 0) + amount;
-            const degradation = (newCycles / stats.max_cycles) * 100;
-            const newHealth = Math.max(0, 100 - degradation);
-            await supabase.from('battery_stats').update({ cycles: newCycles, health_percent: Math.round(newHealth) }).eq('material_id', materialId);
+          const { data: mat } = await supabase.from('materials').select('pair_id').eq('id', materialId).single();
+          
+          const updateBattery = async (id: string) => {
+            const { data: stats } = await supabase.from('battery_stats').select('cycles, max_cycles').eq('material_id', id).single();
+            if (stats) {
+              const newCycles = (stats.cycles || 0) + amount;
+              const degradation = (newCycles / stats.max_cycles) * 100;
+              const newHealth = Math.max(0, 100 - degradation);
+              await supabase.from('battery_stats').update({ cycles: newCycles, health_percent: Math.round(newHealth) }).eq('material_id', id);
+            }
+            await inventoryService.logAction(id, 'usage', details, amount);
+          };
+
+          await updateBattery(materialId);
+
+          if (mat?.pair_id) {
+            const { data: pair } = await supabase.from('materials').select('id').eq('pair_id', mat.pair_id).neq('id', materialId).maybeSingle();
+            if (pair) {
+              await updateBattery(pair.id);
+            }
           }
         } else if (type === 'propeller') {
           const { data: stats } = await supabase.from('propeller_stats').select('hours_flown').eq('material_id', materialId).single();
@@ -161,9 +176,11 @@ export const inventoryService = {
             const newHours = (stats.hours_flown || 0) + amount;
             await supabase.from('propeller_stats').update({ hours_flown: newHours }).eq('material_id', materialId);
           }
+          await inventoryService.logAction(materialId, 'usage', details, amount);
         }
-        await inventoryService.logAction(materialId, 'usage', details, amount);
-    } catch {}
+    } catch (e) {
+      console.error("Erro ao registrar uso:", e);
+    }
   },
 
   adjustQuantity: async (material: Material, delta: number) => {

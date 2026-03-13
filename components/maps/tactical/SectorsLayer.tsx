@@ -1,8 +1,8 @@
 
 import React, { useEffect } from 'react';
+import '../../../leaflet-setup';
 import { useMap } from "react-leaflet";
 import L from 'leaflet';
-import "@geoman-io/leaflet-geoman-free";
 
 interface SectorsLayerProps {
   onCreated?: (e: any) => void;
@@ -14,10 +14,11 @@ export default function SectorsLayer({ onCreated, onDeleted, onEdited }: Sectors
   const map = useMap();
 
   useEffect(() => {
-    if (!map || !map.pm) return; // Correção Crítica
+    const mapAny = map as any;
+    if (!map || !mapAny.pm) return; // Correção Crítica
 
     // Configure Geoman (Leaflet-PM)
-    map.pm.addControls({
+    mapAny.pm.addControls({
       position: 'topright',
       drawCircle: true,
       drawCircleMarker: false,
@@ -34,7 +35,7 @@ export default function SectorsLayer({ onCreated, onDeleted, onEdited }: Sectors
     });
 
     // Set path options for drawing
-    map.pm.setPathOptions({
+    mapAny.pm.setPathOptions({
       color: '#ef4444',
       fillColor: '#ef4444',
       fillOpacity: 0.2,
@@ -43,7 +44,7 @@ export default function SectorsLayer({ onCreated, onDeleted, onEdited }: Sectors
     const handleCreate = (e: any) => {
       // If it's a circle, convert to polygon to ensure GeoJSON compatibility
       if (e.shape === 'Circle') {
-         const poly = L.PM.Utils.circleToPolygon(e.layer, 60);
+         const poly = (L as any).PM.Utils.circleToPolygon(e.layer, 60);
          e.layer = poly;
       }
 
@@ -68,7 +69,7 @@ export default function SectorsLayer({ onCreated, onDeleted, onEdited }: Sectors
     map.on('pm:create', handleCreate);
 
     return () => {
-      if (map.pm) map.pm.removeControls();
+      if (mapAny.pm) mapAny.pm.removeControls();
       map.off('pm:create', handleCreate);
     };
   }, [map, onCreated, onDeleted, onEdited]);

@@ -1,7 +1,7 @@
 
-import { supabase, isConfigured } from './supabase';
+import { supabase, isConfigured } from '../services/supabase';
 import { SummerFlight, SummerStats, SummerAuditLog } from '../types_summer';
-import { base44 } from './base44Client';
+import { base44 } from '../services/base44Client';
 
 const TABLE = 'op_summer_flights';
 const AUDIT_TABLE = 'op_summer_audit';

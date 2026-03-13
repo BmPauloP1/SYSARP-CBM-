@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { base44 } from '../services/base44Client';
+import { supabase } from '../services/supabase';
 import { Card, Button, Badge } from '../components/ui_components';
 import { Database, CheckCircle, AlertCircle, Play, History, Search, Filter, Copy, Terminal, ShieldAlert } from 'lucide-react';
 
@@ -56,16 +57,139 @@ ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS description text;
 ALTER TABLE public.operations ADD COLUMN IF NOT EXISTS actions_taken text;
 NOTIFY pgrst, 'reload schema';
 `
+  },
+  {
+    id: 'org_units_and_battery_pairing_v1.0',
+    title: 'Estrutura Organizacional e Pareamento de Baterias',
+    description: 'Cria a tabela de unidades organizacionais (CRBM, Unidade, CIA) e adiciona suporte ao pareamento de baterias.',
+    category: 'critical',
+    sql: `
+-- 1. Tabela para Unidades Organizacionais (CRBM, Unidade, CIA/PELOTÃO)
+CREATE TABLE IF NOT EXISTS organizational_units (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    type TEXT NOT NULL, -- 'crbm', 'unit', 'cia'
+    name TEXT NOT NULL,
+    parent_id UUID REFERENCES organizational_units(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(type, name, parent_id)
+);
+
+-- 2. Adicionar cia_pelotao às tabelas existentes
+DO $$ 
+BEGIN 
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'cia_pelotao') THEN
+        ALTER TABLE public.profiles ADD COLUMN cia_pelotao TEXT;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'drones' AND column_name = 'cia_pelotao') THEN
+        ALTER TABLE public.drones ADD COLUMN cia_pelotao TEXT;
+    END IF;
+END $$;
+
+-- 3. Adicionar pair_name para facilitar a identificação (PAR 1, PAR 2, etc)
+DO $$ 
+BEGIN 
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'materials' AND column_name = 'pair_name') THEN
+        ALTER TABLE materials ADD COLUMN pair_name TEXT;
+    END IF;
+END $$;
+
+-- 4. Índices para performance
+CREATE INDEX IF NOT EXISTS idx_org_units_type ON organizational_units(type);
+CREATE INDEX IF NOT EXISTS idx_profiles_cia_pelotao ON profiles(cia_pelotao);
+CREATE INDEX IF NOT EXISTS idx_drones_cia_pelotao ON drones(cia_pelotao);
+
+-- 5. RLS para organizational_units
+ALTER TABLE organizational_units ENABLE ROW LEVEL SECURITY;
+
+DO $$ 
+BEGIN 
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow read for all' AND tablename = 'organizational_units') THEN
+        CREATE POLICY "Allow read for all" ON organizational_units FOR SELECT TO public USING (true);
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow insert for all' AND tablename = 'organizational_units') THEN
+        CREATE POLICY "Allow insert for all" ON organizational_units FOR INSERT TO public WITH CHECK (true);
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow update for all' AND tablename = 'organizational_units') THEN
+        CREATE POLICY "Allow update for all" ON organizational_units FOR UPDATE TO public USING (true);
+    END IF;
+END $$;
+
+-- 6. CORREÇÃO RLS PROFILES (PILOTOS)
+-- Esta correção permite que o sistema liste os pilotos mesmo antes do login completo
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- Remove políticas antigas que podem conflitar (opcional, mas seguro para este fix)
+DROP POLICY IF EXISTS "Permitir leitura pública de perfis" ON public.profiles;
+DROP POLICY IF EXISTS "profiles_select_anon" ON public.profiles;
+
+-- Cria uma política específica para leitura (SELECT) permitindo tanto anon quanto authenticated
+CREATE POLICY "profiles_select_public" ON public.profiles
+FOR SELECT TO anon, authenticated
+USING (true);
+
+-- Garante as permissões de acesso ao schema
+GRANT SELECT ON public.profiles TO anon;
+GRANT SELECT ON public.profiles TO authenticated;
+
+NOTIFY pgrst, 'reload schema';
+`
   }
 ];
 
 export default function DatabaseUpdates() {
   const [migrations, setMigrations] = useState<SchemaMigration[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dbStatus, setDbStatus] = useState<{ check: string, status: string }[]>([]);
 
   useEffect(() => {
     loadMigrations();
+    checkConnection();
   }, []);
+
+  const checkConnection = async () => {
+    try {
+      setLoading(true);
+      const status = await base44.system.diagnose();
+      setDbStatus(status);
+      
+      // Try a real query to verify table existence
+      const { count, error, status: httpStatus } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
+      if (error) {
+        setDbStatus(prev => [...prev, { check: 'Tabela Profiles', status: `ERRO: ${error.message || error.code}` }]);
+        
+        // Try 'pilots' as alternative
+        const { count: pCount, error: pError } = await supabase.from('pilots').select('*', { count: 'exact', head: true });
+        if (!pError) {
+          setDbStatus(prev => [...prev, { check: 'Tabela Pilots', status: `OK (${pCount} registros) - Sugestão: Alterar mapeamento` }]);
+        }
+      } else {
+        setDbStatus(prev => [...prev, { check: 'Tabela Profiles', status: `OK (${count} registros)` }]);
+      }
+
+      // Check Drones
+      const { count: dCount, error: dError } = await supabase.from('drones').select('*', { count: 'exact', head: true });
+      if (dError) {
+        setDbStatus(prev => [...prev, { check: 'Tabela Drones', status: `ERRO: ${dError.message}` }]);
+      } else {
+        setDbStatus(prev => [...prev, { check: 'Tabela Drones', status: `OK (${dCount} registros)` }]);
+      }
+
+      // Check for RLS issues
+      if (count === 0 && !error) {
+        setDbStatus(prev => [...prev, { 
+          check: 'Aviso RLS', 
+          status: 'Tabela Profiles retornou 0 registros. Verifique se o RLS (Row Level Security) está habilitado no Supabase e se existe uma política de leitura (SELECT) para a role "anon".' 
+        }]);
+      }
+    } catch (e: any) {
+      setDbStatus([{ check: 'Conexão', status: `ERRO: ${e.message || 'Desconhecido'}` }]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadMigrations = async () => {
     try {
@@ -96,6 +220,33 @@ export default function DatabaseUpdates() {
           <p className="text-sm text-slate-500">Sincronize seu banco de dados com as últimas correções do sistema.</p>
         </div>
       </div>
+
+      {/* Connection Status Panel */}
+      <Card className="p-4 bg-slate-900 text-white border-none shadow-xl flex flex-col gap-4">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className={`w-3 h-3 rounded-full ${dbStatus.some(s => s.status === 'ONLINE') ? 'bg-green-500 animate-pulse shadow-[0_0_10px_rgba(34,197,94,0.6)]' : 'bg-red-500'}`}></div>
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Status da Conexão</h3>
+              <p className="text-sm font-bold">{dbStatus.some(s => s.status === 'ONLINE') ? 'Banco de Dados Conectado' : 'Modo Offline / LocalStorage'}</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={checkConnection} disabled={loading} size="sm" variant="outline" className="h-8 border-slate-700 text-slate-300 hover:bg-slate-800 text-[10px] font-black uppercase">
+              <Terminal className="w-3 h-3 mr-2" /> {loading ? 'Testando...' : 'Testar Conexão'}
+            </Button>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-slate-800">
+          {dbStatus.map((s, i) => (
+            <div key={i} className="bg-slate-800/50 p-2 rounded border border-slate-700 flex justify-between items-center">
+              <span className="text-[10px] text-slate-400 uppercase font-bold">{s.check}</span>
+              <span className={`text-[10px] font-bold ${s.status.includes('ERRO') || s.status.includes('NÃO') ? 'text-red-400' : 'text-green-400'}`}>{s.status}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
 
       <div className="grid gap-6">
         {ALL_UPDATES.map(update => {

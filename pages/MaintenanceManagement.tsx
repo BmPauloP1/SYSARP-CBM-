@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS public.maintenances (
 
 -- PERMISSÕES
 ALTER TABLE public.maintenances ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Permitir Acesso Total" ON public.maintenances FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Permitir Acesso Total" ON public.maintenances FOR ALL TO public USING (true) WITH CHECK (true);
 
 NOTIFY pgrst, 'reload schema';
               `);

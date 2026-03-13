@@ -1,6 +1,6 @@
 
-import { supabase, isConfigured } from './supabase';
-import { Drone, Operation, Pilot, Maintenance, FlightLog, ConflictNotification, DroneChecklist, SystemAuditLog, OperationDay, OperationDayAsset, OperationDayPilot, OperationPendency } from '../types';
+import { supabase, isConfigured, finalUrl } from './supabase';
+import { Drone, Operation, Pilot, Maintenance, FlightLog, ConflictNotification, DroneChecklist, SystemAuditLog, OperationDay, OperationDayAsset, OperationDayPilot, OperationPendency, Battery, MaintenanceLog } from '../types';
 
 // Mapeamento de nomes de tabelas
 const TABLE_MAP = {
@@ -16,7 +16,9 @@ const TABLE_MAP = {
   OperationDayAsset: 'operation_day_assets',
   OperationDayPilot: 'operation_day_pilots',
   OperationPendency: 'operation_pendencies',
-  SchemaMigration: 'schema_migrations'
+  SchemaMigration: 'schema_migrations',
+  Battery: 'batteries',
+  MaintenanceLog: 'maintenance_logs'
 };
 
 const STORAGE_KEYS = {
@@ -32,7 +34,9 @@ const STORAGE_KEYS = {
   OperationDayAsset: 'sysarp_op_day_assets',
   OperationDayPilot: 'sysarp_op_day_pilots',
   OperationPendency: 'sysarp_op_pendencies',
-  SchemaMigration: 'sysarp_schema_migrations'
+  SchemaMigration: 'sysarp_schema_migrations',
+  Battery: 'sysarp_batteries',
+  MaintenanceLog: 'sysarp_maintenance_logs'
 };
 
 const DEFAULT_DRONE_CATALOG = {
@@ -106,7 +110,9 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
       }
 
       try {
-        let query = supabase.from(tableName).select('*');
+        let currentTable = tableName;
+        let query = supabase.from(currentTable).select('*');
+        
         if (orderBy) {
           const ascending = !orderBy.startsWith('-');
           const column = orderBy.replace('-', '');
@@ -115,12 +121,29 @@ const createEntityHandler = <T extends { id: string }>(entityName: keyof typeof 
           query = query.order('created_at', { ascending: false });
         }
 
-        const { data, error } = await Promise.race([
+        let { data, error } = await Promise.race([
           query,
           new Promise((_, r) => setTimeout(() => r(new Error("Timeout")), 8000))
         ]) as any;
         
-        if (error) throw error;
+        if (error) {
+          // If ordering by created_at failed, try without ordering
+          if (error.message?.includes('created_at') || error.code === '42703') {
+            const retry = await supabase.from(currentTable).select('*');
+            data = retry.data;
+            error = retry.error;
+          }
+          
+          // Special case for Pilot: try 'pilots' table if 'profiles' fails
+          if (error && entityName === 'Pilot' && currentTable === 'profiles') {
+            currentTable = 'pilots';
+            const retryPilots = await supabase.from(currentTable).select('*');
+            data = retryPilots.data;
+            error = retryPilots.error;
+          }
+
+          if (error) throw error;
+        }
         setLocal(storageKey, data);
         return data as unknown as T[];
       } catch (e: any) {
@@ -215,7 +238,16 @@ const authHandler = {
         if (localSession) return JSON.parse(localSession);
         throw new Error("Não autenticado");
       }
-      const { data: profile } = await supabase.from('profiles').select('*').eq('id', authData.user.id).single();
+      let { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', authData.user.id).single();
+      
+      // Try 'pilots' as alternative if 'profiles' fails
+      if (profileError || !profile) {
+        const { data: pilotProfile, error: pilotError } = await supabase.from('pilots').select('*').eq('id', authData.user.id).single();
+        if (!pilotError && pilotProfile) {
+          profile = pilotProfile;
+        }
+      }
+
       if (!profile && localSession) return JSON.parse(localSession);
       return profile as Pilot;
     } catch (e: any) {
@@ -235,7 +267,17 @@ const authHandler = {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password: password || '' });
       if (error) throw error;
-      const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single();
+      
+      let { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', data.user.id).single();
+      
+      // Try 'pilots' as alternative if 'profiles' fails
+      if (profileError || !profile) {
+        const { data: pilotProfile, error: pilotError } = await supabase.from('pilots').select('*').eq('id', data.user.id).single();
+        if (!pilotError && pilotProfile) {
+          profile = pilotProfile;
+        }
+      }
+
       if (profile) localStorage.setItem('sysarp_user_session', JSON.stringify(profile));
       return profile as Pilot;
     } catch (e: any) { throw e; }
@@ -262,7 +304,14 @@ const authHandler = {
   system: {
     getCatalog: async () => JSON.parse(localStorage.getItem('droneops_catalog') || JSON.stringify(DEFAULT_DRONE_CATALOG)),
     updateCatalog: async (newCatalog: any) => localStorage.setItem('droneops_catalog', JSON.stringify(newCatalog)),
-    diagnose: async () => [{ check: 'Modo', status: isConfigured ? 'ONLINE' : 'LOCAL' }]
+    diagnose: async () => {
+      const url = finalUrl || 'N/D';
+      const obfuscatedUrl = url.length > 15 ? `${url.substring(0, 15)}...` : url;
+      return [
+        { check: 'Modo', status: isConfigured ? 'ONLINE' : 'LOCAL' },
+        { check: 'URL Supabase', status: obfuscatedUrl }
+      ];
+    }
   }
 };
 
@@ -281,6 +330,8 @@ export const base44 = {
     OperationDayPilot: createEntityHandler<OperationDayPilot>('OperationDayPilot'),
     OperationPendency: createEntityHandler<OperationPendency>('OperationPendency'),
     SchemaMigration: createEntityHandler<{ id: string }>('SchemaMigration'),
+    Battery: createEntityHandler<Battery>('Battery'),
+    MaintenanceLog: createEntityHandler<MaintenanceLog>('MaintenanceLog'),
   },
   auth: authHandler,
   system: authHandler.system,

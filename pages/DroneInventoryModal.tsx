@@ -14,13 +14,18 @@ interface DroneInventoryModalProps {
   onClose: () => void;
 }
 
+const MODELS_REQUIRING_PAIRS = ['Matrice 30', 'Matrice 30T', 'Matrice 300 RTK', 'Matrice 350 RTK', 'Matrice 400'];
+
 export default function DroneInventoryModal({ drone, drones, onClose }: DroneInventoryModalProps) {
+  const requiresPairs = useMemo(() => MODELS_REQUIRING_PAIRS.includes(drone.model), [drone.model]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [allMaterials, setAllMaterials] = useState<Material[]>([]);
+  const [stockMaterials, setStockMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [isReportLoading, setIsReportLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<MaterialType>('battery');
+  const [showStockModal, setShowStockModal] = useState(false);
   
   // Form states
   const [showAddForm, setShowAddForm] = useState(false);
@@ -46,7 +51,10 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
 
   useEffect(() => {
     loadMaterials();
-    inventoryService.getAllMaterials().then(setAllMaterials);
+    inventoryService.getAllMaterials().then(data => {
+      setAllMaterials(data);
+      setStockMaterials(data.filter(m => !m.drone_id));
+    });
   }, [drone.id]);
 
   const loadMaterials = async () => {
@@ -331,11 +339,56 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
   const handleRegisterCycle = async (mat: Material) => {
     const amount = prompt(mat.type === 'battery' ? "Quantos ciclos adicionar?" : "Quantas horas adicionar?");
     if (amount && !isNaN(Number(amount))) {
+      // O inventoryService.registerUsage já lida com o pareamento internamente.
+      // Chamamos apenas uma vez para o item selecionado.
       await inventoryService.registerUsage(mat.id, mat.type, Number(amount), "Registro Manual");
       loadMaterials();
     }
   };
 
+  const handleCreatePair = async (mat1: Material, mat2: Material) => {
+    const pairName = prompt("Digite o nome para este par (Ex: PAR 1):", `PAR ${Math.floor(Math.random() * 100)}`);
+    if (!pairName) return;
+
+    const pairId = crypto.randomUUID();
+    await inventoryService.updateMaterial(mat1.id, { pair_id: pairId, pair_name: pairName });
+    await inventoryService.updateMaterial(mat2.id, { pair_id: pairId, pair_name: pairName });
+    await inventoryService.logAction(mat1.id, 'pair', `Pareado como ${pairName} com ${mat2.serial_number || mat2.name}`);
+    await inventoryService.logAction(mat2.id, 'pair', `Pareado como ${pairName} com ${mat1.serial_number || mat1.name}`);
+    loadMaterials();
+    alert(`Par ${pairName} criado com sucesso!`);
+  };
+
+  const handleUnpair = async (mat: Material) => {
+    if (!mat.pair_id) return;
+    const pair = materials.find(m => m.pair_id === mat.pair_id && m.id !== mat.id);
+    
+    await inventoryService.updateMaterial(mat.id, { pair_id: undefined, pair_name: undefined });
+    if (pair) {
+      await inventoryService.updateMaterial(pair.id, { pair_id: undefined, pair_name: undefined });
+      await inventoryService.logAction(pair.id, 'unpair', `Desvinculado do par ${mat.pair_name}`);
+    }
+    await inventoryService.logAction(mat.id, 'unpair', `Desvinculado do par ${mat.pair_name}`);
+    
+    loadMaterials();
+    alert("Par de baterias desfeito.");
+  };
+
+  const handleLinkFromStock = async (matId: string) => {
+    try {
+      await inventoryService.updateMaterial(matId, { drone_id: drone.id });
+      await inventoryService.logAction(matId, 'update', `Vinculado ao drone ${drone.prefix}`);
+      alert("Item vinculado com sucesso!");
+      loadMaterials();
+      const data = await inventoryService.getAllMaterials();
+      setAllMaterials(data);
+      setStockMaterials(data.filter(m => !m.drone_id));
+      setShowStockModal(false);
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao vincular item.");
+    }
+  };
   const handleShowHistory = async (mat: Material) => {
     setHistoryItem(mat);
     setIsHistoryLoading(true);
@@ -349,6 +402,87 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
       setIsHistoryLoading(false);
     }
   };
+
+  const renderSingleItem = (mat: Material) => (
+    <div key={mat.id} className="border border-slate-200 rounded-lg p-3 hover:shadow-md transition-shadow bg-white flex flex-col lg:flex-row gap-4 items-start lg:items-center">
+       <div className="flex items-center gap-3 w-full lg:w-auto lg:min-w-[200px]">
+          <div className={`p-3 rounded-full shrink-0 ${mat.status === 'active' ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-500'}`}>
+             {React.createElement({battery: Battery, propeller: Fan, controller: Gamepad2, payload: Camera, accessory: Plug, component: Box}[activeTab] || Box, {className: "w-6 h-6"})}
+          </div>
+          <div>
+             <h4 className="font-bold text-slate-800 text-sm truncate">{mat.name}</h4>
+             <p className="text-xs text-slate-500 font-mono truncate">SN: {mat.serial_number || 'N/A'}</p>
+             {mat.pair_id && <Badge variant="outline" className="mt-1 text-[10px] bg-blue-50 text-blue-600 border-blue-100">Em Par</Badge>}
+          </div>
+       </div>
+       <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3 w-full">
+          <div className="flex flex-col items-center justify-center bg-slate-50 rounded p-1 border border-slate-100">
+             <span className="text-[9px] text-slate-400 uppercase font-bold">Qtd.</span>
+             <div className="flex items-center gap-2">
+                {['propeller', 'accessory', 'component'].includes(mat.type) && <button onClick={() => handleQuantityChange(mat, -1)} className="text-slate-400 hover:text-red-500"><Minus className="w-3 h-3"/></button>}
+                <span className="font-bold text-slate-700 text-sm">{mat.quantity}</span>
+                {['propeller', 'accessory', 'component'].includes(mat.type) && <button onClick={() => handleQuantityChange(mat, 1)} className="text-slate-400 hover:text-green-500"><Plus className="w-3 h-3"/></button>}
+             </div>
+          </div>
+          <div className="flex flex-col items-center justify-center">{renderHealthBadge(mat)}</div>
+          {mat.type === 'battery' && mat.battery_stats ? (
+             <>
+               <div className="flex flex-col items-center justify-center"><span className="text-[9px] text-slate-400 uppercase font-bold">Ciclos</span><span className="font-bold text-slate-700 text-sm">{mat.battery_stats.cycles} / {mat.battery_stats.max_cycles}</span></div>
+               <div className="flex flex-col items-center justify-center"><span className="text-[9px] text-slate-400 uppercase font-bold">Saúde</span><span className={`font-bold text-sm ${mat.battery_stats.health_percent < 80 ? 'text-red-600' : 'text-green-600'}`}>{mat.battery_stats.health_percent}%</span></div>
+             </>
+          ) : mat.type === 'propeller' && mat.propeller_stats ? (
+             <>
+               <div className="flex flex-col items-center justify-center"><span className="text-[9px] text-slate-400 uppercase font-bold">Horas</span><span className="font-bold text-slate-700 text-sm">{mat.propeller_stats.hours_flown.toFixed(1)}h</span></div>
+               <div className="flex flex-col items-center justify-center"><span className="text-[9px] text-slate-400 uppercase font-bold">Vida Útil</span><span className="font-bold text-slate-700 text-sm">{mat.propeller_stats.max_hours}h</span></div>
+             </>
+          ) : <div className="col-span-2 flex items-center justify-center text-xs text-slate-400 italic">Sem métricas</div>}
+       </div>
+       <div className="flex gap-2 justify-end w-full lg:w-auto border-t lg:border-t-0 border-slate-100 pt-2 lg:pt-0">
+          <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => handleShowHistory(mat)} title="Ver Histórico"><History className="w-4 h-4"/></Button>
+          {(mat.type === 'battery' || mat.type === 'propeller') && <Button size="sm" variant="outline" className="h-8 text-xs bg-slate-50 w-full lg:w-auto" onClick={() => handleRegisterCycle(mat)}><Activity className="w-3 h-3 mr-1"/>{mat.type === 'battery' ? '+ Ciclo' : '+ Hora'}</Button>}
+          {mat.type === 'battery' && requiresPairs && !mat.pair_id && (
+            <Select 
+              className="h-8 text-[10px] w-32" 
+              onChange={(e) => {
+                const pairMat = filteredMaterials.find(m => m.id === e.target.value);
+                if (pairMat) handleCreatePair(mat, pairMat);
+              }}
+              value=""
+            >
+              <option value="">Vincular Par...</option>
+              {filteredMaterials
+                .filter(m => m.type === 'battery' && !m.pair_id && m.id !== mat.id)
+                .map(m => (
+                  <option key={m.id} value={m.id}>{m.serial_number || m.name}</option>
+                ))
+              }
+            </Select>
+          )}
+          {mat.pair_id && (
+            <Button size="sm" variant="outline" className="h-8 w-8 p-0 text-amber-600" onClick={() => handleUnpair(mat)} title="Desfazer Par"><Minus className="w-4 h-4"/></Button>
+          )}
+          <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => handleStartEdit(mat)}><Pencil className="w-4 h-4"/></Button>
+          <Button size="sm" variant="outline" className="h-8 w-8 p-0 text-red-600 hover:bg-red-50 border-red-100" onClick={() => handleDelete(mat.id)}><Trash2 className="w-4 h-4"/></Button>
+       </div>
+    </div>
+  );
+
+  const renderBatteryPair = (mat1: Material, mat2: Material) => (
+    <div key={mat1.pair_id} className="border-2 border-blue-200 rounded-xl p-4 bg-blue-50/30 shadow-sm relative overflow-hidden">
+      <div className="absolute top-0 right-0 bg-blue-600 text-white text-[10px] px-3 py-0.5 rounded-bl-lg font-bold uppercase tracking-wider">
+        {mat1.pair_name || 'Par de Baterias'}
+      </div>
+      <div className="space-y-3">
+        {renderSingleItem(mat1)}
+        <div className="flex justify-center -my-2 relative z-10">
+          <div className="bg-blue-200 text-blue-700 rounded-full p-1 border-2 border-white">
+            <Activity className="w-3 h-3" />
+          </div>
+        </div>
+        {renderSingleItem(mat2)}
+      </div>
+    </div>
+  );
 
   const renderHealthBadge = (mat: Material) => {
     const { status, message } = inventoryService.calculateHealthStatus(mat);
@@ -537,12 +671,65 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
              {/* Toolbar */}
              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3 shrink-0">
                 <h3 className="text-lg font-bold text-slate-800">{getTabLabel(activeTab)}</h3>
-                {!showAddForm && (
-                    <Button size="sm" onClick={() => setShowAddForm(true)} className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm w-full sm:w-auto">
-                       <Plus className="w-4 h-4 mr-1"/> Adicionar Item
-                    </Button>
-                )}
+                <div className="flex gap-2 w-full sm:w-auto">
+                    {!showAddForm && (
+                        <>
+                            <Button size="sm" variant="outline" onClick={() => setShowStockModal(true)} className="border-blue-200 text-blue-600 hover:bg-blue-50 w-full sm:w-auto">
+                               <Box className="w-4 h-4 mr-1"/> Almoxarifado
+                            </Button>
+                            <Button size="sm" onClick={() => setShowAddForm(true)} className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm w-full sm:w-auto">
+                               <Plus className="w-4 h-4 mr-1"/> Novo Item
+                            </Button>
+                        </>
+                    )}
+                </div>
              </div>
+
+             {/* Stock Modal */}
+             {showStockModal && (
+                <div className="fixed inset-0 bg-black/60 z-[4000] flex items-center justify-center p-4">
+                   <Card className="w-full max-w-2xl bg-white shadow-xl animate-fade-in flex flex-col max-h-[80vh]">
+                      <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+                         <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                            <Box className="w-5 h-5 text-blue-600" />
+                            Itens no Almoxarifado (Estoque Central)
+                         </h3>
+                         <button onClick={() => setShowStockModal(false)} className="p-1 hover:bg-slate-100 rounded">
+                            <X className="w-5 h-5 text-slate-500" />
+                         </button>
+                      </div>
+                      <div className="p-4 overflow-y-auto flex-1">
+                         {stockMaterials.filter(m => m.type === activeTab).length === 0 ? (
+                            <div className="text-center p-8 text-slate-400">
+                               Não há {getTabLabel(activeTab).toLowerCase()} disponíveis no almoxarifado.
+                            </div>
+                         ) : (
+                            <div className="space-y-2">
+                               {stockMaterials.filter(m => m.type === activeTab).map(m => (
+                                  <div key={m.id} className="flex items-center justify-between p-3 border border-slate-100 rounded-lg hover:bg-slate-50 transition-colors">
+                                     <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-slate-100 rounded-full">
+                                           {React.createElement({battery: Battery, propeller: Fan, controller: Gamepad2, payload: Camera, accessory: Plug, component: Box}[activeTab] || Box, {className: "w-4 h-4 text-slate-500"})}
+                                        </div>
+                                        <div>
+                                           <p className="text-sm font-bold text-slate-800">{m.name}</p>
+                                           <p className="text-[10px] text-slate-500 font-mono">SN: {m.serial_number || 'N/A'}</p>
+                                        </div>
+                                     </div>
+                                     <Button size="sm" onClick={() => handleLinkFromStock(m.id)} className="bg-blue-600 text-white h-8 text-xs">
+                                        Vincular ao Drone
+                                     </Button>
+                                  </div>
+                               ))}
+                            </div>
+                         )}
+                      </div>
+                      <div className="p-4 bg-slate-50 border-t flex justify-end">
+                         <Button variant="outline" onClick={() => setShowStockModal(false)}>Fechar</Button>
+                      </div>
+                   </Card>
+                </div>
+             )}
 
              {/* Add/Edit Form */}
              {showAddForm && (
@@ -634,47 +821,20 @@ export default function DroneInventoryModal({ drone, drones, onClose }: DroneInv
              <div className="flex-1 overflow-y-auto space-y-3 pr-1 custom-scrollbar">
                 {loading ? <div className="text-center p-8 text-slate-400">Carregando estoque...</div> : 
                  filteredMaterials.length === 0 ? <div className="text-center p-8 text-slate-400 bg-slate-50 rounded-lg border border-dashed">Nenhum item cadastrado nesta categoria.</div> :
-                 filteredMaterials.map(mat => (
-                   <div key={mat.id} className="border border-slate-200 rounded-lg p-3 hover:shadow-md transition-shadow bg-white flex flex-col lg:flex-row gap-4 items-start lg:items-center">
-                      <div className="flex items-center gap-3 w-full lg:w-auto lg:min-w-[200px]">
-                         <div className={`p-3 rounded-full shrink-0 ${mat.status === 'active' ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-500'}`}>
-                            {React.createElement({battery: Battery, propeller: Fan, controller: Gamepad2, payload: Camera, accessory: Plug, component: Box}[activeTab] || Box, {className: "w-6 h-6"})}
-                         </div>
-                         <div>
-                            <h4 className="font-bold text-slate-800 text-sm truncate">{mat.name}</h4>
-                            <p className="text-xs text-slate-500 font-mono truncate">SN: {mat.serial_number || 'N/A'}</p>
-                         </div>
-                      </div>
-                      <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3 w-full">
-                         <div className="flex flex-col items-center justify-center bg-slate-50 rounded p-1 border border-slate-100">
-                            <span className="text-[9px] text-slate-400 uppercase font-bold">Qtd.</span>
-                            <div className="flex items-center gap-2">
-                               {['propeller', 'accessory', 'component'].includes(mat.type) && <button onClick={() => handleQuantityChange(mat, -1)} className="text-slate-400 hover:text-red-500"><Minus className="w-3 h-3"/></button>}
-                               <span className="font-bold text-slate-700 text-sm">{mat.quantity}</span>
-                               {['propeller', 'accessory', 'component'].includes(mat.type) && <button onClick={() => handleQuantityChange(mat, 1)} className="text-slate-400 hover:text-green-500"><Plus className="w-3 h-3"/></button>}
-                            </div>
-                         </div>
-                         <div className="flex flex-col items-center justify-center">{renderHealthBadge(mat)}</div>
-                         {mat.type === 'battery' && mat.battery_stats ? (
-                            <>
-                              <div className="flex flex-col items-center justify-center"><span className="text-[9px] text-slate-400 uppercase font-bold">Ciclos</span><span className="font-bold text-slate-700 text-sm">{mat.battery_stats.cycles} / {mat.battery_stats.max_cycles}</span></div>
-                              <div className="flex flex-col items-center justify-center"><span className="text-[9px] text-slate-400 uppercase font-bold">Saúde</span><span className={`font-bold text-sm ${mat.battery_stats.health_percent < 80 ? 'text-red-600' : 'text-green-600'}`}>{mat.battery_stats.health_percent}%</span></div>
-                            </>
-                         ) : mat.type === 'propeller' && mat.propeller_stats ? (
-                            <>
-                              <div className="flex flex-col items-center justify-center"><span className="text-[9px] text-slate-400 uppercase font-bold">Horas</span><span className="font-bold text-slate-700 text-sm">{mat.propeller_stats.hours_flown.toFixed(1)}h</span></div>
-                              <div className="flex flex-col items-center justify-center"><span className="text-[9px] text-slate-400 uppercase font-bold">Vida Útil</span><span className="font-bold text-slate-700 text-sm">{mat.propeller_stats.max_hours}h</span></div>
-                            </>
-                         ) : <div className="col-span-2 flex items-center justify-center text-xs text-slate-400 italic">Sem métricas</div>}
-                      </div>
-                      <div className="flex gap-2 justify-end w-full lg:w-auto border-t lg:border-t-0 border-slate-100 pt-2 lg:pt-0">
-                         <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => handleShowHistory(mat)} title="Ver Histórico"><History className="w-4 h-4"/></Button>
-                         {(mat.type === 'battery' || mat.type === 'propeller') && <Button size="sm" variant="outline" className="h-8 text-xs bg-slate-50 w-full lg:w-auto" onClick={() => handleRegisterCycle(mat)}><Activity className="w-3 h-3 mr-1"/>{mat.type === 'battery' ? '+ Ciclo' : '+ Hora'}</Button>}
-                         <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => handleStartEdit(mat)}><Pencil className="w-4 h-4"/></Button>
-                         <Button size="sm" variant="outline" className="h-8 w-8 p-0 text-red-600 hover:bg-red-50 border-red-100" onClick={() => handleDelete(mat.id)}><Trash2 className="w-4 h-4"/></Button>
-                      </div>
-                   </div>
-                 ))
+                 (() => {
+                    const processedPairs = new Set<string>();
+                    return filteredMaterials.map(mat => {
+                      if (mat.type === 'battery' && mat.pair_id) {
+                        if (processedPairs.has(mat.pair_id)) return null;
+                        const pair = filteredMaterials.find(m => m.pair_id === mat.pair_id && m.id !== mat.id);
+                        if (pair) {
+                          processedPairs.add(mat.pair_id);
+                          return renderBatteryPair(mat, pair);
+                        }
+                      }
+                      return renderSingleItem(mat);
+                    });
+                 })()
                 }
              </div>
           </div>

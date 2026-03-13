@@ -29,7 +29,7 @@ const TacticalMapPage = lazy(() => import('./pages/TacticalOperationCenter'));
 */
 export default function App() {
   return (
-    <Router>
+    <Router future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
       <Suspense fallback={<div className="flex h-screen items-center justify-center bg-slate-50 text-slate-500 font-medium">Carregando SYSARP...</div>}>
         <Routes>
           {/* Public Route */}

@@ -31,6 +31,8 @@ export interface Material {
   status: MaterialStatus;
   purchase_date?: string;
   notes?: string;
+  pair_id?: string; // ID para agrupar baterias em pares
+  pair_name?: string; // Nome do par (Ex: PAR 1)
   created_at: string;
   
   // Joins opcionais

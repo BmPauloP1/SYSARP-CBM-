@@ -2,7 +2,9 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "../services/base44Client";
 import { Drone, Pilot, DroneChecklist, ChecklistItemState, DRONE_CHECKLIST_TEMPLATE, SYSARP_LOGO, Maintenance, ORGANIZATION_CHART } from "../types";
+import { orgUnitService, OrgUnit } from "../services/orgUnitService";
 import { Card, Button, Badge, DroneIcon, Input, Select } from "../components/ui_components";
+import { OrgUnitSelector } from "../components/OrgUnitSelector";
 import { Plus, AlertTriangle, X, Save, Activity, Pencil, RotateCcw, ClipboardCheck, CheckCircle, Printer, FileText, Trash2, Box, MapPin, Zap, Filter, RefreshCcw, Search, RefreshCw, ChevronDown } from "lucide-react";
 import DroneInventoryModal from './DroneInventoryModal';
 import DroneDocumentsModal from './DroneDocumentsModal';
@@ -44,10 +46,12 @@ export default function DroneManagement() {
   const [catalog, setCatalog] = useState<Record<string, string[]>>({});
 
   // Filter & Search State
-  const [searchTerm, setSearchTerm] = useState("");
   const [filterCrbm, setFilterCrbm] = useState("all");
   const [filterUnit, setFilterUnit] = useState("all");
+  const [filterCia, setFilterCia] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [allUnits, setAllUnits] = useState<OrgUnit[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
@@ -63,7 +67,8 @@ export default function DroneManagement() {
     payloads: [],
     total_flight_hours: 0,
     crbm: "",
-    unit: ""
+    unit: "",
+    cia_pelotao: ""
   });
   
   // Custom Input States
@@ -101,12 +106,62 @@ export default function DroneManagement() {
 
   const loadData = async () => {
     try {
-      const [d, p, cat, me] = await Promise.all([
+      setLoading(true);
+      const [dRes, pRes, catRes, meRes, unitsRes] = await Promise.allSettled([
         base44.entities.Drone.list(),
-        base44.entities.Pilot.filter({ status: 'active' }),
+        base44.entities.Pilot.list(),
         base44.system.getCatalog(),
-        base44.auth.me()
+        base44.auth.me(),
+        orgUnitService.list()
       ]);
+      
+      const d = dRes.status === 'fulfilled' ? dRes.value : [];
+      const p = pRes.status === 'fulfilled' ? pRes.value : [];
+      const cat = catRes.status === 'fulfilled' ? catRes.value : {};
+      const me = meRes.status === 'fulfilled' ? meRes.value : null;
+      const units = unitsRes.status === 'fulfilled' ? unitsRes.value : [];
+
+      setDrones(d);
+      setPilots(p.filter(pilot => pilot.status === 'active'));
+      setCatalog(cat);
+      setCurrentUser(me);
+      setAllUnits(units);
+
+      // Simulation for HARPIA 01 - Force 50 hours as requested
+      const harpia01 = d.find(drone => drone.prefix === "HARPIA 01");
+      if (harpia01 && harpia01.total_flight_hours !== 50) {
+          await base44.entities.Drone.update(harpia01.id, { total_flight_hours: 50 });
+          loadData();
+          return;
+      }
+
+      // Automatic Maintenance Check
+      let needsReload = false;
+      for (const drone of d) {
+          const cycle = 50;
+          const hours = drone.total_flight_hours || 0;
+          // If reached limit and not already in maintenance
+          if (hours > 0 && hours % cycle === 0 && drone.status !== 'maintenance') {
+              await base44.entities.Drone.update(drone.id, { status: 'maintenance' });
+              await base44.entities.Maintenance.create({
+                  drone_id: drone.id,
+                  maintenance_type: 'preventive',
+                  description: `MANUTENÇÃO AUTOMÁTICA (TBO ${hours}h): Limite de horas de voo atingido. Revisão periódica obrigatória gerada pelo sistema.`,
+                  technician: 'A definir',
+                  maintenance_date: new Date().toISOString().split('T')[0],
+                  maintenance_time: new Date().toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'}),
+                  status: 'scheduled',
+                  cost: 0,
+                  in_flight_incident: false
+              } as any);
+              needsReload = true;
+          }
+      }
+
+      if (needsReload) {
+          loadData();
+          return;
+      }
 
       const sortedDrones = d.sort((a, b) => 
         a.prefix.localeCompare(b.prefix, undefined, { numeric: true, sensitivity: 'base' })
@@ -140,6 +195,7 @@ export default function DroneManagement() {
 
       const matchesCrbm = filterCrbm === "all" || drone.crbm === filterCrbm;
       const matchesUnit = filterUnit === "all" || drone.unit === filterUnit;
+      const matchesCia = filterCia === "all" || drone.cia_pelotao === filterCia;
       
       let matchesStatus = true;
       if (filterStatus === 'expired_checklist') {
@@ -153,14 +209,41 @@ export default function DroneManagement() {
         matchesStatus = drone.status === filterStatus;
       }
 
-      return matchesSearch && matchesCrbm && matchesUnit && matchesStatus;
+      return matchesSearch && matchesCrbm && matchesUnit && matchesCia && matchesStatus;
     });
-  }, [drones, searchTerm, filterCrbm, filterUnit, filterStatus]);
+  }, [drones, searchTerm, filterCrbm, filterUnit, filterCia, filterStatus]);
+
+  const crbmsForFilter = useMemo(() => {
+    if (allUnits.length > 0) return allUnits.filter(u => u.type === 'crbm');
+    const unique = Array.from(new Set(drones.map(d => d.crbm).filter(Boolean)));
+    return unique.sort().map(name => ({ id: name, name, type: 'crbm' as const }));
+  }, [allUnits, drones]);
+
+  const unitsForFilter = useMemo(() => {
+    if (allUnits.length > 0) {
+      const parent = crbmsForFilter.find(c => c.name === filterCrbm);
+      if (!parent) return [];
+      return allUnits.filter(u => u.type === 'unit' && u.parent_id === parent.id);
+    }
+    const unique = Array.from(new Set(drones.filter(d => d.crbm === filterCrbm).map(d => d.unit).filter(Boolean)));
+    return unique.sort().map(name => ({ id: name, name, type: 'unit' as const }));
+  }, [allUnits, filterCrbm, crbmsForFilter, drones]);
+
+  const ciasForFilter = useMemo(() => {
+    if (allUnits.length > 0) {
+      const parent = unitsForFilter.find(u => u.name === filterUnit);
+      if (!parent) return [];
+      return allUnits.filter(u => u.type === 'cia' && u.parent_id === parent.id);
+    }
+    const unique = Array.from(new Set(drones.filter(d => d.unit === filterUnit).map(d => d.cia_pelotao).filter(Boolean)));
+    return unique.sort().map(name => ({ id: name, name, type: 'cia' as const }));
+  }, [allUnits, filterUnit, unitsForFilter, drones]);
 
   const handleResetFilters = () => {
     setSearchTerm("");
     setFilterCrbm("all");
     setFilterUnit("all");
+    setFilterCia("all");
     setFilterStatus("all");
   };
 
@@ -235,7 +318,8 @@ export default function DroneManagement() {
       ...drone,
       payloads: Array.isArray(drone.payloads) ? drone.payloads : [],
       crbm: drone.crbm || "",
-      unit: drone.unit || ""
+      unit: drone.unit || "",
+      cia_pelotao: drone.cia_pelotao || ""
     });
     setEditingId(drone.id);
     setIsCreateModalOpen(true);
@@ -334,7 +418,7 @@ export default function DroneManagement() {
   const closeModal = () => {
     setIsCreateModalOpen(false);
     setEditingId(null);
-    setNewDroneData({ prefix: "HARPIA 01", brand: "", model: "", status: "available", payloads: [], total_flight_hours: 0, crbm: "", unit: "" });
+    setNewDroneData({ prefix: "HARPIA 01", brand: "", model: "", status: "available", payloads: [], total_flight_hours: 0, crbm: "", unit: "", cia_pelotao: "" });
     setIsNewBrand(false);
     setIsNewModel(false);
     setCustomBrand("");
@@ -434,6 +518,17 @@ export default function DroneManagement() {
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
+  const getTBOStatus = (totalHours: number) => {
+    const cycle = 50; 
+    const hoursInCycle = totalHours % cycle; 
+    const percentage = (hoursInCycle === 0 && totalHours > 0) ? 100 : (hoursInCycle / cycle) * 100; 
+    const remaining = (hoursInCycle === 0 && totalHours > 0) ? 0 : cycle - hoursInCycle;
+    let color = "#10b981"; // green
+    if (percentage > 70) color = "#f59e0b"; // amber
+    if (percentage >= 100) color = "#ef4444"; // red
+    return { percentage, remaining, color };
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'available': return <Badge variant="success">Disponível</Badge>;
@@ -441,17 +536,6 @@ export default function DroneManagement() {
       case 'maintenance': return <Badge variant="warning">Manutenção</Badge>;
       default: return <Badge>Desconhecido</Badge>;
     }
-  };
-
-  const getTBOStatus = (totalHours: number) => {
-    const cycle = 50; 
-    const hoursInCycle = totalHours % cycle; 
-    const percentage = (hoursInCycle / cycle) * 100; 
-    const remaining = cycle - hoursInCycle;
-    let color = "bg-green-500"; 
-    if (percentage > 70) color = "bg-yellow-500"; 
-    if (percentage > 90) color = "bg-red-500";
-    return { percentage, remaining, color };
   };
 
   const getChecklistStatus = (lastCheck?: string) => {
@@ -472,74 +556,85 @@ export default function DroneManagement() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-white overflow-hidden relative">
-      <div className="flex-shrink-0 bg-white border-b border-slate-200 p-4 md:p-6 shadow-sm z-10 space-y-4">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
-                <DroneIcon className="w-8 h-8 text-slate-700" />
-                Gestão de Frota
+    <div className="flex flex-col h-full bg-slate-50 overflow-hidden relative">
+      {/* HEADER */}
+      <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-sm z-20">
+         <div>
+            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+               <Box className="w-7 h-7 text-red-700" />
+               Gestão de Frota e Equipamentos
             </h1>
+            <p className="text-slate-500 text-xs font-medium uppercase tracking-wide mt-1">
+               Controle de Aeronaves, Baterias e Manutenções
+            </p>
+         </div>
+         <div className="flex flex-col md:flex-row items-center gap-4">
             {currentUser?.role === 'admin' && (
-              <div className="flex gap-2 w-full md:w-auto">
-                <Button onClick={handleSyncStatus} disabled={loading} variant="outline" className="h-10 text-sm flex-1 md:flex-initial bg-white">
+              <div className="flex gap-2">
+                <Button onClick={handleSyncStatus} disabled={loading} variant="outline" size="sm" className="bg-white">
                     <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                    Sincronizar Status
+                    Sincronizar
                 </Button>
-                <Button onClick={() => setIsCreateModalOpen(true)} className="h-10 text-sm flex-1 md:flex-initial">
+                <Button onClick={() => setIsCreateModalOpen(true)} size="sm">
                     <Plus className="w-4 h-4 mr-2" />
                     Nova Aeronave
                 </Button>
               </div>
             )}
+         </div>
+      </div>
+
+      <div className="bg-white border-b border-slate-200 px-6 py-3 flex flex-col gap-3 shrink-0 z-10">
+        <div className="flex flex-col md:flex-row justify-between items-center gap-3">
+            <div className="flex items-center gap-2 w-full md:w-auto">
+                <div className="relative flex-1 md:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input 
+                        type="text" 
+                        placeholder="Buscar prefixo, modelo..."
+                        className="w-full pl-9 pr-4 py-2 bg-slate-100 border-none rounded-xl text-xs focus:ring-2 focus:ring-red-500 transition-all"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+                <button 
+                    onClick={() => setIsFilterOpen(!isFilterOpen)}
+                    className={`p-2 rounded-xl transition-all ${isFilterOpen ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                >
+                    <Filter className="w-4 h-4" />
+                </button>
+            </div>
+            <Button onClick={handleExportReport} disabled={generatingPdf} variant="outline" size="sm" className="bg-slate-800 text-white hover:bg-slate-900 border-none"><FileText className="w-4 h-4 mr-2" />Relatório PDF</Button>
         </div>
-        
-        <Card className="p-0 bg-slate-50 border-slate-200 overflow-hidden">
-            <button onClick={() => setIsFilterOpen(!isFilterOpen)} className="w-full flex justify-between items-center p-4 text-left hover:bg-slate-100 transition-colors">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase">
-                    <Filter className="w-3 h-3" /> Filtros de Frota
-                </div>
-                <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform ${isFilterOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {isFilterOpen && (
-                <div className="p-4 border-t border-slate-200 animate-fade-in">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-                        <div className="lg:col-span-1">
-                            <Input placeholder="Buscar por Prefixo, Modelo..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="h-10 text-sm bg-white" />
-                        </div>
-                        <div className="lg:col-span-1">
-                            <Select value={filterCrbm} onChange={e => { setFilterCrbm(e.target.value); setFilterUnit("all"); }} className="h-10 text-sm bg-white">
-                                <option value="all">Todos os CRBMs</option>
-                                {Object.keys(ORGANIZATION_CHART).map(crbm => <option key={crbm} value={crbm}>{crbm}</option>)}
-                            </Select>
-                        </div>
-                        <div className="lg:col-span-1">
-                            <Select value={filterUnit} onChange={e => setFilterUnit(e.target.value)} disabled={filterCrbm === "all"} className="h-10 text-sm bg-white disabled:bg-slate-100">
-                                <option value="all">Todas as Unidades</option>
-                                {filterCrbm !== "all" && ORGANIZATION_CHART[filterCrbm as keyof typeof ORGANIZATION_CHART]?.map((unit: string) => <option key={unit} value={unit}>{unit}</option>)}
-                            </Select>
-                        </div>
-                        <div className="lg:col-span-1">
-                            <Select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="h-10 text-sm bg-white">
-                                <option value="all">Todos os Status</option>
-                                <option value="available">Disponível</option>
-                                <option value="in_operation">Em Operação</option>
-                                <option value="maintenance">Manutenção</option>
-                                <option value="expired_checklist" className="text-red-600 font-bold">⚠️ Checklist Vencido</option>
-                            </Select>
-                        </div>
-                        <div className="lg:col-span-1 flex gap-2">
-                            <Button onClick={handleResetFilters} variant="outline" className="h-10 bg-white" title="Limpar Filtros"><RefreshCcw className="w-4 h-4" /></Button>
-                            <Button onClick={handleExportReport} disabled={generatingPdf} className="h-10 flex-1 bg-slate-800 text-white hover:bg-slate-900"><FileText className="w-4 h-4 mr-2" />Relatório</Button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </Card>
+
+        {isFilterOpen && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 py-3 border-t border-slate-100 animate-fade-in">
+                <Select value={filterCrbm} onChange={e => { setFilterCrbm(e.target.value); setFilterUnit("all"); setFilterCia("all"); }} className="h-9 text-xs">
+                    <option value="all">Todos os CRBMs</option>
+                    {crbmsForFilter.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </Select>
+                <Select value={filterUnit} onChange={e => { setFilterUnit(e.target.value); setFilterCia("all"); }} disabled={filterCrbm === "all"} className="h-9 text-xs">
+                    <option value="all">Todas as Unidades</option>
+                    {unitsForFilter.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                </Select>
+                <Select value={filterCia} onChange={e => setFilterCia(e.target.value)} disabled={filterUnit === "all"} className="h-9 text-xs">
+                    <option value="all">Todas as CIAs/PEL</option>
+                    {ciasForFilter.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </Select>
+                <Select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="h-9 text-xs">
+                    <option value="all">Todos os Status</option>
+                    <option value="available">Disponível</option>
+                    <option value="in_operation">Em Operação</option>
+                    <option value="maintenance">Manutenção</option>
+                </Select>
+                <Button variant="outline" onClick={handleResetFilters} className="h-9 text-xs font-bold uppercase">Limpar</Button>
+            </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-4 md:gap-6">
-            {filteredDrones.length > 0 ? filteredDrones.map((drone) => {
+          {filteredDrones.length > 0 ? filteredDrones.map((drone) => {
               const tbo = getTBOStatus(drone.total_flight_hours || 0);
               const checklist = getChecklistStatus(drone.last_30day_check);
               const isFT = drone.unit?.includes("FORÇA TAREFA") || drone.unit?.includes("FT");
@@ -647,7 +742,22 @@ export default function DroneManagement() {
             <div className="flex justify-between items-center mb-6 border-b pb-4"><h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><DroneIcon className="w-6 h-6 text-blue-600" />{editingId ? 'Editar Aeronave' : 'Cadastrar Aeronave'}</h2><button onClick={closeModal} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button></div>
             <form onSubmit={handleSaveDrone} className="space-y-4">
               <div className="grid grid-cols-2 gap-4"><Select label="Prefixo Operacional" required value={newDroneData.prefix} onChange={e => setNewDroneData({...newDroneData, prefix: e.target.value})}>{PREFIX_OPTIONS.map(p => { const isTaken = isPrefixTaken(p); return (<option key={p} value={p} disabled={isTaken}>{p} {isTaken ? '(EM USO)' : ''}</option>); })}</Select><Input label="Número de Série" required placeholder="Ex: 1581F4..." value={newDroneData.serial_number || ''} onChange={e => setNewDroneData({...newDroneData, serial_number: e.target.value})} /></div>
-              <div className="p-4 bg-blue-50 rounded-lg border border-blue-100"><h3 className="text-sm font-bold text-blue-800 mb-3 uppercase flex items-center gap-2"><MapPin className="w-4 h-4" /> Localização / Emprego</h3><div className="grid grid-cols-2 gap-4"><Select label="Comando Regional" value={newDroneData.crbm || ''} onChange={e => setNewDroneData({...newDroneData, crbm: e.target.value, unit: ''})}><option value="">Selecione...</option>{Object.keys(ORGANIZATION_CHART).map(crbm => (<option key={crbm} value={crbm}>{crbm}</option>))}</Select><Select label="Unidade" value={newDroneData.unit || ''} onChange={e => setNewDroneData({...newDroneData, unit: e.target.value})} disabled={!newDroneData.crbm}><option value="">Selecione...</option>{newDroneData.crbm && ORGANIZATION_CHART[newDroneData.crbm as keyof typeof ORGANIZATION_CHART]?.map((unit: string) => (<option key={unit} value={unit}>{unit}</option>))}</Select></div></div>
+              <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+                <h3 className="text-sm font-bold text-blue-800 mb-3 uppercase flex items-center gap-2">
+                  <MapPin className="w-4 h-4" /> Localização / Emprego
+                </h3>
+                <OrgUnitSelector 
+                  crbm={newDroneData.crbm || ''}
+                  unit={newDroneData.unit || ''}
+                  cia={newDroneData.cia_pelotao || ''}
+                  onChange={(data) => setNewDroneData({
+                    ...newDroneData,
+                    crbm: data.crbm,
+                    unit: data.unit,
+                    cia_pelotao: data.cia
+                  })}
+                />
+              </div>
               <div className="p-4 bg-slate-50 rounded-lg border border-slate-200"><h3 className="text-sm font-bold text-slate-700 mb-3 uppercase">Dados do Fabricante</h3><div className="grid grid-cols-2 gap-4"><div>{!isNewBrand ? (<Select label="Fabricante" required value={newDroneData.brand || ''} onChange={e => { const val = e.target.value; setIsNewBrand(false); setIsNewModel(false); setCustomModel(""); const resetState = { model: '', weight: undefined, max_flight_time: undefined, max_range: undefined, max_altitude: undefined, payloads: [] }; if (val === 'NEW_BRAND') { setIsNewBrand(true); setNewDroneData(prev => ({...prev, ...resetState, brand: ''})); } else { setNewDroneData(prev => ({...prev, ...resetState, brand: val})); } }}><option value="">Selecione...</option>{Object.keys(catalog).map(brand => (<option key={brand} value={brand}>{brand}</option>))}<option value="NEW_BRAND" className="font-bold text-yellow-400 bg-slate-800">+ Adicionar Novo...</option></Select>) : (<div className="space-y-1"><label className="text-sm font-medium text-slate-700">Novo Fabricante</label><div className="flex gap-2"><Input value={customBrand} onChange={e => setCustomBrand(e.target.value)} placeholder="Nome..." className="flex-1" /><Button type="button" variant="danger" className="px-3" onClick={() => { setIsNewBrand(false); setCustomBrand(''); }}><X className="w-4 h-4" /></Button></div></div>)}</div><div>{!isNewModel ? (<Select label="Modelo" required value={newDroneData.model || ''} disabled={(!newDroneData.brand && !isNewBrand)} onChange={e => { const val = e.target.value; if (val === 'NEW_MODEL') { setIsNewModel(true); setNewDroneData(prev => ({ ...prev, model: '', weight: undefined, max_flight_time: undefined, max_range: undefined, max_altitude: undefined, payloads: [] })); } else { setIsNewModel(false); setNewDroneData(prev => ({ ...prev, model: val })); } }}><option value="">Selecione...</option>{newDroneData.brand && catalog[newDroneData.brand]?.map(model => (<option key={model} value={model}>{model}</option>))}{(newDroneData.brand || isNewBrand) && (<option value="NEW_MODEL" className="font-bold text-yellow-400 bg-slate-800">+ Adicionar Novo...</option>)}</Select>) : (<div className="space-y-1"><label className="text-sm font-medium text-slate-700">Novo Modelo</label><div className="flex gap-2"><Input value={customModel} onChange={e => setCustomModel(e.target.value)} placeholder="Modelo..." className="flex-1" /><Button type="button" variant="danger" className="px-3" onClick={() => { setIsNewModel(false); setCustomModel(''); }}><X className="w-4 h-4" /></Button></div></div>)}</div></div></div>
               <div className="p-4 bg-blue-50 rounded-lg border border-blue-100"><h3 className="text-sm font-bold text-blue-800 mb-3 uppercase">Regularização (SISANT)</h3><div className="grid grid-cols-2 gap-4"><Input label="Número SISANT" placeholder="PP-00000000" required value={newDroneData.sisant || ''} onChange={e => setNewDroneData({...newDroneData, sisant: e.target.value})} /><Input label="Validade do SISANT" type="date" required value={newDroneData.sisant_expiry_date || ''} onChange={e => setNewDroneData({...newDroneData, sisant_expiry_date: e.target.value})} /></div></div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4"><Input label="Peso (g)" type="number" required value={newDroneData.weight || ''} onChange={e => setNewDroneData({...newDroneData, weight: Number(e.target.value)})} /><Input label="Autonomia (min)" type="number" required value={newDroneData.max_flight_time || ''} onChange={e => setNewDroneData({...newDroneData, max_flight_time: Number(e.target.value)})} /><Input label="Alcance (m)" type="number" required value={newDroneData.max_range || ''} onChange={e => setNewDroneData({...newDroneData, max_range: Number(e.target.value)})} /><Input label="Alt. Máx (m)" type="number" required value={newDroneData.max_altitude || ''} onChange={e => setNewDroneData({...newDroneData, max_altitude: Number(e.target.value)})} /></div>

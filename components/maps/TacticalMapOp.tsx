@@ -3,6 +3,7 @@ import React from 'react';
 import { MapContainer, TileLayer } from "react-leaflet";
 import SectorsLayer from "./tactical/SectorsLayer";
 import DronesLayer from "./tactical/DronesLayer";
+import TacticalDrawControls from "../map/TacticalDrawControls";
 
 interface TacticalMapOpProps {
     center?: [number, number];
@@ -23,8 +24,9 @@ export default function TacticalMapOp({ center = [-25.42, -49.29], zoom = 15, op
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
       />
 
-      <SectorsLayer />
       <DronesLayer operationId={operationId} />
+      
+      <TacticalDrawControls />
     </MapContainer>
   );
 }

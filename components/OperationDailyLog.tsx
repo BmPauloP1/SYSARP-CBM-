@@ -173,7 +173,7 @@ export default function OperationDailyLog({ operationId, pilots, drones, current
            if (currentUser?.role === 'admin') {
                setSqlError(`
 DROP POLICY IF EXISTS "Pilotos podem atualizar status de drones" ON public.drones;
-CREATE POLICY "Pilotos podem atualizar status de drones" ON public.drones FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Pilotos podem atualizar status de drones" ON public.drones FOR UPDATE TO public USING (true) WITH CHECK (true);
                `);
            }
         }

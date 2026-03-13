@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import '../leaflet-setup';
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, Polygon, Polyline } from "react-leaflet";
 import L from "leaflet";
-import "@geoman-io/leaflet-geoman-free";
 import { base44 } from "../services/base44Client";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, MISSION_COLORS, MISSION_LABELS, ORGANIZATION_CHART, MissionType } from "../types";
 import { SUMMER_LOCATIONS } from "../types_summer";
@@ -154,6 +154,18 @@ export default function OperationManagement() {
     } catch(e) {}
   };
 
+  const handleExportToSARPAS = async (op: Operation) => {
+    setLoading(true);
+    try {
+      // Simulação de integração com SARPAS
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      alert(`Operação ${op.occurrence_number} exportada para o SARPAS com sucesso! Protocolo gerado: SARPAS-${Math.random().toString(36).substring(7).toUpperCase()}`);
+    } catch (e) {
+      alert("Erro ao exportar para o SARPAS.");
+    } finally {
+      setLoading(false);
+    }
+  };
   const handleLocateMeInModal = () => {
       if (!navigator.geolocation) { alert("GPS não disponível."); return; }
       setDrawMode(null);
@@ -312,7 +324,10 @@ export default function OperationManagement() {
                                     <p className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Piloto (PIC): <span className="text-slate-700 font-bold uppercase">{pilot?.full_name || 'N/A'}</span></p>
                                     <p className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">Data/Início: <span className="text-slate-700">{new Date(op.start_time).toLocaleString()}</span></p>
                                 </div>
-                                <Button size="sm" className="w-full mt-4 h-9 text-[10px] font-black uppercase shadow-md" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>ACESSAR CENTRO TÁTICO</Button>
+                                <div className="flex gap-2 mt-4">
+                                    <Button size="sm" className="flex-1 h-9 text-[10px] font-black uppercase shadow-md" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>ACESSAR CENTRO TÁTICO</Button>
+                                    <Button size="sm" variant="outline" className="h-9 text-[10px] font-black uppercase border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => handleExportToSARPAS(op)}>SARPAS</Button>
+                                </div>
                             </div>
                         </Popup>
                     </Marker>

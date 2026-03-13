@@ -16,18 +16,19 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   size?: 'sm' | 'md' | 'lg';
   className?: string;
   children?: React.ReactNode;
-  onClick?: React.MouseEventHandler<HTMLButtonElement>;
-  type?: "button" | "submit" | "reset";
-  disabled?: boolean;
-  title?: string;
-  form?: string;
 }
 
-export const Button = ({ 
-  children, variant = 'primary', size = 'md', className = "", ...props 
+export const Button = ({
+  children,
+  variant = 'primary',
+  size = 'md',
+  className = "",
+  ...props
 }: ButtonProps) => {
-  const baseClass = "rounded-lg font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed";
-  
+
+  const baseClass =
+    "rounded-lg font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed";
+
   const sizes = {
     sm: "px-3 py-1.5 text-sm",
     md: "px-4 py-2",
@@ -42,7 +43,10 @@ export const Button = ({
   };
 
   return (
-    <button className={`${baseClass} ${sizes[size]} ${variants[variant]} ${className}`} {...props}>
+    <button
+      className={`${baseClass} ${sizes[size]} ${variants[variant]} ${className}`}
+      {...props}
+    >
       {children}
     </button>
   );
@@ -50,17 +54,24 @@ export const Button = ({
 
 export interface BadgeProps {
   children?: React.ReactNode;
-  variant?: 'default' | 'success' | 'warning' | 'danger';
+  variant?: 'default' | 'success' | 'warning' | 'danger' | 'outline';
   className?: string;
 }
 
-export const Badge = ({ children, variant = 'default', className = "" }: BadgeProps) => {
+export const Badge = ({
+  children,
+  variant = 'default',
+  className = ""
+}: BadgeProps) => {
+
   const variants = {
     default: "bg-slate-100 text-slate-800",
     success: "bg-green-100 text-green-800",
     warning: "bg-amber-100 text-amber-800",
-    danger: "bg-red-100 text-red-800"
+    danger: "bg-red-100 text-red-800",
+    outline: "border border-slate-200 text-slate-500 bg-transparent"
   };
+
   return (
     <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${variants[variant]} ${className}`}>
       {children}
@@ -68,76 +79,160 @@ export const Badge = ({ children, variant = 'default', className = "" }: BadgePr
   );
 };
 
-export const Input = ({ label, labelClassName, className = "", ...props }: React.InputHTMLAttributes<HTMLInputElement> & { label?: string, labelClassName?: string }) => (
+export const Input = ({
+  label,
+  labelClassName,
+  className = "",
+  value,
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement> & {
+  label?: string;
+  labelClassName?: string;
+}) => (
   <div className="space-y-1">
-    {label && <label className={`text-sm font-medium ${labelClassName || 'text-slate-700'}`}>{label}</label>}
-    <input 
+
+    {label && (
+      <label className={`text-sm font-medium ${labelClassName || 'text-slate-700'}`}>
+        {label}
+      </label>
+    )}
+
+    <input
       className={`w-full px-3 py-2 border border-slate-300 bg-white text-slate-900 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all placeholder:text-slate-400 ${className}`}
-      {...props} 
+      value={value ?? ""}
+      {...props}
     />
+
   </div>
 );
 
-export const Textarea = ({ label, labelClassName, className = "", ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { label?: string, labelClassName?: string }) => (
+export const Textarea = ({
+  label,
+  labelClassName,
+  className = "",
+  value,
+  ...props
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  label?: string;
+  labelClassName?: string;
+}) => (
   <div className="space-y-1">
-    {label && <label className={`text-sm font-medium ${labelClassName || 'text-slate-700'}`}>{label}</label>}
-    <textarea 
+
+    {label && (
+      <label className={`text-sm font-medium ${labelClassName || 'text-slate-700'}`}>
+        {label}
+      </label>
+    )}
+
+    <textarea
       className={`w-full px-3 py-2 border border-slate-300 bg-white text-slate-900 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all placeholder:text-slate-400 ${className}`}
-      {...props} 
+      value={value ?? ""}
+      {...props}
     />
+
   </div>
 );
 
-export const Modal = ({ isOpen, onClose, title, children }: { isOpen: boolean, onClose: () => void, title: string, children: React.ReactNode }) => {
+export const Modal = ({
+  isOpen,
+  onClose,
+  title,
+  children
+}: {
+  isOpen: boolean,
+  onClose: () => void,
+  title: string,
+  children: React.ReactNode
+}) => {
+
   if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in-up" onClick={e => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4"
+      onClick={onClose}
+    >
+
+      <div
+        className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in-up"
+        onClick={e => e.stopPropagation()}
+      >
+
         <div className="p-4 border-b border-slate-200 flex justify-between items-center">
           <h3 className="text-lg font-bold text-slate-800">{title}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">&times;</button>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600"
+          >
+            &times;
+          </button>
         </div>
+
         {children}
+
       </div>
     </div>
   );
 };
 
-export const Select = ({ label, labelClassName, className = "", children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement> & { label?: string, labelClassName?: string }) => (
+export const Select = ({
+  label,
+  labelClassName,
+  className = "",
+  children,
+  ...props
+}: React.SelectHTMLAttributes<HTMLSelectElement> & {
+  label?: string,
+  labelClassName?: string
+}) => (
   <div className="space-y-1">
-    {label && <label className={`text-sm font-medium ${labelClassName || 'text-slate-700'}`}>{label}</label>}
-    <select 
+
+    {label && (
+      <label className={`text-sm font-medium ${labelClassName || 'text-slate-700'}`}>
+        {label}
+      </label>
+    )}
+
+    <select
       className={`w-full px-3 py-2 border border-slate-300 bg-white text-slate-900 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all ${className}`}
-      {...props} 
+      {...props}
     >
       {children}
     </select>
+
   </div>
 );
 
-// Custom Drone Icon
-export const DroneIcon = ({ className = "w-6 h-6", ...props }: React.SVGProps<SVGSVGElement>) => (
-  <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
-    className={className} 
+export const DroneIcon = ({
+  className = "w-6 h-6",
+  ...props
+}: React.SVGProps<SVGSVGElement>) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
     {...props}
   >
+
     <path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" />
     <path d="M12 12v-4" />
     <path d="M12 12v4" />
+
     <path d="M4.5 9m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" />
     <path d="M19.5 9m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" />
+
     <path d="M4.5 15m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" />
     <path d="M19.5 15m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0" />
+
     <path d="M7 9l3 3" />
     <path d="M17 9l-3 3" />
     <path d="M7 15l3 -3" />
     <path d="M17 15l-3 -3" />
+
   </svg>
 );

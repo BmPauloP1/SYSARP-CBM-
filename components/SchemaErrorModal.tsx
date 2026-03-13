@@ -16,15 +16,11 @@ CREATE TABLE operation_pendencies (
 
 ALTER TABLE operation_pendencies ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow all access to admins" 
+CREATE POLICY "Allow all access to public" 
 ON operation_pendencies FOR ALL 
-TO authenticated 
-USING ( (SELECT role FROM profiles WHERE id = auth.uid()) = 'admin' );
-
-CREATE POLICY "Allow assigned user to view" 
-ON operation_pendencies FOR SELECT 
-TO authenticated 
-USING ( assigned_to_id = auth.uid() );
+TO public 
+USING ( true )
+WITH CHECK ( true );
 `;
 
 interface Props {

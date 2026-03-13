@@ -9,6 +9,8 @@ import { PendencyAlerts } from "../components/PendencyAlerts";
 import { useNavigate } from "react-router-dom";
 import { OperationalInfoTicker } from "../components/OperationalInfoTicker";
 
+import { orgUnitService } from "../services/orgUnitService";
+
 const iconCache: Record<string, L.DivIcon> = {};
 const getCustomIcon = (color: string) => {
   if (!iconCache[color]) {
@@ -77,6 +79,7 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    orgUnitService.seed();
     loadData();
     const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
@@ -177,39 +180,58 @@ export default function Dashboard() {
                       const natureLabel = MISSION_HIERARCHY[op.mission_type]?.label || op.mission_type;
                       
                       return (
-                        <Card key={op.id} className="p-4 border border-slate-100 shadow-sm hover:shadow-md transition-all cursor-pointer relative group" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>
-                            <div className="flex justify-between items-start mb-2">
-                               <span className="bg-red-50 text-red-600 text-[8px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 border border-red-100">
-                                  <div className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse"></div>
-                                  EM ANDAMENTO
-                               </span>
-                               <button onClick={(e) => handleShare(op, e)} className="p-1.5 hover:bg-slate-100 rounded-full text-slate-300 hover:text-slate-600 transition-colors">
-                                  <Share2 className="w-3.5 h-3.5" />
-                               </button>
-                            </div>
-                            
-                            <h4 className="font-black text-slate-800 text-sm leading-tight uppercase mb-1 line-clamp-2">{op.name}</h4>
-                            <p className="text-[9px] text-slate-400 font-mono font-bold uppercase tracking-tighter truncate">
-                               #{op.occurrence_number} • {natureLabel}
-                            </p>
+                        <Card key={op.id} className="p-0 border-none shadow-sm hover:shadow-lg transition-all cursor-pointer relative group overflow-hidden bg-white" onClick={() => navigate(`/operations/${op.id}/gerenciar`)}>
+                            <div className="flex flex-col">
+                               {/* Top Bar */}
+                               <div className="bg-slate-50 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
+                                  <div className="flex items-center gap-2">
+                                     <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div>
+                                     <span className="text-[10px] font-black text-red-700 uppercase tracking-tight">Live</span>
+                                  </div>
+                                  <button onClick={(e) => handleShare(op, e)} className="p-1 hover:bg-white rounded-full text-slate-400 hover:text-slate-600 transition-colors">
+                                     <Share2 className="w-3.5 h-3.5" />
+                                  </button>
+                               </div>
 
-                            <div className="mt-4 flex justify-between items-center border-t border-slate-50 pt-3">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-500 font-black text-xs shadow-inner">
-                                        {pilot?.full_name?.charAt(0) || 'P'}
-                                    </div>
-                                    <div className="flex flex-col">
-                                        <span className="text-[7px] font-black text-slate-400 uppercase leading-none">PIC</span>
-                                        <span className="text-[10px] font-black text-slate-700 uppercase leading-none mt-1">{pilot?.full_name?.split(' ')[0] || 'Desconhecido'}</span>
-                                    </div>
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-[7px] font-black text-slate-400 uppercase leading-none block">Início</span>
-                                    <span className="text-[10px] font-black text-slate-600 uppercase flex items-center gap-1 mt-1">
-                                        <Clock className="w-3 h-3" />
-                                        {new Date(op.start_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
-                                    </span>
-                                </div>
+                               <div className="p-4">
+                                  <div className="flex justify-between items-start mb-3">
+                                     <h4 className="font-black text-slate-800 text-sm leading-tight uppercase line-clamp-2 flex-1">{op.name}</h4>
+                                     <Badge variant="outline" className="ml-2 text-[8px] border-slate-200 text-slate-500 shrink-0">#{op.occurrence_number}</Badge>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 mb-4">
+                                     <div className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[9px] font-bold uppercase">
+                                        {natureLabel}
+                                     </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-4 pt-3 border-t border-slate-50">
+                                      <div className="flex items-center gap-2">
+                                          <div className="w-8 h-8 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center text-red-700 font-black text-xs">
+                                              {pilot?.full_name?.charAt(0) || 'P'}
+                                          </div>
+                                          <div className="flex flex-col">
+                                              <span className="text-[7px] font-black text-slate-400 uppercase leading-none">Comandante</span>
+                                              <span className="text-[10px] font-black text-slate-700 uppercase leading-none mt-1 truncate max-w-[80px]">{pilot?.full_name?.split(' ')[0] || '---'}</span>
+                                          </div>
+                                      </div>
+                                      <div className="flex items-center gap-2 justify-end">
+                                          <div className="text-right">
+                                              <span className="text-[7px] font-black text-slate-400 uppercase leading-none block">Decolagem</span>
+                                              <span className="text-[10px] font-black text-slate-600 uppercase flex items-center gap-1 mt-1 justify-end">
+                                                  <Clock className="w-3 h-3 text-slate-400" />
+                                                  {new Date(op.start_time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                                              </span>
+                                          </div>
+                                      </div>
+                                  </div>
+                               </div>
+                               
+                               {/* Action Bar */}
+                               <div className="px-4 py-2 bg-slate-900 text-white flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <span className="text-[9px] font-black uppercase tracking-widest">Acessar CCO</span>
+                                  <ChevronRight className="w-4 h-4" />
+                               </div>
                             </div>
                         </Card>
                       );

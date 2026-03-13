@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, useMap, GeoJSON } from 'react-leaflet';
+import '../leaflet-setup';
+import { MapContainer, TileLayer, Marker, Popup, Polygon, Polyline, useMap, useMapEvents, GeoJSON } from 'react-leaflet';
 import L from 'leaflet';
-import "@geoman-io/leaflet-geoman-free";
+import { PreFlightChecklist } from '../components/PreFlightChecklist';
 import html2canvas from 'html2canvas'; 
 import { base44 } from '../services/base44Client';
 import { tacticalService, TacticalSector, TacticalDrone, TacticalPOI, TacticalKmlLayer } from '../services/tacticalService';
+import { searchPlanningService, TerrainType, ExperienceLevel, BackpackStatus } from '../services/searchPlanningService';
 import { Operation, Drone, Pilot, MISSION_COLORS } from '../types';
 import { Card, Button, Input, Select, Badge } from '../components/ui_components';
 import { 
@@ -14,9 +16,10 @@ import {
   Video, ChevronRight, Globe, Camera, 
   Users, Truck, Dog, Heart, AlertTriangle, 
   Layers, Satellite, Activity, LocateFixed, Loader2,
-  FileUp, Ruler, Maximize2, Move, Shield, Save, Database, Copy, Eye, EyeOff, UploadCloud, FileType
+  FileUp, Ruler, Maximize2, Move, Shield, Save, Database, Copy, Eye, EyeOff, UploadCloud, FileType, CheckCircle
 } from 'lucide-react';
 import SectorsLayer from '../components/maps/tactical/SectorsLayer';
+import TacticalDrawControls from '../components/map/TacticalDrawControls';
 
 // NATO Phonetic Alphabet for naming sectors
 const PHONETIC = [
@@ -104,11 +107,20 @@ const MapResizer = () => {
     return null;
 };
 
+const MapEvents = ({ onMapClick }: { onMapClick: (e: any) => void }) => {
+    useMapEvents({
+        click: onMapClick
+    });
+    return null;
+};
+
 const calculatePolygonArea = (coordinates: any) => {
     if (!coordinates || !Array.isArray(coordinates) || coordinates.length === 0) return 0;
     try {
-        const latLngs = L.GeoJSON.coordsToLatLngs(coordinates, 1)[0] as L.LatLng[];
-        if (!latLngs || latLngs.length < 3) return 0;
+        const coords = L.GeoJSON.coordsToLatLngs(coordinates, 1);
+        if (!coords || !Array.isArray(coords) || coords.length === 0) return 0;
+        const latLngs = coords[0] as L.LatLng[];
+        if (!latLngs || !Array.isArray(latLngs) || latLngs.length < 3) return 0;
         let area = 0; const radius = 6378137;
         for (let i = 0; i < latLngs.length; i++) {
             const p1 = latLngs[i]; const p2 = latLngs[(i + 1) % latLngs.length];
@@ -169,19 +181,6 @@ const getPoiIcon = (type: string, hasStream?: boolean) => {
     });
 };
 
-const MapDrawingBridge = ({ drawMode }: { drawMode: string | null }) => {
-    const map = useMap();
-    useEffect(() => {
-        if (!map || !(map as any).pm) return;
-        const pm = (map as any).pm;
-        pm.disableDraw();
-        if (drawMode === 'sector') pm.enableDraw('Polygon', { snappable: true, cursorMarker: true });
-        else if (drawMode === 'route') pm.enableDraw('Line', { snappable: true, cursorMarker: true });
-        else if (drawMode === 'poi') pm.enableDraw('Marker', { snappable: true, cursorMarker: true });
-    }, [drawMode, map]);
-    return null;
-};
-
 export default function TacticalOperationCenter() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -204,11 +203,14 @@ export default function TacticalOperationCenter() {
   const [mapType, setMapType] = useState<'street' | 'satellite'>('street');
   const [currentDrawMode, setCurrentDrawMode] = useState<string | null>(null);
   const [tempGeometry, setTempGeometry] = useState<any>(null); 
+  const [pendingPoi, setPendingPoi] = useState<{lat: number, lng: number} | null>(null);
   const [newItemName, setNewItemName] = useState('');
   const [newItemSubType, setNewItemSubType] = useState('base');
   const [newItemStream, setNewItemStream] = useState('');
   const [sqlError, setSqlError] = useState<string | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [isChecklistOpen, setIsChecklistOpen] = useState(false);
+  const [pendingDroneData, setPendingDroneData] = useState<any>(null);
   
   const [selectedDroneId, setSelectedDroneId] = useState('');
   const [selectedPilotId, setSelectedPilotId] = useState('');
@@ -217,6 +219,20 @@ export default function TacticalOperationCenter() {
   const [pipPos, setPipPos] = useState({ x: window.innerWidth - 420, y: 100 });
   const [isDragging, setIsDragging] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
+
+  // Search Planning State
+  const [isSearchPlanningOpen, setIsSearchPlanningOpen] = useState(false);
+  const [searchParams, setSearchParams] = useState({
+    lkp: null as [number, number] | null,
+    destination: null as [number, number] | null,
+    terrain: 'plano' as TerrainType,
+    experience: 'iniciante' as ExperienceLevel,
+    backpack: 'sem_mochila' as BackpackStatus,
+    timeHours: 1,
+    areaType: 'possibilidade' as 'possibilidade' | 'apg' | 'apga'
+  });
+  const [isSelectingLkp, setIsSelectingLkp] = useState(false);
+  const [isSelectingDest, setIsSelectingDest] = useState(false);
 
   useEffect(() => { 
       if (id) {
@@ -241,22 +257,92 @@ export default function TacticalOperationCenter() {
     };
   }, [isDragging]);
 
-  const handleDragStart = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    dragOffset.current = { x: e.clientX - pipPos.x, y: e.clientY - pipPos.y };
-  };
+    const handleDragStart = (e: React.MouseEvent) => {
+        setIsDragging(true);
+        dragOffset.current = { x: e.clientX - pipPos.x, y: e.clientY - pipPos.y };
+    };
+
+    const handleGenerateSearchArea = async () => {
+        if (!searchParams.lkp) {
+            alert("Defina o LKP no mapa primeiro.");
+            return;
+        }
+
+        const speed = searchPlanningService.calculateSpeed(searchParams.terrain, searchParams.backpack, searchParams.experience);
+        const autonomyKm = speed * searchParams.timeHours;
+
+        try {
+            if (searchParams.areaType === 'possibilidade') {
+                // Criar um POI de Interesse com a informação da autonomia
+                await tacticalService.createPOI({
+                    operation_id: id!,
+                    name: `Área de Possibilidade (${autonomyKm.toFixed(1)}km)`,
+                    type: 'interest',
+                    lat: searchParams.lkp[0],
+                    lng: searchParams.lkp[1],
+                    description: `Autonomia estimada: ${autonomyKm.toFixed(2)} km baseada em ${searchParams.timeHours}h de deslocamento.`
+                });
+            } else {
+                if (!searchParams.destination) {
+                    alert("Defina o Destino no mapa para APG/APGA.");
+                    return;
+                }
+
+                const offsetNm = searchParams.areaType === 'apg' ? 0.5 : 1.0;
+                const offsetKm = searchPlanningService.nmToKm(offsetNm);
+                
+                // APG/APGA: 0.5 NM ou 1.0 NM de afastamento lateral
+                // Início: 0.5 NM antes do LKP (para APG) ou 0 (para APGA)
+                // Fim: 1.0 NM após o destino
+                const startOffsetKm = searchParams.areaType === 'apg' ? searchPlanningService.nmToKm(0.5) : 0;
+                const endOffsetKm = searchPlanningService.nmToKm(1.0);
+
+                const polygonCoords = searchPlanningService.calculateRouteRectangle(
+                    searchParams.lkp,
+                    searchParams.destination,
+                    offsetKm,
+                    startOffsetKm,
+                    endOffsetKm
+                );
+
+                await tacticalService.createSector({
+                    operation_id: id!,
+                    name: `${searchParams.areaType.toUpperCase()} (${offsetNm} NM)`,
+                    type: 'zone',
+                    color: '#f59e0b',
+                    geojson: {
+                        type: 'Polygon',
+                        coordinates: [polygonCoords.map((c: [number, number]) => [c[1], c[0]])]
+                    }
+                });
+            }
+
+            setIsSearchPlanningOpen(false);
+            loadTacticalData(id!);
+            alert("Área de busca gerada com sucesso!");
+        } catch (error) {
+            console.error("Erro ao gerar área:", error);
+            alert("Erro ao salvar área de busca.");
+        }
+    };
 
   const loadTacticalData = async (opId: string) => {
     try {
-      const [op, sects, points, tDrones, allDrones, allPilots] = await Promise.all([
-          base44.entities.Operation.filter({ id: opId }).then(res => res[0]), 
+      // Fetch operation first to allow page to load
+      const op = await base44.entities.Operation.filter({ id: opId }).then(res => res[0]);
+      if (!op) { navigate('/operations'); return; }
+      
+      setOperation(op);
+      setLoading(false); // Page opens!
+
+      // Load rest in background
+      const [sects, points, tDrones, allDrones, allPilots] = await Promise.all([
           tacticalService.getSectors(opId), 
           tacticalService.getPOIs(opId), 
           tacticalService.getTacticalDrones(opId), 
           base44.entities.Drone.list(), 
           base44.entities.Pilot.list()
       ]);
-      if (!op) { navigate('/operations'); return; }
       
       const enrichedDrones = tDrones.map((td: TacticalDrone, idx: number) => ({ 
           ...td, 
@@ -289,12 +375,15 @@ export default function TacticalOperationCenter() {
           } as any);
       }
 
-      setOperation(op); setSectors(sects); setPois(points); setTacticalDrones(enrichedDrones as any);
-      setDrones(allDrones); setPilots(allPilots);
+      setSectors(sects || []); 
+      setPois(points || []); 
+      setTacticalDrones((enrichedDrones || []) as any);
+      setDrones(allDrones || []); 
+      setPilots(allPilots || []);
     } catch (e: any) { 
         console.error(e);
         if (e.code === 'PGRST205') handleSchemaError();
-    } finally { setLoading(false); }
+    }
   };
 
   const handleSchemaError = () => {
@@ -341,9 +430,9 @@ CREATE TABLE IF NOT EXISTS public.tactical_pois (
 ALTER TABLE public.tactical_drones ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tactical_sectors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tactical_pois ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Acesso Total Autenticado" ON public.tactical_drones FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Acesso Total Autenticado" ON public.tactical_sectors FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Acesso Total Autenticado" ON public.tactical_pois FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Acesso Total Publico" ON public.tactical_drones FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Acesso Total Publico" ON public.tactical_sectors FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Acesso Total Publico" ON public.tactical_pois FOR ALL TO public USING (true) WITH CHECK (true);
 NOTIFY pgrst, 'reload schema';
     `);
   };
@@ -356,8 +445,24 @@ NOTIFY pgrst, 'reload schema';
   };
 
   const operationalSummary = useMemo(() => {
-    const totalAreaM2 = sectors.filter(s => s.geojson?.coordinates).reduce((acc, s) => acc + calculatePolygonArea(s.geojson.coordinates), 0);
-    return { totalAreaM2, drones: tacticalDrones.length, victims: pois.filter(p => p.type === 'victim').length, teams: pois.filter(p => p.type === 'ground_team').length, vehicles: pois.filter(p => p.type === 'vehicle').length, k9s: pois.filter(p => p.type === 'k9').length };
+    const safeSectors = sectors || [];
+    const safePois = pois || [];
+    const safeDrones = tacticalDrones || [];
+    
+    const totalAreaM2 = safeSectors.reduce((acc, s) => {
+        const coords = s.geojson?.coordinates || s.geojson?.geometry?.coordinates;
+        if (!coords) return acc;
+        return acc + calculatePolygonArea(coords);
+    }, 0);
+
+    return { 
+        totalAreaM2, 
+        drones: safeDrones.length, 
+        victims: safePois.filter(p => p.type === 'victim').length, 
+        teams: safePois.filter(p => p.type === 'ground_team').length, 
+        vehicles: safePois.filter(p => p.type === 'vehicle').length, 
+        k9s: safePois.filter(p => p.type === 'k9').length 
+    };
   }, [sectors, pois, tacticalDrones]);
 
   const handleDrawCreated = (e: any) => {
@@ -408,26 +513,69 @@ NOTIFY pgrst, 'reload schema';
 
   const handleAddDroneToTactical = async () => {
       if (!id || !selectedDroneId || !selectedPilotId) return;
+      
+      const drone = drones.find(d => d.id === selectedDroneId);
+      const pilot = pilots.find(p => p.id === selectedPilotId);
+
+      if (pilot) {
+          const lastFlight = pilot.last_flight_date ? new Date(pilot.last_flight_date) : null;
+          const now = new Date();
+          const diffDays = lastFlight ? Math.ceil(Math.abs(now.getTime() - lastFlight.getTime()) / (1000 * 60 * 60 * 24)) : 999;
+          
+          if (diffDays > 30) {
+              if (!confirm(`ATENÇÃO: O piloto ${pilot.full_name} não realiza voos há ${diffDays} dias. Deseja prosseguir mesmo com a necessidade de reciclagem?`)) {
+                  return;
+              }
+          }
+      }
+
+      setPendingDroneData({
+          operation_id: id,
+          drone_id: selectedDroneId,
+          pilot_id: selectedPilotId,
+          status: 'active',
+          current_lat: Number(operation?.latitude),
+          current_lng: Number(operation?.longitude),
+          flight_altitude: Number(operation?.flight_altitude || 60),
+          radius: Number(operation?.radius || 200),
+          stream_url: newItemStream,
+          drone_prefix: drone?.prefix || 'Drone'
+      });
+      
+      setIsChecklistOpen(true);
+  };
+
+  const handleChecklistComplete = async (checklistData: any) => {
+      if (!pendingDroneData) return;
+      
       setLoading(true);
       try {
-          await tacticalService.assignDrone({
-              operation_id: id,
-              drone_id: selectedDroneId,
-              pilot_id: selectedPilotId,
-              status: 'active',
-              current_lat: Number(operation?.latitude),
-              current_lng: Number(operation?.longitude),
-              flight_altitude: Number(operation?.flight_altitude || 60),
-              radius: Number(operation?.radius || 200),
-              stream_url: newItemStream
+          const { drone_prefix, ...data } = pendingDroneData;
+          await tacticalService.assignDrone(data);
+          
+          // Salvar checklist
+          await base44.entities.DroneChecklist.create({
+              drone_id: data.drone_id,
+              pilot_id: data.pilot_id,
+              date: new Date().toISOString(),
+              items: Object.entries(checklistData).map(([name, checked]) => ({ category: 'Pre-Voo', name, checked: checked as boolean })),
+              status: 'approved'
           });
-          await base44.entities.Drone.update(selectedDroneId, { status: 'in_operation' });
-          alert("Aeronave HARPIA vinculada com sucesso!");
-          setSelectedDroneId(''); setSelectedPilotId(''); setNewItemStream(''); setActivePanel(null); loadTacticalData(id);
+
+          await base44.entities.Drone.update(data.drone_id, { status: 'in_operation' });
+          
+          // Atualizar data do último voo do piloto
+          await base44.entities.Pilot.update(data.pilot_id, { last_flight_date: new Date().toISOString() });
+
+          alert("Aeronave HARPIA autorizada e lançada no mapa!");
+          setIsChecklistOpen(false);
+          setPendingDroneData(null);
+          setSelectedDroneId(''); setSelectedPilotId(''); setNewItemStream(''); setActivePanel(null); loadTacticalData(id!);
       } catch (e: any) {
-          if (e.code === 'PGRST205') handleSchemaError();
-          else alert("Erro ao vincular drone.");
-      } finally { setLoading(false); }
+          alert("Erro ao autorizar voo.");
+      } finally {
+          setLoading(false);
+      }
   };
 
   const handleSaveDroneTactical = async () => {
@@ -461,6 +609,31 @@ NOTIFY pgrst, 'reload schema';
         loadTacticalData(id!);
     } catch (e) {
         alert("Erro ao salvar alterações no Ponto de Interesse.");
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  const handleCreatePOITactical = async () => {
+    if (!pendingPoi || !id) return;
+    setLoading(true);
+    try {
+        await tacticalService.createPOI({
+            operation_id: id,
+            name: newItemName || `Novo ${newItemSubType}`,
+            type: newItemSubType as any,
+            lat: pendingPoi.lat,
+            lng: pendingPoi.lng,
+            stream_url: newItemStream
+        });
+        alert("Ponto de Interesse criado!");
+        setActivePanel(null);
+        setPendingPoi(null);
+        setNewItemName('');
+        setNewItemStream('');
+        loadTacticalData(id);
+    } catch (e) {
+        alert("Erro ao criar Ponto de Interesse.");
     } finally {
         setLoading(false);
     }
@@ -501,7 +674,7 @@ NOTIFY pgrst, 'reload schema';
           const canvas = await html2canvas(mapRef.current, {
             useCORS: true,
             logging: false,
-            ignoreElements: (el) => el.classList.contains('leaflet-control-container') || el.closest('.leaflet-control-container')
+            ignoreElements: (el) => !!(el.classList.contains('leaflet-control-container') || el.closest('.leaflet-control-container'))
           });
           const base64 = canvas.toDataURL('image/jpeg', 0.8);
           await tacticalService.saveMapSnapshot(id, base64);
@@ -592,7 +765,7 @@ NOTIFY pgrst, 'reload schema';
 
       <div className="h-20 bg-[#7f1d1d] border-b border-red-900/40 flex items-center justify-between px-6 shrink-0 z-[1000] shadow-2xl">
         <div className="flex items-center gap-4 text-white">
-          <button onClick={() => navigate('/operations')} className="h-12 w-12 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-all border border-white/20 shadow-inner">
+          <button onClick={() => navigate('/operations')} className="h-12 w-12 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-all border border-white/20 shadow-inner cursor-pointer">
             <ArrowLeft className="w-6 h-6" />
           </button>
           <div>
@@ -600,7 +773,7 @@ NOTIFY pgrst, 'reload schema';
             <p className="text-[11px] text-red-200 opacity-80 font-mono mt-1 uppercase tracking-widest font-black">#{operation.occurrence_number} • CENTRO DE COMANDO CBMPR</p>
           </div>
         </div>
-        <Button onClick={() => setSidebarOpen(!sidebarOpen)} className="bg-white text-red-700 h-11 px-8 font-black text-xs uppercase shadow-2xl border-none active:scale-95 transition-transform">
+        <Button onClick={() => setSidebarOpen(!sidebarOpen)} className="bg-white text-red-700 h-11 px-8 font-black text-xs uppercase shadow-2xl border-none active:scale-95 transition-transform cursor-pointer">
             {sidebarOpen ? 'OCULTAR PAINEL' : 'EXIBIR CONTROLES'}
         </Button>
       </div>
@@ -608,8 +781,8 @@ NOTIFY pgrst, 'reload schema';
       <div className="flex-1 flex overflow-hidden relative">
           <div className={`${sidebarOpen ? 'w-full lg:w-96' : 'w-0'} bg-white border-r border-slate-200 flex flex-col shadow-2xl z-[500] transition-all duration-300 overflow-hidden shrink-0`}>
               <div className="flex bg-slate-100 p-1.5 m-4 rounded-2xl shrink-0 border border-slate-200">
-                  <button onClick={() => setActiveTab('resources')} className={`flex-1 py-3 text-[11px] font-black uppercase rounded-xl transition-all ${activeTab === 'resources' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500'}`}>Recursos</button>
-                  <button onClick={() => setActiveTab('layers')} className={`flex-1 py-3 text-[11px] font-black uppercase rounded-xl transition-all ${activeTab === 'layers' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500'}`}>Camadas</button>
+                  <button onClick={() => setActiveTab('resources')} className={`flex-1 py-3 text-[11px] font-black uppercase rounded-xl transition-all cursor-pointer ${activeTab === 'resources' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500'}`}>Recursos</button>
+                  <button onClick={() => setActiveTab('layers')} className={`flex-1 py-3 text-[11px] font-black uppercase rounded-xl transition-all cursor-pointer ${activeTab === 'layers' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500'}`}>Camadas</button>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
@@ -627,6 +800,16 @@ NOTIFY pgrst, 'reload schema';
                             </Card>
                         </div>
 
+                        <div className="space-y-4">
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1"><Ruler className="w-3.5 h-3.5" /> Planejamento de Busca</h3>
+                            <Button 
+                                onClick={() => setIsSearchPlanningOpen(true)} 
+                                className="w-full bg-amber-600 hover:bg-amber-700 text-white h-12 rounded-2xl font-black uppercase text-[11px] flex items-center justify-center gap-3 shadow-lg"
+                            >
+                                <Activity className="w-5 h-5" /> CALCULAR ÁREA DE BUSCA
+                            </Button>
+                        </div>
+
                         <div className="grid grid-cols-4 gap-2 text-center">
                             <div className="bg-red-50 py-2 rounded-lg"><p className="text-[9px] font-black text-red-400 uppercase">Vítimas</p><p className="text-sm font-black text-red-800">{operationalSummary.victims}</p></div>
                             <div className="bg-blue-50 py-2 rounded-lg"><p className="text-[9px] font-black text-blue-400 uppercase">Equipes</p><p className="text-sm font-black text-blue-800">{operationalSummary.teams}</p></div>
@@ -641,7 +824,7 @@ NOTIFY pgrst, 'reload schema';
                                     <div key={s.id} onClick={() => { setSelectedEntity(s); setEntityType('sector'); setActivePanel('manage'); }} className="p-4 bg-white border border-slate-200 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors shadow-sm group">
                                         <div className="flex items-center gap-4">
                                             <div className="p-2 rounded-xl" style={{ backgroundColor: (s.color || TACTICAL_PALETTE[0]) + '20', color: s.color || TACTICAL_PALETTE[0] }}><Hexagon className="w-5 h-5"/></div>
-                                            <div><p className="text-xs font-black uppercase text-slate-800">{s.name}</p><p className="text-[9px] text-slate-400 font-bold">{formatArea(calculatePolygonArea(s.geojson.coordinates))}</p></div>
+                                            <div><p className="text-xs font-black uppercase text-slate-800">{s.name}</p><p className="text-[9px] text-slate-400 font-bold">{formatArea(calculatePolygonArea(s.geojson?.coordinates || s.geojson?.geometry?.coordinates))}</p></div>
                                         </div>
                                         <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-red-600 transition-colors"/>
                                     </div>
@@ -664,7 +847,7 @@ NOTIFY pgrst, 'reload schema';
                             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1"><Activity className="w-3.5 h-3.5" /> Aeronaves no Teatro</h3>
                             <button 
                                 onClick={() => { setEntityType('drone'); setActivePanel('create'); }} 
-                                className="w-full bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-900 text-white h-16 rounded-2xl font-black uppercase text-[11px] flex items-center justify-center gap-3 shadow-[0_10px_30px_rgba(37,99,235,0.3)] hover:scale-[1.03] active:scale-[0.97] transition-all ring-4 ring-blue-500/10"
+                                className="w-full bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-900 text-white h-16 rounded-2xl font-black uppercase text-[11px] flex items-center justify-center gap-3 shadow-[0_10px_30px_rgba(37,99,235,0.3)] hover:scale-[1.03] active:scale-[0.97] transition-all ring-4 ring-blue-500/10 cursor-pointer"
                             >
                                 <Plus className="w-6 h-6" /> ADICIONAR HARPIA
                             </button>
@@ -699,8 +882,8 @@ NOTIFY pgrst, 'reload schema';
                                       </Select>
                                       <Input label="Link de Live (YouTube/RTSP)" value={newItemStream} onChange={e => setNewItemStream(e.target.value)} placeholder="Cole o link de transmissão..." />
                                       <div className="flex gap-3 pt-4">
-                                          <Button variant="outline" className="flex-1 font-black" onClick={() => setActivePanel(null)}>Cancelar</Button>
-                                          <Button className="flex-1 bg-blue-700 text-white font-black uppercase shadow-lg shadow-blue-100" onClick={handleAddDroneToTactical}>Lançar no Mapa</Button>
+                                          <Button variant="outline" className="flex-1 font-black cursor-pointer" onClick={() => setActivePanel(null)}>Cancelar</Button>
+                                          <Button className="flex-1 bg-blue-700 text-white font-black uppercase shadow-lg shadow-blue-100 cursor-pointer" onClick={handleAddDroneToTactical}>Lançar no Mapa</Button>
                                       </div>
                                   </>
                               ) : (
@@ -721,8 +904,8 @@ NOTIFY pgrst, 'reload schema';
                                         </Select>
                                       )}
                                       <div className="flex gap-3 pt-4">
-                                          <Button variant="outline" className="flex-1 font-black" onClick={() => setActivePanel(null)}>Cancelar</Button>
-                                          <Button className="flex-1 bg-red-700 text-white font-black uppercase shadow-lg shadow-red-100" onClick={handleSaveElement}>Salvar Elemento</Button>
+                                          <Button variant="outline" className="flex-1 font-black cursor-pointer" onClick={() => setActivePanel(null)}>Cancelar</Button>
+                                          <Button className="flex-1 bg-red-700 text-white font-black uppercase shadow-lg shadow-red-100 cursor-pointer" onClick={entityType === 'poi' && pendingPoi ? handleCreatePOITactical : handleSaveElement}>Salvar Elemento</Button>
                                       </div>
                                   </>
                               )}
@@ -744,7 +927,7 @@ NOTIFY pgrst, 'reload schema';
                                {selectedEntity.stream_url && (
                                    <div className="mt-6 p-4 bg-red-600 rounded-2xl flex items-center justify-between shadow-lg shadow-red-900/40">
                                        <span className="text-[10px] font-black uppercase flex items-center gap-2"><Video className="w-4 h-4"/> LIVE ATIVA</span>
-                                       <button onClick={() => setPipStream(extractVideoData(selectedEntity.stream_url))} className="text-[10px] bg-white text-red-700 px-5 py-2 rounded-full font-black shadow-xl active:scale-95 transition-transform">ABRIR</button>
+                                       <button onClick={() => setPipStream(extractVideoData(selectedEntity.stream_url))} className="text-[10px] bg-white text-red-700 px-5 py-2 rounded-full font-black shadow-xl active:scale-95 transition-transform cursor-pointer">ABRIR</button>
                                    </div>
                                )}
                            </div>
@@ -752,12 +935,12 @@ NOTIFY pgrst, 'reload schema';
                                <Card className="p-5 border border-slate-200 bg-slate-50 space-y-4 rounded-3xl shadow-inner">
                                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2 ml-1"><Video className="w-3.5 h-3.5 text-blue-600" /> Link de Transmissão</h3>
                                    <Input value={newItemStream} onChange={e => setNewItemStream(e.target.value)} placeholder="Cole o link aqui..." className="bg-white text-xs h-11" />
-                                   <Button onClick={entityType === 'drone' ? handleSaveDroneTactical : handleSavePOITactical} className="w-full h-12 bg-blue-600 text-white font-black text-[11px] uppercase rounded-xl shadow-lg shadow-blue-100">Salvar Alterações</Button>
+                                   <Button onClick={entityType === 'drone' ? handleSaveDroneTactical : handleSavePOITactical} className="w-full h-12 bg-blue-600 text-white font-black text-[11px] uppercase rounded-xl shadow-lg shadow-blue-100 cursor-pointer">Salvar Alterações</Button>
                                </Card>
                            )}
                            <div className="space-y-3 pt-4">
-                               <Button variant="outline" className="w-full text-[10px] font-black uppercase h-14 rounded-2xl" onClick={() => setActivePanel(null)}>Retornar ao Painel</Button>
-                               <Button variant="danger" className="w-full text-[10px] font-black uppercase h-14 rounded-2xl shadow-xl shadow-red-100" onClick={async () => {
+                               <Button variant="outline" className="w-full text-[10px] font-black uppercase h-14 rounded-2xl cursor-pointer" onClick={() => setActivePanel(null)}>Retornar ao Painel</Button>
+                               <Button variant="danger" className="w-full text-[10px] font-black uppercase h-14 rounded-2xl shadow-xl shadow-red-100 cursor-pointer" onClick={async () => {
                                    if (!confirm("Confirmar remoção?")) return;
                                    if (entityType === 'sector') await tacticalService.deleteSector(selectedEntity.id);
                                    else if (entityType === 'poi') await tacticalService.deletePOI(selectedEntity.id);
@@ -816,14 +999,14 @@ NOTIFY pgrst, 'reload schema';
                                         <div className="flex items-center gap-1 shrink-0 opacity-40 group-hover:opacity-100 transition-opacity">
                                             <button 
                                                 onClick={() => toggleKmlVisibility(layer.id)}
-                                                className={`p-2 rounded-xl transition-colors ${layer.visible ? 'text-blue-600 hover:bg-blue-50' : 'text-slate-400 hover:bg-slate-100'}`}
+                                                className={`p-2 rounded-xl transition-colors cursor-pointer ${layer.visible ? 'text-blue-600 hover:bg-blue-50' : 'text-slate-400 hover:bg-slate-100'}`}
                                                 title={layer.visible ? "Ocultar" : "Exibir"}
                                             >
                                                 {layer.visible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                                             </button>
                                             <button 
                                                 onClick={() => removeKmlLayer(layer.id)}
-                                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+                                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
                                                 title="Remover"
                                             >
                                                 <Trash2 className="w-4 h-4" />
@@ -847,7 +1030,7 @@ NOTIFY pgrst, 'reload schema';
                               <div className="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse border border-red-400"></div>
                               <span className="text-[11px] font-black text-white uppercase tracking-widest">FEED TÁTICO</span>
                           </div>
-                          <button onMouseDown={(e) => e.stopPropagation()} onClick={() => setPipStream(null)} className="p-2 hover:bg-red-600 hover:text-white rounded-xl text-slate-400 transition-all"><X className="w-5 h-5"/></button>
+                          <button onMouseDown={(e) => e.stopPropagation()} onClick={() => setPipStream(null)} className="p-2 hover:bg-red-600 hover:text-white rounded-xl text-slate-400 transition-all cursor-pointer"><X className="w-5 h-5"/></button>
                       </div>
                       <div className="aspect-video bg-black relative overflow-hidden">
                           <iframe src={pipStream} className="absolute top-0 left-0 w-full h-full border-none" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen></iframe>
@@ -856,27 +1039,39 @@ NOTIFY pgrst, 'reload schema';
                   </div>
               )}
 
-              <div className="absolute top-8 left-1/2 -translate-x-1/2 z-[2000] bg-white/95 backdrop-blur-3xl border border-slate-200 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.15)] flex items-center p-2 gap-2 ring-[10px] ring-black/5">
-                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'sector' ? null : 'sector')} className={`p-4 rounded-2xl transition-all duration-300 ${currentDrawMode === 'sector' ? 'bg-red-600 text-white shadow-xl scale-110' : 'text-red-600 hover:bg-red-50'}`} title="Setorizar"><Hexagon className="w-7 h-7"/></button>
-                  <div className="w-px h-8 bg-slate-200"></div>
-                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'route' ? null : 'route')} className={`p-4 rounded-2xl transition-all duration-300 ${currentDrawMode === 'route' ? 'bg-orange-600 text-white shadow-xl scale-110' : 'text-orange-600 hover:bg-orange-50'}`} title="Rota"><Navigation className="w-7 h-7"/></button>
-                  <div className="w-px h-8 bg-slate-200"></div>
-                  <button onClick={() => setCurrentDrawMode(currentDrawMode === 'poi' ? null : 'poi')} className={`p-4 rounded-2xl transition-all duration-300 ${currentDrawMode === 'poi' ? 'bg-blue-600 text-white shadow-xl scale-110' : 'text-blue-600 hover:bg-blue-50'}`} title="Ponto"><Flag className="w-7 h-7"/></button>
-              </div>
-
               <div className="absolute bottom-10 right-8 z-[1000] flex flex-col gap-4">
-                  <button onClick={() => setMapType(mapType === 'street' ? 'satellite' : 'street')} className="bg-white text-slate-700 w-16 h-16 flex items-center justify-center rounded-[1.5rem] shadow-2xl border border-slate-200 hover:bg-slate-50 transition-all hover:scale-105 active:scale-95">{mapType === 'street' ? <Layers className="w-7 h-7" /> : <Satellite className="w-7 h-7" />}</button>
-                  <button onClick={handleCaptureSnapshot} disabled={isCapturing} className="bg-white text-slate-700 w-16 h-16 flex items-center justify-center rounded-[1.5rem] shadow-2xl border border-slate-200 hover:bg-slate-50 transition-all hover:scale-105 active:scale-95 disabled:bg-slate-200 disabled:cursor-not-allowed">
+                  <button onClick={() => setMapType(mapType === 'street' ? 'satellite' : 'street')} className="bg-white text-slate-700 w-16 h-16 flex items-center justify-center rounded-[1.5rem] shadow-2xl border border-slate-200 hover:bg-slate-50 transition-all hover:scale-105 active:scale-95 cursor-pointer">{mapType === 'street' ? <Layers className="w-7 h-7" /> : <Satellite className="w-7 h-7" />}</button>
+                  <button onClick={handleCaptureSnapshot} disabled={isCapturing} className="bg-white text-slate-700 w-16 h-16 flex items-center justify-center rounded-[1.5rem] shadow-2xl border border-slate-200 hover:bg-slate-50 transition-all hover:scale-105 active:scale-95 disabled:bg-slate-200 disabled:cursor-not-allowed cursor-pointer">
                     {isCapturing ? <Loader2 className="w-7 h-7 animate-spin" /> : <Camera className="w-7 h-7" />}
                   </button>
-                  <button onClick={handleLocatePilot} className="bg-blue-600 text-white w-16 h-16 flex items-center justify-center rounded-[1.5rem] shadow-2xl border-4 border-white hover:bg-blue-700 transition-all hover:scale-110 active:scale-90 animate-pulse shadow-blue-500/40"><LocateFixed className="w-8 h-8" /></button>
+                  <button onClick={handleLocatePilot} className="bg-blue-600 text-white w-16 h-16 flex items-center justify-center rounded-[1.5rem] shadow-2xl border-4 border-white hover:bg-blue-700 transition-all hover:scale-110 active:scale-90 animate-pulse shadow-blue-500/40 cursor-pointer"><LocateFixed className="w-8 h-8" /></button>
               </div>
 
-              <MapContainer center={[operation.latitude, operation.longitude]} zoom={17} style={{ height: '100%', width: '100%' }} ref={(map) => { if (map) mainMapRef.current = map; }} preferCanvas={true}>
+              <MapContainer 
+                center={[operation.latitude, operation.longitude]} 
+                zoom={17} 
+                style={{ height: '100%', width: '100%' }} 
+                ref={(map) => { if (map) mainMapRef.current = map; }} 
+                preferCanvas={true}
+              >
                   <MapResizer />
-                  <MapDrawingBridge drawMode={currentDrawMode} />
-                  <TileLayer url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} />
-                  <SectorsLayer onCreated={handleDrawCreated} />
+                  <MapEvents 
+                    onMapClick={(e) => {
+                      if (isSelectingLkp) {
+                        setSearchParams(p => ({ ...p, lkp: [e.latlng.lat, e.latlng.lng] }));
+                        setIsSelectingLkp(false);
+                        setIsSearchPlanningOpen(true);
+                      } else if (isSelectingDest) {
+                        setSearchParams(p => ({ ...p, destination: [e.latlng.lat, e.latlng.lng] }));
+                        setIsSelectingDest(false);
+                        setIsSearchPlanningOpen(true);
+                      }
+                    }} 
+                  />
+                  <TileLayer 
+                    url={mapType === 'street' ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"} 
+                    {...({ useCache: true, crossOrigin: true } as any)}
+                  />
                   {kmlLayers.filter(l => l.visible).map(layer => (
                       <GeoJSON key={layer.id} data={layer.geojson} style={{ color: layer.color, weight: 3 }} />
                   ))}
@@ -896,7 +1091,13 @@ NOTIFY pgrst, 'reload schema';
                       />
                   ))}
 
-                  {sectors.map((s: any) => (s.type === 'route' ? <Polyline key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 0) as any} pathOptions={{ color: s.color || '#f97316', weight: 6, dashArray: '5, 10' }} /> : <Polygon key={s.id} positions={L.GeoJSON.coordsToLatLngs(s.geojson.coordinates, 1) as any} pathOptions={{ color: s.color || '#ef4444', fillOpacity: 0.2, weight: 2 }} />))}
+                  {sectors.map((s: any) => {
+                      const coords = s.geojson?.coordinates || s.geojson?.geometry?.coordinates;
+                      if (!coords) return null;
+                      return s.type === 'route' ? 
+                        <Polyline key={s.id} positions={L.GeoJSON.coordsToLatLngs(coords, 0) as any} pathOptions={{ color: s.color || '#f97316', weight: 6, dashArray: '5, 10' }} /> : 
+                        <Polygon key={s.id} positions={L.GeoJSON.coordsToLatLngs(coords, 1) as any} pathOptions={{ color: s.color || '#ef4444', fillOpacity: 0.2, weight: 2 }} />;
+                  })}
                   {pois.map((p: any) => (<Marker key={p.id} position={[p.lat, p.lng]} icon={getPoiIcon(p.type, !!p.stream_url)} eventHandlers={{ click: () => { setSelectedEntity(p); setEntityType('poi'); setActivePanel('manage'); setNewItemStream(p.stream_url || ''); } }} />))}
                   {tacticalDrones.map((td: any) => td.current_lat && (<Marker 
                     key={td.id} 
@@ -921,7 +1122,156 @@ NOTIFY pgrst, 'reload schema';
                         </div>
                     </Popup>
                   </Marker>))}
+
+                  <TacticalDrawControls 
+                    onRefresh={() => operation?.id && loadTacticalData(operation.id)} 
+                    onPoiPlacement={(lat, lng) => {
+                        setPendingPoi({ lat, lng });
+                        setEntityType('poi');
+                        setActivePanel('create');
+                    }}
+                  />
               </MapContainer>
+
+              {isChecklistOpen && (
+                  <PreFlightChecklist 
+                    isOpen={isChecklistOpen} 
+                    onClose={() => setIsChecklistOpen(false)} 
+                    onComplete={handleChecklistComplete}
+                    droneName={pendingDroneData?.drone_prefix || ''}
+                  />
+              )}
+
+              {/* SEARCH PLANNING MODAL */}
+              {isSearchPlanningOpen && (
+                <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                  <Card className="w-full max-w-2xl bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+                    <div className="p-6 bg-amber-600 text-white flex justify-between items-center">
+                      <div className="flex items-center gap-3">
+                        <Activity className="w-6 h-6" />
+                        <h3 className="text-xl font-black uppercase tracking-tight">Planejamento de Busca SAR</h3>
+                      </div>
+                      <button onClick={() => setIsSearchPlanningOpen(false)} className="p-2 hover:bg-white/20 rounded-full transition-colors">
+                        <X className="w-6 h-6" />
+                      </button>
+                    </div>
+                    
+                    <div className="p-6 overflow-y-auto space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-4">
+                          <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Localização</h4>
+                          <div className="space-y-2">
+                            <Button 
+                              onClick={() => { setIsSelectingLkp(true); setIsSearchPlanningOpen(false); }} 
+                              variant={searchParams.lkp ? 'outline' : 'primary'}
+                              className={`w-full h-12 rounded-xl font-bold uppercase text-xs flex items-center justify-between px-4 ${searchParams.lkp ? 'border-green-500 text-green-600' : 'bg-blue-600 text-white'}`}
+                            >
+                              <span className="flex items-center gap-2"><MapPin className="w-4 h-4" /> {searchParams.lkp ? 'LKP DEFINIDO' : 'DEFINIR LKP'}</span>
+                              {searchParams.lkp && <CheckCircle className="w-4 h-4" />}
+                            </Button>
+                            
+                            {(searchParams.areaType === 'apg' || searchParams.areaType === 'apga') && (
+                              <Button 
+                                onClick={() => { setIsSelectingDest(true); setIsSearchPlanningOpen(false); }} 
+                                variant={searchParams.destination ? 'outline' : 'primary'}
+                                className={`w-full h-12 rounded-xl font-bold uppercase text-xs flex items-center justify-between px-4 ${searchParams.destination ? 'border-green-500 text-green-600' : 'bg-blue-600 text-white'}`}
+                              >
+                                <span className="flex items-center gap-2"><Flag className="w-4 h-4" /> {searchParams.destination ? 'DESTINO DEFINIDO' : 'DEFINIR DESTINO'}</span>
+                                {searchParams.destination && <CheckCircle className="w-4 h-4" />}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Tipo de Área</h4>
+                          <div className="grid grid-cols-1 gap-2">
+                            <button 
+                              onClick={() => setSearchParams(p => ({ ...p, areaType: 'possibilidade' }))}
+                              className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer ${searchParams.areaType === 'possibilidade' ? 'border-amber-600 bg-amber-50' : 'border-slate-100 hover:border-slate-200'}`}
+                            >
+                              <p className="text-xs font-black text-slate-800 uppercase">Área de Possibilidade</p>
+                              <p className="text-[10px] text-slate-500 font-medium">Círculo baseado na autonomia</p>
+                            </button>
+                            <button 
+                              onClick={() => setSearchParams(p => ({ ...p, areaType: 'apg' }))}
+                              className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer ${searchParams.areaType === 'apg' ? 'border-amber-600 bg-amber-50' : 'border-slate-100 hover:border-slate-200'}`}
+                            >
+                              <p className="text-xs font-black text-slate-800 uppercase">APG (Genérica)</p>
+                              <p className="text-[10px] text-slate-500 font-medium">0.5 NM de afastamento da rota</p>
+                            </button>
+                            <button 
+                              onClick={() => setSearchParams(p => ({ ...p, areaType: 'apga' }))}
+                              className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer ${searchParams.areaType === 'apga' ? 'border-amber-600 bg-amber-50' : 'border-slate-100 hover:border-slate-200'}`}
+                            >
+                              <p className="text-xs font-black text-slate-800 uppercase">APGA (Ampliada)</p>
+                              <p className="text-[10px] text-slate-500 font-medium">1.0 NM de afastamento da rota</p>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <Select label="Terreno" value={searchParams.terrain} onChange={e => setSearchParams(p => ({ ...p, terrain: e.target.value as any }))}>
+                          <option value="plano">Plano</option>
+                          <option value="aclive">Aclive (Subida)</option>
+                          <option value="declive">Declive (Descida)</option>
+                        </Select>
+                        <Select label="Perfil" value={searchParams.experience} onChange={e => setSearchParams(p => ({ ...p, experience: e.target.value as any }))}>
+                          <option value="iniciante">Iniciante</option>
+                          <option value="intermediario">Intermediário</option>
+                          <option value="experiente">Experiente</option>
+                        </Select>
+                        <Select label="Equipamento" value={searchParams.backpack} onChange={e => setSearchParams(p => ({ ...p, backpack: e.target.value as any }))}>
+                          <option value="sem_mochila">Sem Mochila</option>
+                          <option value="com_mochila">Com Mochila</option>
+                        </Select>
+                      </div>
+
+                      <div className="flex items-center gap-6 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                        <div className="flex-1">
+                          <p className="text-[10px] font-black text-slate-400 uppercase mb-2">Tempo Deslocamento (Horas)</p>
+                          <input 
+                            type="range" min="1" max="24" step="1" 
+                            value={searchParams.timeHours} 
+                            onChange={e => setSearchParams(p => ({ ...p, timeHours: parseInt(e.target.value) }))}
+                            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-amber-600"
+                          />
+                          <div className="flex justify-between mt-2 text-[10px] font-bold text-slate-400">
+                            <span>1h</span><span>12h</span><span>24h</span>
+                          </div>
+                        </div>
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 text-center min-w-[100px] shadow-sm">
+                          <p className="text-[9px] font-black text-slate-400 uppercase">Total</p>
+                          <p className="text-2xl font-black text-amber-600">{searchParams.timeHours}h</p>
+                        </div>
+                      </div>
+
+                      {searchParams.lkp && (
+                        <div className="p-4 bg-green-50 rounded-2xl border border-green-100 flex items-center justify-between">
+                          <div>
+                            <p className="text-[10px] font-black text-green-600 uppercase">Estimativa de Autonomia</p>
+                            <p className="text-lg font-black text-green-900">
+                              {(searchPlanningService.calculateSpeed(searchParams.terrain, searchParams.backpack, searchParams.experience) * searchParams.timeHours).toFixed(2)} km
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] font-black text-green-600 uppercase">Velocidade Média</p>
+                            <p className="text-lg font-black text-green-900">
+                              {searchPlanningService.calculateSpeed(searchParams.terrain, searchParams.backpack, searchParams.experience).toFixed(1)} km/h
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-6 bg-slate-50 border-t border-slate-200 flex gap-3">
+                      <Button onClick={() => setIsSearchPlanningOpen(false)} variant="outline" className="flex-1 h-14 rounded-2xl font-black uppercase text-xs cursor-pointer">Cancelar</Button>
+                      <Button onClick={handleGenerateSearchArea} className="flex-[2] bg-amber-600 hover:bg-amber-700 text-white h-14 rounded-2xl font-black uppercase text-xs shadow-lg cursor-pointer">GERAR ÁREA AUTOMÁTICA</Button>
+                    </div>
+                  </Card>
+                </div>
+              )}
           </div>
       </div>
       <style>{`

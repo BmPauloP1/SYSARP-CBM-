@@ -31,6 +31,7 @@ export interface Pilot {
   phone: string;
   crbm: string;
   unit: string;
+  cia_pelotao?: string;
   license: string;
   course_type: 'internal' | 'external';
   course_name: string;
@@ -43,6 +44,8 @@ export interface Pilot {
   change_password_required?: boolean;
   terms_accepted?: boolean;
   terms_accepted_at?: string;
+  last_flight_date?: string;
+  docs_expiry_date?: string;
 }
 
 export interface DroneDocument {
@@ -69,6 +72,7 @@ export interface Drone {
   last_30day_check?: string;
   crbm?: string;
   unit?: string;
+  cia_pelotao?: string;
   documents?: {
     prefacio?: DroneDocument[];
     checklist?: DroneDocument[];
@@ -304,6 +308,18 @@ export interface ConflictNotification {
   acknowledged: boolean;
 }
 
+export interface Battery {
+  id: string;
+  drone_id?: string;
+  serial_number: string;
+  model: string;
+  purchase_date: string;
+  cycles: number;
+  max_cycles: number;
+  status: 'available' | 'in_use' | 'charging' | 'retired';
+  created_at: string;
+}
+
 export interface FlightLog {
   id: string;
   operation_id: string;
@@ -314,6 +330,18 @@ export interface FlightLog {
   flight_hours: number;
   mission_type: string;
   description?: string;
+  batteries_used?: string[];
+  checklist_id?: string;
+}
+
+export interface MaintenanceLog {
+  id: string;
+  drone_id: string;
+  maintenance_id?: string;
+  action_taken: string;
+  technician: string;
+  date: string;
+  created_at: string;
 }
 
 export const MISSION_HIERARCHY: Record<MissionType, { label: string; subtypes: string[] }> = {
