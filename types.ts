@@ -257,6 +257,10 @@ export interface OperationDay {
   responsible_pilot_id: string;
   weather_summary: string;
   progress_notes: string;
+  description?: string;
+  accomplishments?: string;
+  planned_start_time?: string;
+  planned_end_time?: string;
   status: 'open' | 'closed';
   created_at: string;
   assets?: OperationDayAsset[];

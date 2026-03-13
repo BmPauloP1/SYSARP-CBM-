@@ -195,10 +195,11 @@ export default function TacticalOperationCenter() {
   const [tacticalDrones, setTacticalDrones] = useState<TacticalDrone[]>([]);
   const [drones, setDrones] = useState<Drone[]>([]);
   const [pilots, setPilots] = useState<Pilot[]>([]);
+  const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   const [loading, setLoading] = useState(true);
   const [isDiaryModalOpen, setIsDiaryModalOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 1024);
-  const [activeTab, setActiveTab] = useState<'resources' | 'layers'>('resources');
+  const [activeTab, setActiveTab] = useState<'resources' | 'layers' | 'diary'>('resources');
   const [activePanel, setActivePanel] = useState<'create' | 'manage' | null>(null);
   const [entityType, setEntityType] = useState<'sector' | 'poi' | 'drone' | null>(null);
   const [selectedEntity, setSelectedEntity] = useState<any>(null); 
@@ -338,14 +339,16 @@ export default function TacticalOperationCenter() {
       setLoading(false); // Page opens!
 
       // Load rest in background
-      const [sects, points, tDrones, allDrones, allPilots] = await Promise.all([
+      const [sects, points, tDrones, allDrones, allPilots, me] = await Promise.all([
           tacticalService.getSectors(opId), 
           tacticalService.getPOIs(opId), 
           tacticalService.getTacticalDrones(opId), 
           base44.entities.Drone.list(), 
-          base44.entities.Pilot.list()
+          base44.entities.Pilot.list(),
+          base44.auth.me()
       ]);
       
+      setCurrentUser(me);
       const enrichedDrones = tDrones.map((td: TacticalDrone, idx: number) => ({ 
           ...td, 
           drone: allDrones.find(d => d.id === td.drone_id), 
@@ -785,10 +788,11 @@ NOTIFY pgrst, 'reload schema';
               <div className="flex bg-slate-100 p-1.5 m-4 rounded-2xl shrink-0 border border-slate-200">
                   <button onClick={() => setActiveTab('resources')} className={`flex-1 py-3 text-[11px] font-black uppercase rounded-xl transition-all cursor-pointer ${activeTab === 'resources' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500'}`}>Recursos</button>
                   <button onClick={() => setActiveTab('layers')} className={`flex-1 py-3 text-[11px] font-black uppercase rounded-xl transition-all cursor-pointer ${activeTab === 'layers' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500'}`}>Camadas</button>
+                  <button onClick={() => setActiveTab('diary')} className={`flex-1 py-3 text-[11px] font-black uppercase rounded-xl transition-all cursor-pointer ${activeTab === 'diary' ? 'bg-white text-red-700 shadow-md' : 'text-slate-500'}`}>Diário</button>
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
-                  {activeTab === 'resources' ? (
+                  {activeTab === 'resources' && (
                       !activePanel ? (
                       <>
                         <div className="grid grid-cols-2 gap-3">
@@ -955,7 +959,8 @@ NOTIFY pgrst, 'reload schema';
                            </div>
                       </div>
                   )
-                  ) : (
+                  )}
+                  {activeTab === 'layers' && (
                     <div className="space-y-6 animate-fade-in">
                         <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 px-1"><Layers className="w-3.5 h-3.5" /> Camadas do Mapa</h3>
                         
@@ -1019,6 +1024,11 @@ NOTIFY pgrst, 'reload schema';
                             )}
                         </div>
                     </div>
+                  )}
+                  {activeTab === 'diary' && operation && (
+                      <div className="animate-fade-in">
+                          <OperationDailyLog operationId={operation.id} pilots={pilots} drones={drones} currentUser={currentUser} />
+                      </div>
                   )}
               </div>
           </div>

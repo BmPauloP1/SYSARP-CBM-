@@ -4,7 +4,7 @@ import L from "leaflet";
 import { base44 } from "../services/base44Client";
 import { Operation, Drone, Pilot, MISSION_HIERARCHY, MISSION_COLORS, ConflictNotification, Maintenance } from "../types";
 import { Badge, Button, Card } from "../components/ui_components";
-import { Radio, Video, Map as MapIcon, Shield, Check, User, Plane, Clock, Share2, LayoutList, ChevronRight } from "lucide-react";
+import { Radio, Video, Map as MapIcon, Shield, Check, User, Plane, Clock, Share2, LayoutList, ChevronRight, X } from "lucide-react";
 import { PendencyAlerts } from "../components/PendencyAlerts";
 import { useNavigate } from "react-router-dom";
 import { OperationalInfoTicker } from "../components/OperationalInfoTicker";

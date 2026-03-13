@@ -22,6 +22,10 @@ export default function OperationDailyLog({ operationId, pilots, drones, current
   const [newDayDate, setNewDayDate] = useState(new Date().toISOString().split('T')[0]);
   const [newDayResp, setNewDayResp] = useState("");
   const [newDayWeather, setNewDayWeather] = useState("");
+  const [newDayDescription, setNewDayDescription] = useState("");
+  const [newDayAccomplishments, setNewDayAccomplishments] = useState("");
+  const [newDayStartTime, setNewDayStartTime] = useState("");
+  const [newDayEndTime, setNewDayEndTime] = useState("");
   
   // Edit State
   const [editingDayId, setEditingDayId] = useState<string | null>(null);
@@ -85,6 +89,10 @@ export default function OperationDailyLog({ operationId, pilots, drones, current
 
   const handleAddDay = async () => {
     if (!newDayResp) { alert("Selecione o piloto responsável pelo dia."); return; }
+    if (!newDayDescription || !newDayAccomplishments || !newDayStartTime || !newDayEndTime) {
+      alert("Erro ao criar dia. Lembrando que precisa do descritivo do dia, o que foi realizado, data, hora de inicio e fim previsto.");
+      return;
+    }
     
     try {
       await base44.entities.OperationDay.create({
@@ -93,13 +101,21 @@ export default function OperationDailyLog({ operationId, pilots, drones, current
         responsible_pilot_id: newDayResp,
         weather_summary: newDayWeather,
         progress_notes: "",
+        description: newDayDescription,
+        accomplishments: newDayAccomplishments,
+        planned_start_time: newDayStartTime,
+        planned_end_time: newDayEndTime,
         status: 'open'
       } as any);
       loadDays();
+      setNewDayDescription("");
+      setNewDayAccomplishments("");
+      setNewDayStartTime("");
+      setNewDayEndTime("");
       alert("Novo dia adicionado ao diário!");
     } catch (e) {
       console.error(e);
-      alert("Erro ao criar dia.");
+      alert("Erro ao criar dia. Lembrando que precisa do descritivo do dia, o que foi realizado, data, hora de inicio e fim previsto.");
     }
   };
 
@@ -210,6 +226,7 @@ CREATE POLICY "Pilotos podem atualizar status de drones" ON public.drones FOR UP
       try {
           await base44.entities.OperationDay.update(dayId, { progress_notes: dayNotes });
           alert("Informações atualizadas com sucesso.");
+          loadDays();
       } catch(e) {
           console.error(e);
           alert("Erro ao atualizar descrição.");
@@ -288,21 +305,35 @@ CREATE POLICY "Pilotos podem atualizar status de drones" ON public.drones FOR UP
 
       <Card className="p-4 bg-blue-50 border-blue-200">
          <h4 className="text-sm font-bold text-blue-900 mb-3 uppercase">Registrar Novo Dia</h4>
-         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-            <div>
+         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div className="md:col-span-3">
                <label className="text-xs font-bold text-slate-500">Data</label>
                <input type="date" className="w-full p-2 rounded border border-slate-300 text-sm" value={newDayDate} onChange={e => setNewDayDate(e.target.value)} />
             </div>
             <div className="md:col-span-2">
+               <label className="text-xs font-bold text-slate-500">Início Previsto</label>
+               <input type="time" className="w-full p-2 rounded border border-slate-300 text-sm" value={newDayStartTime} onChange={e => setNewDayStartTime(e.target.value)} />
+            </div>
+            <div className="md:col-span-2">
+               <label className="text-xs font-bold text-slate-500">Fim Previsto</label>
+               <input type="time" className="w-full p-2 rounded border border-slate-300 text-sm" value={newDayEndTime} onChange={e => setNewDayEndTime(e.target.value)} />
+            </div>
+            <div className="md:col-span-5">
+               <Input label="Clima Geral" placeholder="Ex: Sol, Vento 10kt" value={newDayWeather} onChange={e => setNewDayWeather(e.target.value)} labelClassName="text-xs font-bold text-slate-500" />
+            </div>
+            <div className="md:col-span-4">
                <Select label="Responsável do Dia" value={newDayResp} onChange={e => setNewDayResp(e.target.value)} labelClassName="text-xs font-bold text-slate-500">
                   <option value="">Selecione...</option>
                   {pilots.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
                </Select>
             </div>
-            <div>
-               <Input label="Clima Geral" placeholder="Ex: Sol, Vento 10kt" value={newDayWeather} onChange={e => setNewDayWeather(e.target.value)} labelClassName="text-xs font-bold text-slate-500" />
+            <div className="md:col-span-8">
+               <Input label="Descritivo do Dia" placeholder="Objetivo principal..." value={newDayDescription} onChange={e => setNewDayDescription(e.target.value)} labelClassName="text-xs font-bold text-slate-500" />
             </div>
-            <div className="md:col-span-4 mt-2">
+            <div className="md:col-span-12">
+               <Input label="O que foi realizado" placeholder="Resumo das atividades..." value={newDayAccomplishments} onChange={e => setNewDayAccomplishments(e.target.value)} labelClassName="text-xs font-bold text-slate-500" />
+            </div>
+            <div className="md:col-span-12 mt-2">
                <Button onClick={handleAddDay} className="w-full bg-blue-600 hover:bg-blue-700 text-white">
                   <Plus className="w-4 h-4 mr-2" /> Iniciar Dia Operacional
                </Button>
@@ -314,7 +345,14 @@ CREATE POLICY "Pilotos podem atualizar status de drones" ON public.drones FOR UP
          {days.length === 0 && <p className="text-center text-slate-400 italic py-4">Nenhum dia registrado nesta operação.</p>}
          
          {days.map(day => {
-            const displayDate = new Date(day.date + 'T12:00:00').toLocaleDateString();
+            let displayDate = "Data Inválida";
+            try {
+                if (day.date) {
+                    displayDate = new Date(day.date + 'T12:00:00').toLocaleDateString();
+                }
+            } catch (e) {
+                console.error("Invalid date:", day.date);
+            }
             return (
             <div key={day.id} className={`border rounded-lg bg-white overflow-hidden shadow-sm ${day.status === 'closed' ? 'border-green-200 bg-green-50/30' : 'border-slate-200'}`}>
                <div className="p-4 bg-slate-50 flex flex-col md:flex-row justify-between items-center cursor-pointer hover:bg-slate-100 transition-colors gap-3" onClick={() => toggleDay(day)}>
@@ -360,6 +398,24 @@ CREATE POLICY "Pilotos podem atualizar status de drones" ON public.drones FOR UP
                {expandedDayId === day.id && (
                   <div className="p-4 border-t border-slate-200 bg-white animate-fade-in space-y-6">
                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-100">
+                           <div>
+                              <span className="text-[10px] font-bold text-slate-400 uppercase block">Descritivo do Dia</span>
+                              <p className="text-sm text-slate-700">{day.description || 'Não informado'}</p>
+                           </div>
+                           <div>
+                              <span className="text-[10px] font-bold text-slate-400 uppercase block">O que foi realizado</span>
+                              <p className="text-sm text-slate-700">{day.accomplishments || 'Não informado'}</p>
+                           </div>
+                           <div>
+                              <span className="text-[10px] font-bold text-slate-400 uppercase block">Início Previsto</span>
+                              <p className="text-sm text-slate-700">{day.planned_start_time || 'Não informado'}</p>
+                           </div>
+                           <div>
+                              <span className="text-[10px] font-bold text-slate-400 uppercase block">Fim Previsto</span>
+                              <p className="text-sm text-slate-700">{day.planned_end_time || 'Não informado'}</p>
+                           </div>
+                        </div>
                         <div className="space-y-3">
                            <h5 className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2 border-b pb-1"><Plane className="w-3 h-3" /> Aeronaves do Dia</h5>
                            <div className="flex gap-2">
@@ -398,7 +454,7 @@ CREATE POLICY "Pilotos podem atualizar status de drones" ON public.drones FOR UP
                               {currentPilots.map(p => (
                                  <div key={p.id} className="flex justify-between items-center text-sm bg-slate-50 p-2 rounded">
                                     <span>{pilots.find(x => x.id === p.pilot_id)?.full_name}</span>
-                                    <span className="text-xs font-mono bg-white px-1 rounded border">{p.role.toUpperCase()}</span>
+                                    <span className="text-xs font-mono bg-white px-1 rounded border">{p.role ? p.role.toUpperCase() : ''}</span>
                                  </div>
                               ))}
                            </div>

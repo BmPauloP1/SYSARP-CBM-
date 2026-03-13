@@ -15,6 +15,7 @@ import {
   Video, ChevronDown, CheckSquare, Square, Building2, Phone, SaveIcon
 } from "lucide-react";
 import { useNavigate } from "react-router-dom"; 
+import OperationDailyLog from "../components/OperationDailyLog";
 
 // Mapeamento de Coordenadas das Sedes (Bases) do CBMPR
 const UNIT_COORDINATES: Record<string, [number, number]> = {
@@ -131,7 +132,10 @@ export default function OperationManagement() {
   const [isMissionModalOpen, setIsMissionModalOpen] = useState(false);
   const [drawMode, setDrawMode] = useState<string | null>(null);
   const [controlModal, setControlModal] = useState<{type: 'pause' | 'cancel' | 'end' | null, op: Operation | null}>({type: null, op: null});
+  const [isDiaryModalOpen, setIsDiaryModalOpen] = useState(false);
+  const [selectedOpForDiary, setSelectedOpForDiary] = useState<Operation | null>(null);
   const [flightDurationStr, setFlightDurationStr] = useState("00:00");
+  const [currentUser, setCurrentUser] = useState<Pilot | null>(null);
   const [actionsTaken, setActionsTaken] = useState('');
   const [mapLayers, setMapLayers] = useState({ ops: true, drones: false, pilots: false, bases: false });
 
@@ -149,8 +153,8 @@ export default function OperationManagement() {
 
   const loadData = async () => {
     try {
-      const [ops, pils, drns] = await Promise.all([ base44.entities.Operation.list('-created_at'), base44.entities.Pilot.list(), base44.entities.Drone.list() ]);
-      setOperations(ops); setPilots(pils); setDrones(drns);
+      const [ops, pils, drns, me] = await Promise.all([ base44.entities.Operation.list('-created_at'), base44.entities.Pilot.list(), base44.entities.Drone.list(), base44.auth.me() ]);
+      setOperations(ops); setPilots(pils); setDrones(drns); setCurrentUser(me);
     } catch(e) {}
   };
 
@@ -404,8 +408,9 @@ export default function OperationManagement() {
                              <button onClick={() => handleShare(op)} className="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 bg-slate-50 text-blue-600"><Share2 className="w-5 h-5"/><span className="text-[8px] font-black mt-1 uppercase">Partilhar</span></button>
                              <button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px]"><Crosshair className="w-5 h-5 text-red-500 animate-pulse"/> TÁTICO</button>
                           </div>
-                          <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-4">
+                          <div className="grid grid-cols-3 gap-3 border-t border-slate-100 pt-4">
                              <button onClick={() => setControlModal({type: 'cancel', op})} className="h-11 rounded-xl border border-slate-200 text-slate-500 font-black text-[11px] uppercase">X Cancelar</button>
+                             <button onClick={() => { setSelectedOpForDiary(op); setIsDiaryModalOpen(true); }} className="h-11 rounded-xl border border-blue-200 bg-blue-50 text-blue-600 font-black text-[11px] uppercase flex items-center justify-center gap-1"><LayoutList className="w-4 h-4"/> Diário</button>
                              <button onClick={() => setControlModal({type: 'end', op})} className="h-11 rounded-xl bg-red-600 text-white font-black text-[11px] uppercase">✓ Encerrar</button>
                           </div>
                       </Card>
@@ -589,6 +594,18 @@ export default function OperationManagement() {
                   </div>
               </Card>
           </div>
+      )}
+
+      {isDiaryModalOpen && selectedOpForDiary && (
+        <div className="fixed inset-0 z-[6000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white p-6 rounded-2xl shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-black text-slate-800 uppercase">Diário de Bordo: {selectedOpForDiary.name}</h2>
+              <button onClick={() => setIsDiaryModalOpen(false)} className="text-slate-500 hover:text-slate-800"><X className="w-6 h-6" /></button>
+            </div>
+            <OperationDailyLog operationId={selectedOpForDiary.id} pilots={pilots} drones={drones} currentUser={currentUser} />
+          </Card>
+        </div>
       )}
 
       <style>{`
