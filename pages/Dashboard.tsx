@@ -8,6 +8,7 @@ import { Radio, Video, Map as MapIcon, Shield, Check, User, Plane, Clock, Share2
 import { PendencyAlerts } from "../components/PendencyAlerts";
 import { useNavigate } from "react-router-dom";
 import { OperationalInfoTicker } from "../components/OperationalInfoTicker";
+import OperationDailyLog from "../components/OperationDailyLog";
 
 import { orgUnitService } from "../services/orgUnitService";
 
@@ -59,6 +60,8 @@ export default function Dashboard() {
   const [totalFlightHours, setTotalFlightHours] = useState(0);
   const [dashboardView, setDashboardView] = useState<'map' | 'panel'>('map'); 
   const [currentUser, setCurrentUser] = useState<Pilot | null>(null); 
+  const [isDiaryModalOpen, setIsDiaryModalOpen] = useState(false);
+  const [selectedOpForDiary, setSelectedOpForDiary] = useState<Operation | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -265,6 +268,17 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+      {isDiaryModalOpen && selectedOpForDiary && (
+        <div className="fixed inset-0 z-[6000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white p-6 rounded-2xl shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-black text-slate-800 uppercase">Diário de Bordo: {selectedOpForDiary.name}</h2>
+              <button onClick={() => setIsDiaryModalOpen(false)} className="text-slate-500 hover:text-slate-800"><X className="w-6 h-6" /></button>
+            </div>
+            <OperationDailyLog operationId={selectedOpForDiary.id} pilots={pilots} drones={drones} currentUser={currentUser} />
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

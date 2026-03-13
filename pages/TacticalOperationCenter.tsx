@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import SectorsLayer from '../components/maps/tactical/SectorsLayer';
 import TacticalDrawControls from '../components/map/TacticalDrawControls';
+import OperationDailyLog from '../components/OperationDailyLog';
 
 // NATO Phonetic Alphabet for naming sectors
 const PHONETIC = [
@@ -195,6 +196,7 @@ export default function TacticalOperationCenter() {
   const [drones, setDrones] = useState<Drone[]>([]);
   const [pilots, setPilots] = useState<Pilot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isDiaryModalOpen, setIsDiaryModalOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 1024);
   const [activeTab, setActiveTab] = useState<'resources' | 'layers'>('resources');
   const [activePanel, setActivePanel] = useState<'create' | 'manage' | null>(null);
@@ -1282,6 +1284,17 @@ NOTIFY pgrst, 'reload schema';
         .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
+      {isDiaryModalOpen && operation && (
+        <div className="fixed inset-0 z-[6000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white p-6 rounded-2xl shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-black text-slate-800 uppercase">Diário de Bordo</h2>
+              <button onClick={() => setIsDiaryModalOpen(false)} className="text-slate-500 hover:text-slate-800"><X className="w-6 h-6" /></button>
+            </div>
+            <OperationDailyLog operationId={operation.id} pilots={pilots} drones={drones} currentUser={currentUser} />
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
