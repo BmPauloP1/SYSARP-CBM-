@@ -389,7 +389,18 @@ export default function OperationManagement() {
                           <div className="space-y-2 text-[11px] font-black text-slate-500 uppercase tracking-tighter bg-slate-50 p-3 rounded-xl border border-slate-100"><div className="flex items-center gap-3"><Clock className="w-4 h-4 text-red-400" /><span>{new Date(op.start_time).toLocaleString()}</span></div><div className="flex items-center gap-3"><User className="w-4 h-4 text-blue-400" /><span className="truncate">PIC: {pilot?.full_name}</span></div></div>
                           <div className="grid grid-cols-4 gap-2">
                              <button onClick={(e) => { e.stopPropagation(); isPaused ? handleResume(op) : setControlModal({type: 'pause', op}); }} className={`flex flex-col items-center justify-center p-2 rounded-xl border transition-all ${isPaused ? 'bg-green-50 text-green-600 border-green-200' : 'bg-orange-50 text-orange-600 border-orange-200'}`}><div className="w-5 h-5">{isPaused ? <Play /> : <Pause />}</div><span className="text-[8px] font-black mt-1 uppercase">{isPaused ? 'Retomar' : 'Pausar'}</span></button>
-                             <button onClick={() => { setFormData({...op} as any); setIsMissionModalOpen(true); }} className="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-600"><Pencil className="w-5 h-5"/><span className="text-[8px] font-black mt-1 uppercase">Editar</span></button>
+                             <button onClick={() => { 
+                                const dateObj = new Date(op.start_time);
+                                const start_date = dateObj.toISOString().split('T')[0];
+                                const start_time = dateObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
+                                let estimated_end_time = '';
+                                if (op.estimated_end_time) {
+                                    const endObj = new Date(op.estimated_end_time);
+                                    estimated_end_time = endObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
+                                }
+                                setFormData({...op, start_date, start_time, estimated_end_time} as any); 
+                                setIsMissionModalOpen(true); 
+                              }} className="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-600"><Pencil className="w-5 h-5"/><span className="text-[8px] font-black mt-1 uppercase">Editar</span></button>
                              <button onClick={() => handleShare(op)} className="flex flex-col items-center justify-center p-2 rounded-xl border border-slate-200 bg-slate-50 text-blue-600"><Share2 className="w-5 h-5"/><span className="text-[8px] font-black mt-1 uppercase">Partilhar</span></button>
                              <button onClick={() => navigate(`/operations/${op.id}/gerenciar`)} className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px]"><Crosshair className="w-5 h-5 text-red-500 animate-pulse"/> TÁTICO</button>
                           </div>
